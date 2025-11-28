@@ -1,0 +1,18 @@
+[package]
+name = "spacepanda-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "spacepanda"
+path = "src/main.rs"
+
+[dependencies]
+spacepanda-core = { path = "../spacepanda-core" }
+tracing.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+clap = { version = "4.4", features = ["derive"] }
