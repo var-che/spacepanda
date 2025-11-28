@@ -54,7 +54,7 @@ Alice  --------- transport connection ------------  Bob
             |( authenticate and encrypt )|
 ```
 
-Second, Onion hop crypto. Purpose is to encrypt onion layers and next hop info so each relay only learns its incomming and outgoing neighbour. It does not know the origin and the destination of the message.
+Second, Onion hop crypto. Purpose is to encrypt onion layers and next hop info so each relay only learns its incomming and outgoing neighbour. It does not know the origin and the destination of the message. When the node unpacs the layer, it should see the next address where to forward the message to, and should do it.
 
 ```
        X   --------->    Y     ---------> Z
@@ -66,3 +66,58 @@ layer(layer(msg))
 Per layer, you include an ephemeral public key so relay can compute shared secret, and then AEAD-encrypt (header + inner onion).
 
 Third, application payload encryption. MLS and CRDT payloads are already encrypted at the application layer. Route does not need to see message content. Router treats inner payload as opaque bytes.
+
+### Wire formats and concrete frame layout
+
+We need to be explicit about on-the-wire frames as we will write a code against those layouts.
+
+1. Top level frame (sent over a session/transport)
+   To note, all the frames are sent over a session that is already encrypted via Noise or QUIC-level TLS. The frame is a simple envelope you can parse quickly.
+
+```rust
+Frane {
+    version: u8, // 1, 2, 3
+    frame_type: u8, // ONION, RPC, DHT_REQ, DHT_RES, HEARTBEAT...
+    reserved: u16, // for future flags
+    length: u32, // Length of the payload
+    payload: [u8],  // (LEN) opaque bytes, may be AEAD ciphertext for session
+    mac: [u8; 16] // optional session layer MAC if you use one
+}
+```
+
+2. Onion layer (inner format)
+   Each onion-layer blob (what Relay decrypts) contains:
+
+```rust
+OnionLayer {
+    ephemeral_pubkey: [u8;32], // sender ephemeral X25519 for this layer
+    header_nonce: [u8,12],     //
+    chipertext: bytes,         // AEAD(encrypt(header || inner))
+}
+```
+
+after AEAD decrypt, the cleartext header contains:
+
+```rust
+OnionHeader {
+    next_hop: Option<Address>,   // IP:port or relay token (for overlay forwarding)
+    deliver_local: bool,         // true if final hop should deliver to local node
+    ttl:u16,                     // decrement at each hop
+    flags: u8,                   // TBD, but flags are always good to have in reserve
+}
+inner_payload: bytes             // either another OnionLayer or final InnerEnvelope
+```
+
+3. Final InnerEnvelope (delivered to application via Router)
+
+```rust
+InnerEnvelope {
+    envelope_type: u8,                      // MLS_PAYLOAD,CRDT_OP, WELCOME, RPC, DHT...
+    channel_id?(or channel_hash?): [u8,32], // optional for pubsub/mls
+    epoch_id?: [u8,32],                     // optional epoch ref
+    body: bytes                             // e.g: MLS cyphertext or RPC payload
+}
+```
+
+Note that all inner payloads should be application-encrypted (MLS or HPKE for welcome), so router cannot read them even at the final hop (except for the intended recipient who has MLS state).
+Also, non deliverable errors or malformed frames should be dropped and the offending session possibly rate-limited.
