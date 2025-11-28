@@ -7,5 +7,11 @@
 //! - `identity_path(user_home: &Path) -> PathBuf` -> returns the path where the global identity is stored
 
 mod global;
+mod channel;
+mod keys;
+mod store;
 
-pub use global::{ChannelIdentity, Ed25519Keypair, GlobalIdentity, IdentityError};
+pub use global::{Ed25519Keypair, GlobalIdentity, IdentityError};
+pub use channel::{ChannelIdentity, ChannelHash};
+pub use keys::Keypair;
+pub use store::StoredIdentity;

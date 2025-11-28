@@ -5,7 +5,7 @@ TODO soon
 There should be one keypair generated, and it is used globally.
 
 - [] Identity Keypairs
-- - [] Generate global identity keypair
+- - [+] Generate global identity keypair
 - - [] Implement per channel pseudononymus keypair logic
 - - [] Store identities in a local keystore
 - - [] Serialization/deserialization of keys
@@ -31,3 +31,5 @@ cargo run --bin spacepanda test "Hello World"
 # Run the logging example
 
 cargo run --example logging_demo
+
+nix develop --command cargo test --package spacepanda-core --lib -- core_identity::global::tests::test_create_global_identity --exact --nocapture
