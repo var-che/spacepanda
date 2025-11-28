@@ -39,6 +39,7 @@ nix develop
 ```
 
 This will set up a development environment with:
+
 - Rust stable toolchain
 - rust-analyzer for IDE support
 - cargo and related tools
@@ -115,9 +116,9 @@ fn main() {
     let config = LogConfig::new(LogLevel::Debug)
         .with_timestamp(true)
         .with_target(false);
-    
+
     init_logging_with_config(config).expect("Failed to initialize logging");
-    
+
     info!("Application started");
 }
 ```

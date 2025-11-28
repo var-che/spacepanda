@@ -1,0 +1,1 @@
+SPACEPANDA_LOG=debug cargo run --bin spacepanda -- test
