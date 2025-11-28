@@ -1,5 +1,5 @@
 /*
-  SessionManager
+  SessionManager - Noise handshakes & AEAD frames
 
   Upgrades raw connections into authenticated sessions using Noise or equivalent,
   producing the peer_id (public key) associated with the session.
@@ -14,6 +14,7 @@
     - TransportEvent::Data(conn_id, bytes) (handshake frames/incoming AEAD frames)
     - TransportEvent::Connected(conn_id, remote_addr)
     - TransportEvent::Disconnected(conn_id)
+    - Commands: SessionSend(peer_id, plaintext)
 
   Outputs:
     - SessionEvent::PlaintextFrame(peer_id, bytes) when a full decrypting and routing.

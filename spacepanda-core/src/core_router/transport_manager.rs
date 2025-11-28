@@ -1,5 +1,5 @@
 /*
-  TransportManager
+  TransportManager - raw transport (TCP/QUIC/WS)
 
   Abstracts the OS sockets and handles dialing/listening and reconnects. Provides stream of
   raw frames for the session_manager.rs to handle.
@@ -26,5 +26,5 @@
   Important:
   Always perform basic framing (prefix length) on the bytes sent/received to avoid message boundary issues.
   Keep this module ignorant of identities; its only bytes and addresses.
-  
+
 */
