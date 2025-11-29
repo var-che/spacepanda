@@ -6,6 +6,10 @@ pub mod dht_value;
 pub mod kad_search;
 pub mod replication;
 pub mod routing_table;
+pub mod events;
+pub mod message;
+pub mod client;
+pub mod server;
 
 pub use dht_config::{DhtConfig, ReplicationStrategy};
 pub use dht_key::DhtKey;
@@ -15,3 +19,7 @@ pub use dht_value::DhtValue;
 pub use kad_search::{KadSearch, SearchManager, SearchResult, SearchType};
 pub use replication::{ReplicationEvent, ReplicationManager, ReplicationStats};
 pub use routing_table::{PeerContact, RoutingTable};
+pub use events::DhtEvent as DhtEventNew;
+pub use message::{DhtMessage as DhtMessageNew, PeerInfo, FindValueResult};
+pub use client::DhtClient;
+pub use server::DhtServer;
