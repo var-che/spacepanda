@@ -146,7 +146,13 @@ With thsese steps, no single relay knows the full path, MLS payload remains encr
 TODO:
 Phase 0:
 
-- [] Implement `transport_manager.rs` with basic TCP dial/listen and Noise handshake
-- [] Implement `session_manager.rs` to manage sessions over transport
-- [] Implement `rpc_protocol.rs` and do Hello, ping
+- [+] Implement `transport_manager.rs` with basic TCP dial/listen
+- [+] Implement `session_manager.rs` to manage sessions over transport, and and Noise handshake
+- [+] Implement `rpc_protocol.rs` and do Hello, ping
 - [] Implement `router_handle.send_direct` and `rpc_call`
+
+Phase 1:
+
+- [] Implement `route_table.rs` and `overlay_discovery.rs`
+- [] Implement `onion_router.rs` , build/peel with static relays but no batching
+- [] Implement `router_handle.send_anonymous` (build path, send)

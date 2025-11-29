@@ -11,9 +11,15 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["json"] }
 thiserror.workspace = true
 anyhow.workspace = true
-openmls = "0.7.1"
+openmls = "0.6"
 rustls = "0.23"
-rand = "0.9.2"
+tokio.workspace = true
+snow = "0.9"  # Noise protocol implementation
+chacha20poly1305 = "0.10"  # AEAD cipher
+blake2 = "0.10"  # For hashing
+serde.workspace = true
+serde_json.workspace = true
+uuid = { version = "1.0", features = ["v4", "serde"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
