@@ -56,6 +56,8 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
 
+use super::onion_router::{OnionCommand, OnionConfig, OnionEvent, OnionRouter};
+use super::route_table::RouteTable;
 use super::rpc_protocol::{RpcCommand, RpcError, RpcProtocol};
 use super::session_manager::{PeerId, SessionCommand, SessionEvent, SessionManager};
 use super::transport_manager::{TransportCommand, TransportManager};
@@ -69,6 +71,12 @@ pub enum RouterCommand {
     Dial(String),
     /// Send data directly to a peer (encrypted)
     SendDirect(PeerId, Vec<u8>),
+    /// Send data anonymously via onion routing
+    SendAnonymous {
+        destination: PeerId,
+        payload: Vec<u8>,
+        response_tx: oneshot::Sender<Result<(), String>>,
+    },
     /// Make an RPC call to a peer
     RpcCall {
         peer_id: PeerId,
@@ -147,6 +155,24 @@ impl RouterHandle {
             .map_err(|e| format!("Failed to send data: {}", e))
     }
 
+    /// Send data anonymously via onion routing
+    pub async fn send_anonymous(&self, destination: PeerId, payload: Vec<u8>) -> Result<(), String> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.command_tx
+            .send(RouterCommand::SendAnonymous {
+                destination,
+                payload,
+                response_tx,
+            })
+            .await
+            .map_err(|e| format!("Failed to send anonymous command: {}", e))?;
+
+        response_rx
+            .await
+            .map_err(|e| format!("Anonymous send response channel closed: {}", e))?
+    }
+
     /// Make an RPC call to a peer
     pub async fn rpc_call(
         &self,
@@ -207,6 +233,7 @@ struct Router {
     rpc_protocol: RpcProtocol,
     transport_tx: mpsc::Sender<TransportCommand>,
     session_tx: mpsc::Sender<SessionCommand>,
+    onion_tx: Option<mpsc::Sender<OnionCommand>>,
 }
 
 impl Router {
@@ -223,6 +250,7 @@ impl Router {
             rpc_protocol,
             transport_tx,
             session_tx,
+            onion_tx: None,
         }
     }
 
@@ -280,6 +308,45 @@ impl Router {
             }
         });
 
+        // Create and spawn onion router
+        let route_table = Arc::new(RouteTable::new());
+        let (onion_event_tx, mut onion_event_rx) = mpsc::channel(100);
+        let onion_config = OnionConfig::default();
+        let onion_router = Arc::new(OnionRouter::new(onion_config, route_table, onion_event_tx));
+        
+        let (onion_cmd_tx, onion_cmd_rx) = mpsc::channel(100);
+        self.onion_tx = Some(onion_cmd_tx);
+        
+        let onion_router_clone = onion_router.clone();
+        tokio::spawn(async move {
+            onion_router_clone.run(onion_cmd_rx).await;
+        });
+
+        // Handle onion router events
+        let session_tx_onion = self.session_tx.clone();
+        tokio::spawn(async move {
+            while let Some(event) = onion_event_rx.recv().await {
+                match event {
+                    OnionEvent::PacketForward { next_peer, blob } => {
+                        // Forward the onion packet to the next hop
+                        let _ = session_tx_onion
+                            .send(SessionCommand::SendPlaintext(next_peer, blob))
+                            .await;
+                    }
+                    OnionEvent::DeliverLocal { envelope } => {
+                        // TODO: Deliver to application layer
+                        eprintln!("Onion packet delivered locally: {:?}", envelope);
+                    }
+                    OnionEvent::CircuitBuilt { path_length } => {
+                        eprintln!("Onion circuit built with {} hops", path_length);
+                    }
+                    OnionEvent::RelayError { error } => {
+                        eprintln!("Onion relay error: {}", error);
+                    }
+                }
+            }
+        });
+
         loop {
             tokio::select! {
                 // Handle router commands from application
@@ -323,6 +390,24 @@ impl Router {
                     .send(SessionCommand::SendPlaintext(peer_id, data))
                     .await
                     .map_err(|e| format!("Failed to send data via session: {}", e))?;
+            }
+            RouterCommand::SendAnonymous {
+                destination,
+                payload,
+                response_tx,
+            } => {
+                if let Some(ref onion_tx) = self.onion_tx {
+                    onion_tx
+                        .send(OnionCommand::Send {
+                            destination,
+                            payload,
+                            response_tx: Some(response_tx),
+                        })
+                        .await
+                        .map_err(|e| format!("Failed to send to onion router: {}", e))?;
+                } else {
+                    let _ = response_tx.send(Err("Onion router not initialized".to_string()));
+                }
             }
             RouterCommand::RpcCall {
                 peer_id,
@@ -527,6 +612,26 @@ mod tests {
             .await
             .unwrap();
         assert!(event.is_some());
+
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_router_send_anonymous() {
+        let (handle, _router_task) = RouterHandle::new();
+
+        let destination = PeerId::from_bytes(vec![99, 99, 99, 99]);
+        let payload = vec![10, 20, 30, 40];
+
+        // This will fail since there are no relays in the route table
+        // But we test that the API works correctly
+        let result = handle.send_anonymous(destination, payload).await;
+        
+        // Should get an error about no relays being available
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.contains("No relays available") || e.contains("onion"));
+        }
 
         handle.shutdown().await.unwrap();
     }

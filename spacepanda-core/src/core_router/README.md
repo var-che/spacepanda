@@ -149,10 +149,78 @@ Phase 0:
 - [+] Implement `transport_manager.rs` with basic TCP dial/listen
 - [+] Implement `session_manager.rs` to manage sessions over transport, and and Noise handshake
 - [+] Implement `rpc_protocol.rs` and do Hello, ping
-- [] Implement `router_handle.send_direct` and `rpc_call`
+- [+] Implement `router_handle.send_direct` and `rpc_call`
 
 Phase 1:
 
-- [] Implement `route_table.rs` and `overlay_discovery.rs`
-- [] Implement `onion_router.rs` , build/peel with static relays but no batching
-- [] Implement `router_handle.send_anonymous` (build path, send)
+- [+] Implement `route_table.rs` and `overlay_discovery.rs`
+- [+] Implement `onion_router.rs` , build/peel with static relays but no batching
+- [+] Implement `router_handle.send_anonymous` (build path, send)
+
+Phase 2 — DHT & Network Layer
+
+[ ] 2.1 DHT Message Types
+[ ] Define Store/Get/FindNode RPCs
+[ ] Add signatures
+[ ] Add support in rpc_protocol.rs
+
+[ ] 2.2 Routing Table (full implementation)
+[ ] K-buckets
+[ ] Splitting
+[ ] LRU eviction
+[ ] Refresh timers
+[ ] Stale-node recovery
+
+[ ] 2.3 DHT Query Executor
+[ ] lookup_node()
+[ ] lookup_value()
+[ ] iterative routing
+[ ] direct + anonymous send
+
+[ ] 2.4 DHT Storage Engine
+[ ] embedded database
+[ ] persist key=value
+[ ] replication factor
+[ ] periodic re-replicate
+
+[ ] 2.5 NAT traversal
+[ ] external address discovery
+[ ] hole punching
+[ ] relay fallback
+
+[ ] 2.6 DHT Test Harness
+[ ] multi-node local cluster
+[ ] random failures
+[ ] convergence tests
+
+---
+
+Phase 3 — CRDT + MLS Messaging System
+
+[ ] 3.1 CRDT foundation
+[ ] OR-Map
+[ ] RGA/LSEQ
+[ ] LWW-Register
+[ ] integrate with DHT
+
+[ ] 3.2 MLS groups
+[ ] per-channel MLS state
+[ ] join/welcome
+[ ] commit proposals
+[ ] encrypt ops
+
+[ ] 3.3 Message ingest pipeline
+[ ] decrypt
+[ ] validate
+[ ] apply CRDT
+[ ] persist
+
+[ ] 3.4 Snapshotting
+[ ] snapshot create
+[ ] snapshot pull (rehydrate)
+[ ] integrate with joins
+
+[ ] 3.5 Identity & Roles
+[ ] role crdt
+[ ] role enforcement
+[ ] banned-kick flow
