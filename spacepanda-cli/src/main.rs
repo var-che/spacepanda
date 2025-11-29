@@ -35,15 +35,13 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Parse log level
-    let log_level = LogLevel::from_str(&args.log_level)
-        .unwrap_or_else(|| {
-            eprintln!("Invalid log level '{}', using 'info'", args.log_level);
-            LogLevel::Info
-        });
+    let log_level = LogLevel::from_str(&args.log_level).unwrap_or_else(|| {
+        eprintln!("Invalid log level '{}', using 'info'", args.log_level);
+        LogLevel::Info
+    });
 
     // Initialize logging
-    let config = LogConfig::new(log_level)
-        .json_format(args.json_logs);
+    let config = LogConfig::new(log_level).json_format(args.json_logs);
 
     init_logging_with_config(config)?;
 

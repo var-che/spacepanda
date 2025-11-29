@@ -10,9 +10,7 @@ use tracing::{debug, error, info, trace, warn};
 
 fn main() {
     // Initialize logging with debug level
-    let config = LogConfig::new(LogLevel::Debug)
-        .with_timestamp(true)
-        .with_target(true);
+    let config = LogConfig::new(LogLevel::Debug).with_timestamp(true).with_target(true);
 
     init_logging_with_config(config).expect("Failed to initialize logging");
 

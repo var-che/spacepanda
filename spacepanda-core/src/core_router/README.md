@@ -142,3 +142,11 @@ Its easier to follow some basic steps of what happens from the APP, down to send
 10. Recipient receives the inner envelope, decrypts MLS ciphertext, applies CRDT op.
 
 With thsese steps, no single relay knows the full path, MLS payload remains encrypted e2e, and if any relay fails, the sender can build another route and retry with exponential backoff.
+
+TODO:
+Phase 0:
+
+- [] Implement `transport_manager.rs` with basic TCP dial/listen and Noise handshake
+- [] Implement `session_manager.rs` to manage sessions over transport
+- [] Implement `rpc_protocol.rs` and do Hello, ping
+- [] Implement `router_handle.send_direct` and `rpc_call`

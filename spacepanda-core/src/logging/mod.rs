@@ -38,10 +38,7 @@ impl Default for LogConfig {
 impl LogConfig {
     /// Create a new LogConfig with specified level
     pub fn new(level: LogLevel) -> Self {
-        Self {
-            level,
-            ..Default::default()
-        }
+        Self { level, ..Default::default() }
     }
 
     /// Set whether to include timestamps
@@ -88,16 +85,17 @@ pub fn init_logging() -> Result<(), LoggingError> {
 /// init_logging_with_config(config).expect("Failed to initialize logging");
 /// ```
 pub fn init_logging_with_config(config: LogConfig) -> Result<(), LoggingError> {
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(config.level.as_str()));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(config.level.as_str()));
 
-    let fmt_layer = fmt::layer()
-        .with_target(config.with_target)
-        .with_timer(if config.with_timestamp {
-            fmt::time::time()
-        } else {
-            fmt::time::time()
-        });
+    let fmt_layer =
+        fmt::layer()
+            .with_target(config.with_target)
+            .with_timer(if config.with_timestamp {
+                fmt::time::time()
+            } else {
+                fmt::time::time()
+            });
 
     if config.json_format {
         tracing_subscriber::registry()

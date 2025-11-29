@@ -25,10 +25,10 @@ impl Ed25519Keypair {
 pub enum IdentityError {
     #[error("Failed to create identity: {0}")]
     CreationFailed(String),
-    
+
     #[error("Failed to load identity: {0}")]
     LoadFailed(String),
-    
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -62,9 +62,7 @@ impl GlobalIdentity {
     pub fn load_global_identity() -> Result<Self, IdentityError> {
         // TODO: Implement actual loading from disk
         // For now, return an error
-        Err(IdentityError::LoadFailed(
-            "Not yet implemented".to_string(),
-        ))
+        Err(IdentityError::LoadFailed("Not yet implemented".to_string()))
     }
 
     /// Creates a new channel identity, signed by the global identity
@@ -77,7 +75,7 @@ impl GlobalIdentity {
     pub fn identity_path(user_home: &Path) -> PathBuf {
         user_home.join(".spacepanda").join("identity.json")
     }
-    
+
     /// Get the nickname for this identity
     pub fn nickname(&self) -> &str {
         &self.nickname
@@ -93,7 +91,7 @@ mod tests {
     fn test_create_global_identity() {
         let identity = GlobalIdentity::create_global_identity();
         assert!(identity.is_ok());
-        
+
         let identity = identity.unwrap();
         assert_eq!(identity.nickname(), "default_user");
     }
@@ -104,14 +102,14 @@ mod tests {
         let identity = GlobalIdentity::load_global_identity();
         assert!(identity.is_err());
     }
-    
+
     #[test]
     fn test_create_channel_identity() {
         let global = GlobalIdentity::create_global_identity().unwrap();
         let channel = global.create_channel_identity();
         assert!(channel.is_ok());
     }
-    
+
     #[test]
     fn test_identity_path() {
         let home = PathBuf::from("/home/testuser");

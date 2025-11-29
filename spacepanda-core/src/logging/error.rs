@@ -33,16 +33,10 @@ mod tests {
     #[test]
     fn test_logging_error_display() {
         let err = LoggingError::InitializationFailed("test error".to_string());
-        assert_eq!(
-            format!("{}", err),
-            "Failed to initialize logging: test error"
-        );
+        assert_eq!(format!("{}", err), "Failed to initialize logging: test error");
 
         let err = LoggingError::InvalidConfiguration("bad config".to_string());
-        assert_eq!(
-            format!("{}", err),
-            "Invalid logging configuration: bad config"
-        );
+        assert_eq!(format!("{}", err), "Invalid logging configuration: bad config");
     }
 
     #[test]

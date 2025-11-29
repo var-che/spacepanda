@@ -14,12 +14,12 @@ impl ChannelHash {
     pub fn new(bytes: Vec<u8>) -> Self {
         ChannelHash(bytes)
     }
-    
+
     pub fn from_hex(hex: &str) -> Result<Self, String> {
         // TODO: Implement proper hex decoding
         Ok(ChannelHash(hex.as_bytes().to_vec()))
     }
-    
+
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
@@ -43,10 +43,6 @@ pub struct ChannelIdentity {
 
 impl ChannelIdentity {
     pub fn new(channel_hash: ChannelHash, nickname: Option<String>) -> Self {
-        ChannelIdentity {
-            channel_hash,
-            keypair: Keypair::generate(),
-            nickname,
-        }
+        ChannelIdentity { channel_hash, keypair: Keypair::generate(), nickname }
     }
 }

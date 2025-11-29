@@ -11,12 +11,11 @@
     For now, we will implement a single local encrypted file (JSON), for the POC
 */
 
-use std::collections::HashMap;
+use crate::core_identity::channel::{ChannelHash, ChannelIdentity};
 use crate::core_identity::global::GlobalIdentity;
-use crate::core_identity::channel::{ChannelIdentity, ChannelHash};
+use std::collections::HashMap;
 
 pub struct StoredIdentity {
     pub global: GlobalIdentity,
     pub channels: HashMap<ChannelHash, ChannelIdentity>,
 }
-

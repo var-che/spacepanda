@@ -16,7 +16,7 @@
         };
         
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-          extensions = [ "rust-src" "rust-analyzer" ];
+          extensions = [ "rust-src" "rust-analyzer" "rustfmt" ];
         };
       in
       {
@@ -47,6 +47,8 @@
             echo "Available commands:"
             echo "  cargo build       - Build the project"
             echo "  cargo test        - Run tests"
+            echo "  cargo fmt         - Format code with rustfmt"
+            echo "  cargo fmt -- --check - Check formatting without changes"
             echo "  cargo run --bin spacepanda - Run the CLI"
             echo "  cargo watch -x test - Watch and run tests on changes"
             echo ""

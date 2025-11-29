@@ -24,7 +24,7 @@ impl Keypair {
         let public_key = vec![0; 32];
         let private_key = vec![0; 64];
         Keypair { public_key, private_key }
-    }  
+    }
 }
 
 #[cfg(test)]
