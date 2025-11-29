@@ -118,7 +118,7 @@ impl DhtValue {
             .as_secs();
         
         let expiration = self.timestamp.saturating_add(self.ttl);
-        now > expiration
+        now >= expiration
     }
     
     /// Get expiration timestamp

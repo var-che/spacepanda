@@ -322,7 +322,7 @@ impl DhtNode {
         value.validate(self.config.max_value_size, self.config.require_signatures)?;
         
         // Find k closest nodes
-        let closest = self.routing_table
+        let _closest = self.routing_table
             .lock()
             .await
             .find_closest(&key, self.config.replication_factor);
@@ -366,12 +366,10 @@ impl DhtNode {
     
     /// Handle FIND_NODE operation
     async fn handle_find_node(&self, target: DhtKey) -> Result<Vec<DhtKey>, String> {
-        let closest = self.routing_table
+        Ok(self.routing_table
             .lock()
             .await
-            .find_closest(&target, self.config.bucket_size);
-        
-        Ok(closest)
+            .find_closest(&target, self.config.bucket_size))
     }
     
     /// Handle incoming DHT message
