@@ -121,3 +121,24 @@ InnerEnvelope {
 
 Note that all inner payloads should be application-encrypted (MLS or HPKE for welcome), so router cannot read them even at the final hop (except for the intended recipient who has MLS state).
 Also, non deliverable errors or malformed frames should be dropped and the offending session possibly rate-limited.
+
+## Message lifecycle
+
+Its easier to follow some basic steps of what happens from the APP, down to sending the message to the node. We can asume anonymous MLS message set from user code to recipient.
+
+1. First, APP builds MLS ciphertext `mls_ct = MLS.encrypt(epoch, crdt_op_bytes)`
+2. APP calls `router.send_anonymous(dest_node_id, mls_ct)`
+3. RouterHandle packages into `RouterCommand::OverlaySend` and sends to actor
+4. RoutingCore asks `route_table.pick_diverse_relays(k=3)` to choose R1,R2,R3 and creates an OverlayRoute.
+5. OnionRouter builds onion layers:
+
+- compute ephemeral keys and per-hop AEAD keys
+- create nested AEAD ciphertexts "L1"
+
+6. RoutingCore sends "L1" to "SessionManager" to send to "R1". If no session to "R1" exists, TransportManager dials "R1" and performs Noise handshake, and then send.
+7. R1 receives L1, decrypts layer, forwards L2 to R2 via its session.
+8. R2 decrypts layer, forwards L3 to R3.
+9. R3 decrypts final layer, header `deliver_local = true`, instruct R3 to deliver final inner envelope to final recipient (maybe dest_node is R3 or an address reachalble from R3). R3 uses its session to deliver to the recipient or uses direct local delivery if it is final. If the final recipient is the last hop iteslf, it handles the (still-mls-encrypted) inner envelope and passes to its local RouterHandle, which passess to MLS decryptor.
+10. Recipient receives the inner envelope, decrypts MLS ciphertext, applies CRDT op.
+
+With thsese steps, no single relay knows the full path, MLS payload remains encrypted e2e, and if any relay fails, the sender can build another route and retry with exponential backoff.

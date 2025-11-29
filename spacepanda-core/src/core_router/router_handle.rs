@@ -1,5 +1,6 @@
 /*
    RouterHandle
+
    Single enty point for the rest of the application to interact with the router.
    It exposes concise async methods for starting/stopping the router, sending/receiving messages,
    and managing connections.
@@ -16,6 +17,7 @@
     Internally it packages a RouterCommand and pushes it onto the router actor main channel.
     And it awaits responses for RPC (correlated by request ID).
 
-    Example: `send_anonymous(peer_id, mls_cyphertext)` will create a `RouterCommand::OverlaySend { dest:peer_id, payload }`
-    
+    Example: `send_anonymous(peer_id, mls_cyphertext)` will create a
+     `RouterCommand::OverlaySend { dest:peer_id, payload }`
+
 */
