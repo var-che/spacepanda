@@ -159,36 +159,36 @@ Phase 1:
 
 Phase 2 — DHT & Network Layer
 
-[ ] 2.1 DHT Message Types
+[ ] DHT Message Types
 [ ] Define Store/Get/FindNode RPCs
 [ ] Add signatures
 [ ] Add support in rpc_protocol.rs
 
-[ ] 2.2 Routing Table (full implementation)
+[ ] Routing Table (full implementation)
 [ ] K-buckets
 [ ] Splitting
 [ ] LRU eviction
 [ ] Refresh timers
 [ ] Stale-node recovery
 
-[ ] 2.3 DHT Query Executor
+[ ] DHT Query Executor
 [ ] lookup_node()
 [ ] lookup_value()
 [ ] iterative routing
 [ ] direct + anonymous send
 
-[ ] 2.4 DHT Storage Engine
+[ ] DHT Storage Engine
 [ ] embedded database
 [ ] persist key=value
 [ ] replication factor
 [ ] periodic re-replicate
 
-[ ] 2.5 NAT traversal
+[ ] NAT traversal
 [ ] external address discovery
 [ ] hole punching
 [ ] relay fallback
 
-[ ] 2.6 DHT Test Harness
+[ ] DHT Test Harness
 [ ] multi-node local cluster
 [ ] random failures
 [ ] convergence tests
