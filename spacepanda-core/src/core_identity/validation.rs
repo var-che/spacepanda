@@ -123,7 +123,7 @@ pub fn validate_signature(
 }
 
 /// Validate timestamp is within acceptable range
-fn validate_timestamp(timestamp: u64) -> Result<(), ValidationError> {
+pub fn validate_timestamp(timestamp: u64) -> Result<(), ValidationError> {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let now = SystemTime::now()

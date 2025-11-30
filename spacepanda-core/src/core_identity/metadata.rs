@@ -4,7 +4,7 @@
 
 use crate::core_identity::device_id::DeviceId;
 use crate::core_identity::user_id::UserId;
-use crate::core_store::crdt::{LWWRegister, ORMap, AddId, VectorClock};
+use crate::core_store::crdt::{LWWRegister, ORMap, AddId, VectorClock, Crdt};
 use crate::core_store::model::types::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -115,14 +115,8 @@ impl UserMetadata {
     pub fn merge(&mut self, other: &UserMetadata) {
         self.display_name.merge(&other.display_name);
         self.avatar_hash.merge(&other.avatar_hash);
-        // ORMap merge is done through CRDT trait, need to merge individual entries
-        // For now, this is a simplified merge
-        for (k, v) in other.devices.entries() {
-            if !self.devices.contains_key(&k) {
-                // This is simplified - in production, need proper CRDT merge
-                // We'll add this device if we don't have it
-            }
-        }
+        // Merge devices using CRDT merge
+        let _ = self.devices.merge(&other.devices);
     }
 }
 

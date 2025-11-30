@@ -23,8 +23,11 @@ pub mod keystore;
 mod channel;
 mod global;
 mod keys;
-mod serde;
 mod store;
+
+// Test module
+#[cfg(test)]
+mod tests;
 
 // Re-exports
 pub use user_id::UserId;
