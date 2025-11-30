@@ -56,6 +56,37 @@ impl DeviceMetadata {
         vc.increment(node_id);
         self.key_package_ref.set(hash, ts.as_millis(), node_id.to_string(), vc);
     }
+
+    /// Merge with another DeviceMetadata
+    pub fn merge(&mut self, other: &DeviceMetadata) {
+        self.device_name.merge(&other.device_name);
+        self.last_seen.merge(&other.last_seen);
+        self.key_package_ref.merge(&other.key_package_ref);
+        self.capabilities.merge(&other.capabilities);
+    }
+}
+
+impl Crdt for DeviceMetadata {
+    type Operation = ();
+    type Value = DeviceMetadata;
+    
+    fn apply(&mut self, _op: Self::Operation) -> crate::core_store::store::errors::StoreResult<()> {
+        Ok(())
+    }
+    
+    fn merge(&mut self, other: &Self) -> crate::core_store::store::errors::StoreResult<()> {
+        self.merge(other);
+        Ok(())
+    }
+    
+    fn value(&self) -> Self::Value {
+        self.clone()
+    }
+    
+    fn vector_clock(&self) -> &VectorClock {
+        // Return the most recent vector clock from our fields
+        self.device_name.vector_clock()
+    }
 }
 
 /// User metadata - replicated across all peers via CRDT
@@ -115,8 +146,8 @@ impl UserMetadata {
     pub fn merge(&mut self, other: &UserMetadata) {
         self.display_name.merge(&other.display_name);
         self.avatar_hash.merge(&other.avatar_hash);
-        // Merge devices using CRDT merge
-        let _ = self.devices.merge(&other.devices);
+        // Merge devices using nested CRDT merge (DeviceMetadata is a CRDT)
+        let _ = self.devices.merge_nested(&other.devices);
     }
 }
 

@@ -49,3 +49,12 @@ pub fn test_timestamp(offset_millis: u64) -> Timestamp {
 pub fn test_add_id(node_id: &str, counter: u64) -> AddId {
     AddId::new(node_id.to_string(), counter)
 }
+
+/// Create a VectorClock with N increments for a specific node
+pub fn vc_inc(node_id: &str, count: u64) -> VectorClock {
+    let mut vc = VectorClock::new();
+    for _ in 0..count {
+        vc.increment(node_id);
+    }
+    vc
+}

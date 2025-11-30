@@ -57,11 +57,17 @@ impl<K: Clone + Eq + std::hash::Hash, V: Clone> ORMap<K, V> {
     
     /// Put a key-value pair
     pub fn put(&mut self, key: K, value: V, add_id: AddId, vector_clock: VectorClock) {
-        // Create a new OR-Set for this key if it doesn't exist
-        let mut key_set = ORSet::new();
-        key_set.add(key.clone(), add_id, vector_clock.clone());
-        
-        self.map.insert(key, (value, key_set));
+        // Get existing OR-Set or create new one
+        if let Some((existing_value, existing_set)) = self.map.get_mut(&key) {
+            // Key exists - add to existing OR-Set and update value
+            existing_set.add(key.clone(), add_id, vector_clock.clone());
+            *existing_value = value;
+        } else {
+            // New key - create new OR-Set
+            let mut key_set = ORSet::new();
+            key_set.add(key.clone(), add_id, vector_clock.clone());
+            self.map.insert(key, (value, key_set));
+        }
         self.vector_clock.merge(&vector_clock);
     }
     
@@ -128,8 +134,8 @@ impl<K: Clone + Eq + std::hash::Hash + Send + Sync, V: Clone + Send + Sync> Crdt
             if let Some((self_value, self_set)) = self.map.get_mut(key) {
                 // Key exists in both maps - merge the OR-Sets
                 self_set.merge(other_set)?;
-                // For now, just use other's value (last-write-wins)
-                // Specialized impl below handles CRDT values
+                // Replace value with other's (simple last-write-wins)
+                // Note: For CRDT values, use merge_nested() instead
                 *self_value = value.clone();
             } else {
                 // Key only in other - insert it

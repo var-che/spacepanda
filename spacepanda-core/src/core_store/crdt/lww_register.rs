@@ -92,7 +92,8 @@ impl<T: Clone> LWWRegister<T> {
         if new_timestamp > self.timestamp {
             true
         } else if new_timestamp == self.timestamp {
-            // Tiebreaker: lexicographic comparison of node IDs
+            // Tiebreaker: deterministic comparison
+            // Use > for add-wins bias (if new value has greater node_id, it wins)
             new_node_id > self.node_id.as_str()
         } else {
             false
@@ -143,14 +144,8 @@ impl<T: Clone + Send + Sync> Crdt for LWWRegister<T> {
     }
     
     fn merge(&mut self, other: &Self) -> StoreResult<()> {
-        if let Some(ref value) = other.value {
-            self.set(
-                value.clone(),
-                other.timestamp,
-                other.node_id.clone(),
-                other.vector_clock.clone(),
-            );
-        }
+        // Use the non-Crdt merge method to avoid double vector clock merge
+        self.merge(other);
         Ok(())
     }
     
