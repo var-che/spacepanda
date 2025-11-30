@@ -1,17 +1,42 @@
 //! Identity management module
 //!
-//! API that we will be exposing:
-//! - `create_global_identity()` -> creates a new global identity, generates a new Ed25519 keypair, saves to disk
-//! - `load_global_identity()` -> loads the global identity from disk
-//! - `create_channel_identity()` -> creates a new channel identity, signed by the global identity
-//! - `identity_path(user_home: &Path) -> PathBuf` -> returns the path where the global identity is stored
+//! This subsystem sits between raw networking (router) and secure group messaging (core_mls).
+//! It provides:
+//! - Global identity (long-term Ed25519 keypair)
+//! - Device identity (per-device keypair)
+//! - Identity metadata (username, avatar, capabilities)
+//! - Identity verification (signatures)
+//! - Local keystore (encrypted storage)
+//! - Identity syncing (via CRDT)
 
+// New modules following the specification
+pub mod user_id;
+pub mod device_id;
+pub mod keypair;
+pub mod metadata;
+pub mod bundles;
+pub mod signatures;
+pub mod validation;
+pub mod keystore;
+
+// Legacy modules (to be refactored)
 mod channel;
 mod global;
 mod keys;
+mod serde;
 mod store;
 
+// Re-exports
+pub use user_id::UserId;
+pub use device_id::DeviceId;
+pub use keypair::{Keypair, KeyType};
+pub use metadata::{UserMetadata, DeviceMetadata};
+pub use bundles::{KeyPackage, DeviceBundle, IdentityBundle};
+pub use signatures::IdentitySignature;
+pub use validation::{ValidationError, validate_keypackage, validate_device_bundle, validate_identity_bundle};
+pub use keystore::{Keystore, KeystoreError};
+
+// Legacy exports (for backwards compatibility)
 pub use channel::{ChannelHash, ChannelIdentity};
-pub use global::{Ed25519Keypair, GlobalIdentity, IdentityError};
-pub use keys::Keypair;
+pub use global::{GlobalIdentity, IdentityError};
 pub use store::StoredIdentity;

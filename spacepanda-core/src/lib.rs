@@ -6,8 +6,8 @@ pub mod logging;
 
 pub use core_dht::{DhtConfig, DhtKey, DhtNode, DhtValue};
 pub use core_identity::{
-    ChannelHash, ChannelIdentity, Ed25519Keypair, GlobalIdentity, IdentityError, Keypair,
-    StoredIdentity,
+    ChannelHash, ChannelIdentity, GlobalIdentity, IdentityError, Keypair,
+    StoredIdentity, UserId, DeviceId, KeyType, UserMetadata, DeviceMetadata,
 };
 pub use logging::{init_logging, LogLevel};
 pub use core_router::{TransportCommand, TransportEvent, TransportManager};
