@@ -1,6 +1,7 @@
 pub mod core_dht;
 pub mod core_identity;
 pub mod core_router;
+pub mod core_store;
 pub mod logging;
 
 pub use core_dht::{DhtConfig, DhtKey, DhtNode, DhtValue};
