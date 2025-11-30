@@ -11,24 +11,27 @@ The advanced CRDT tests revealed **critical bugs in the CRDT implementations** t
 **Location:** `src/core_store/crdt/or_map.rs:59`
 
 **Bug:** Every call to `put()` created a **new** OR-Set, completely discarding the previous one. This caused:
+
 - Loss of all previous add_ids for the key
 - Tombstones to be ignored
 - Multiple concurrent puts with different tags to not accumulate
 - Violation of OR-Map CRDT semantics
 
 **Before (BROKEN):**
+
 ```rust
 pub fn put(&mut self, key: K, value: V, add_id: AddId, vector_clock: VectorClock) {
     // Create a new OR-Set for this key if it doesn't exist
     let mut key_set = ORSet::new();
     key_set.add(key.clone(), add_id, vector_clock.clone());
-    
+
     self.map.insert(key, (value, key_set));  // <-- ALWAYS REPLACES!
     self.vector_clock.merge(&vector_clock);
 }
 ```
 
 **After (FIXED):**
+
 ```rust
 pub fn put(&mut self, key: K, value: V, add_id: AddId, vector_clock: VectorClock) {
     // Get existing OR-Set or create new one
@@ -47,6 +50,7 @@ pub fn put(&mut self, key: K, value: V, add_id: AddId, vector_clock: VectorClock
 ```
 
 **Impact:** This would cause **catastrophic data loss** in production:
+
 - Users adding multiple devices would only see the last one
 - Concurrent updates to the same key would lose all but one
 - Tombstones would fail to prevent resurrection
@@ -58,6 +62,7 @@ pub fn put(&mut self, key: K, value: V, add_id: AddId, vector_clock: VectorClock
 **Bug:** When merging maps with the same key, the value was **always replaced** with the other's value instead of being merged as a CRDT.
 
 **Before (BROKEN):**
+
 ```rust
 fn merge(&mut self, other: &Self) -> StoreResult<()> {
     for (key, (value, other_set)) in &other.map {
@@ -72,13 +77,14 @@ fn merge(&mut self, other: &Self) -> StoreResult<()> {
             self.map.insert(key.clone(), (value.clone(), other_set.clone()));
         }
     }
-    
+
     self.vector_clock.merge(&other.vector_clock);
     Ok(())
 }
 ```
 
 **After (FIXED):**
+
 ```rust
 fn merge(&mut self, other: &Self) -> StoreResult<()> {
     for (key, (value, other_set)) in &other.map {
@@ -93,7 +99,7 @@ fn merge(&mut self, other: &Self) -> StoreResult<()> {
             self.map.insert(key.clone(), (value.clone(), other_set.clone()));
         }
     }
-    
+
     self.vector_clock.merge(&other.vector_clock);
     Ok(())
 }
@@ -101,7 +107,8 @@ fn merge(&mut self, other: &Self) -> StoreResult<()> {
 
 **Note:** The regular `merge()` is now documented to use simple replacement. For nested CRDTs, use `merge_nested()` (which was already implemented).
 
-**Impact:** 
+**Impact:**
+
 - Nested CRDT values (like DeviceMetadata) would lose updates from one replica
 - UserMetadata device info would not properly merge across replicas
 
@@ -112,6 +119,7 @@ fn merge(&mut self, other: &Self) -> StoreResult<()> {
 **Bug:** The `Crdt::merge()` implementation called `set()`, which internally merges vector clocks. Then the non-trait `merge()` method also merged vector clocks, causing double-merging.
 
 **Before (BROKEN):**
+
 ```rust
 fn merge(&mut self, other: &Self) -> StoreResult<()> {
     if let Some(ref value) = other.value {
@@ -127,6 +135,7 @@ fn merge(&mut self, other: &Self) -> StoreResult<()> {
 ```
 
 **After (FIXED):**
+
 ```rust
 fn merge(&mut self, other: &Self) -> StoreResult<()> {
     // Use the non-Crdt merge method to avoid double vector clock merge
@@ -149,20 +158,20 @@ fn merge(&mut self, other: &Self) -> StoreResult<()> {
 impl Crdt for DeviceMetadata {
     type Operation = ();
     type Value = DeviceMetadata;
-    
+
     fn apply(&mut self, _op: Self::Operation) -> crate::core_store::store::errors::StoreResult<()> {
         Ok(())
     }
-    
+
     fn merge(&mut self, other: &Self) -> crate::core_store::store::errors::StoreResult<()> {
         self.merge(other);
         Ok(())
     }
-    
+
     fn value(&self) -> Self::Value {
         self.clone()
     }
-    
+
     fn vector_clock(&self) -> &VectorClock {
         self.device_name.vector_clock()
     }
@@ -170,6 +179,7 @@ impl Crdt for DeviceMetadata {
 ```
 
 And added a merge method:
+
 ```rust
 pub fn merge(&mut self, other: &DeviceMetadata) {
     self.device_name.merge(&other.device_name);
@@ -188,6 +198,7 @@ pub fn merge(&mut self, other: &DeviceMetadata) {
 **Bug:** UserMetadata used regular `merge()` instead of `merge_nested()` for its devices map.
 
 **Before:**
+
 ```rust
 pub fn merge(&mut self, other: &UserMetadata) {
     self.display_name.merge(&other.display_name);
@@ -197,6 +208,7 @@ pub fn merge(&mut self, other: &UserMetadata) {
 ```
 
 **After:**
+
 ```rust
 pub fn merge(&mut self, other: &UserMetadata) {
     self.display_name.merge(&other.display_name);
@@ -210,11 +222,13 @@ pub fn merge(&mut self, other: &UserMetadata) {
 ## Test Results
 
 After fixes:
+
 ```
 test result: ok. 609 passed; 0 failed; 12 ignored; 0 measured; 0 filtered out
 ```
 
 All 37 advanced CRDT tests now pass, including:
+
 - ✅ Merge associativity, commutativity, idempotence
 - ✅ Causal ordering and vector clock dominance
 - ✅ OR-Map value correctness (not just key presence)
@@ -238,6 +252,7 @@ These bugs would have caused:
 The tests were **correct** - they revealed **critical implementation bugs** that would cause data corruption in production. The implementation has been fixed to match proper CRDT semantics.
 
 **Key Lesson:** Production-grade CRDT testing requires testing:
+
 - Algebraic laws (commutativity, associativity, idempotence)
 - Causal ordering violations
 - Nested CRDT composition
