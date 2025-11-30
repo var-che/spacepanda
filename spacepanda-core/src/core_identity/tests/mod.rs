@@ -11,6 +11,7 @@ mod identity_edge_cases;
 mod crdt_laws;
 mod crdt_replica_tests;
 mod adversarial_tests;
+mod crdt_advanced_tests;
 
 // Test helpers and fixtures
 pub mod helpers;
