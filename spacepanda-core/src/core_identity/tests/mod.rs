@@ -13,5 +13,12 @@ mod crdt_replica_tests;
 mod adversarial_tests;
 mod crdt_advanced_tests;
 
+// Mission-critical tests before MLS integration
+mod crypto_sanity_tests;
+mod crdt_mission_critical_tests;
+
+// Production-grade TDD tests (real cryptography)
+mod identity_crypto_tests;
+
 // Test helpers and fixtures
 pub mod helpers;

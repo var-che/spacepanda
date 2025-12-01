@@ -13,6 +13,8 @@
 pub mod user_id;
 pub mod device_id;
 pub mod keypair;
+pub mod master_key;
+pub mod device_key;
 pub mod metadata;
 pub mod bundles;
 pub mod signatures;
@@ -33,6 +35,8 @@ mod tests;
 pub use user_id::UserId;
 pub use device_id::DeviceId;
 pub use keypair::{Keypair, KeyType};
+pub use master_key::MasterKey;
+pub use device_key::{DeviceKey, DeviceKeyBinding, KeyVersion};
 pub use metadata::{UserMetadata, DeviceMetadata};
 pub use bundles::{KeyPackage, DeviceBundle, IdentityBundle};
 pub use signatures::IdentitySignature;

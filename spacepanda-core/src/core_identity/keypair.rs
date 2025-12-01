@@ -2,9 +2,15 @@
 //!
 //! Handles cryptographic key material for identity and device keys.
 //! Uses Ed25519 for signatures and X25519 for key agreement.
+//!
+//! This implementation uses real cryptography (ed25519-dalek, x25519-dalek)
+//! to ensure production-grade security before MLS integration.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
+use x25519_dalek::{StaticSecret, PublicKey as X25519PublicKey};
+use rand::rand_core::OsRng;
 
 /// Key type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,87 +26,120 @@ pub enum KeyType {
 pub struct Keypair {
     /// Type of key
     pub key_type: KeyType,
-    /// Public key bytes
+    /// Public key bytes (32 bytes)
     pub public: Vec<u8>,
-    /// Secret key bytes (will be encrypted at rest by keystore)
+    /// Secret key bytes (32 bytes, will be encrypted at rest by keystore)
     secret: Vec<u8>,
 }
 
 impl Keypair {
     /// Generate a new keypair of the specified type
     pub fn generate(key_type: KeyType) -> Self {
-        use rand::Rng;
-        
         match key_type {
             KeyType::Ed25519 => {
-                // For Ed25519, we'll use a simple implementation
-                // In production, use ed25519-dalek or similar
-                let mut rng = rand::thread_rng();
-                let secret: Vec<u8> = (0..32).map(|_| rng.random()).collect();
+                // Real Ed25519 key generation
+                // Generate 32 random bytes for the signing key seed
+                use rand::Rng;
+                let mut csprng = rand::thread_rng();
+                let seed_bytes: [u8; 32] = csprng.gen();
                 
-                // Derive public key (simplified - in production use proper curve operations)
-                let mut public = vec![0u8; 32];
-                // TODO: Use proper Ed25519 key derivation
-                // For now, this is a placeholder
-                public.copy_from_slice(&secret);
+                let signing_key = SigningKey::from_bytes(&seed_bytes);
+                let verifying_key = signing_key.verifying_key();
                 
                 Keypair {
                     key_type,
-                    public,
-                    secret,
+                    public: verifying_key.to_bytes().to_vec(),
+                    secret: signing_key.to_bytes().to_vec(),
                 }
             }
             KeyType::X25519 => {
-                // Similar for X25519
-                let mut rng = rand::thread_rng();
-                let secret: Vec<u8> = (0..32).map(|_| rng.random()).collect();
+                // Real X25519 key generation
+                use rand::Rng;
+                let mut csprng = rand::thread_rng();
+                let secret_bytes: [u8; 32] = csprng.gen();
                 
-                let mut public = vec![0u8; 32];
-                // TODO: Use proper X25519 key derivation
-                public.copy_from_slice(&secret);
+                let secret = StaticSecret::from(secret_bytes);
+                let public = X25519PublicKey::from(&secret);
                 
                 Keypair {
                     key_type,
-                    public,
-                    secret,
+                    public: public.to_bytes().to_vec(),
+                    secret: secret.to_bytes().to_vec(),
                 }
             }
         }
     }
 
     /// Sign a message (Ed25519 only)
+    /// Returns 64-byte signature
     pub fn sign(&self, msg: &[u8]) -> Vec<u8> {
         assert_eq!(self.key_type, KeyType::Ed25519, "Only Ed25519 can sign");
         
-        // TODO: Implement actual Ed25519 signing
-        // For now, return placeholder signature
-        let mut sig = Vec::new();
-        sig.extend_from_slice(&self.secret);
-        sig.extend_from_slice(msg);
+        // Real Ed25519 signing
+        let signing_key = SigningKey::from_bytes(
+            self.secret.as_slice().try_into().expect("Invalid secret key length")
+        );
         
-        use blake2::{Blake2b512, Digest};
-        let mut hasher = Blake2b512::new();
-        hasher.update(&sig);
-        hasher.finalize()[0..64].to_vec()
+        let signature = signing_key.sign(msg);
+        signature.to_bytes().to_vec()
     }
 
     /// Verify a signature (static method)
+    /// Returns true if signature is valid
     pub fn verify(pubkey: &[u8], msg: &[u8], sig: &[u8]) -> bool {
-        // TODO: Implement actual Ed25519 verification
-        // For now, basic length check
-        pubkey.len() == 32 && sig.len() == 64 && !msg.is_empty()
+        // Real Ed25519 verification
+        if pubkey.len() != 32 || sig.len() != 64 {
+            return false;
+        }
+        
+        let verifying_key = match VerifyingKey::from_bytes(
+            pubkey.try_into().expect("pubkey length checked")
+        ) {
+            Ok(vk) => vk,
+            Err(_) => return false,
+        };
+        
+        let signature = match Signature::from_slice(sig) {
+            Ok(sig) => sig,
+            Err(_) => return false,
+        };
+        
+        verifying_key.verify(msg, &signature).is_ok()
     }
 
     /// Derive X25519 key from Ed25519 (for ECDH)
+    /// Uses proper curve25519 conversion
     pub fn derive_x25519_from_ed25519(ed: &Keypair) -> Keypair {
         assert_eq!(ed.key_type, KeyType::Ed25519);
         
-        // TODO: Implement proper curve25519 conversion
-        // For now, simple copy (NOT CRYPTOGRAPHICALLY SOUND)
+        // Convert Ed25519 secret key to X25519
+        // Ed25519 secret key is the seed (first 32 bytes)
+        let ed_secret_bytes: [u8; 32] = ed.secret.as_slice()
+            .try_into()
+            .expect("Ed25519 secret key must be 32 bytes");
+        
+        // Hash the Ed25519 secret to get X25519 scalar
+        use sha2::{Sha512, Digest};
+        let mut hasher = Sha512::new();
+        hasher.update(&ed_secret_bytes);
+        let hash = hasher.finalize();
+        
+        // Take first 32 bytes as X25519 scalar and clamp
+        let mut scalar_bytes = [0u8; 32];
+        scalar_bytes.copy_from_slice(&hash[..32]);
+        
+        // Clamp the scalar for X25519
+        scalar_bytes[0] &= 248;
+        scalar_bytes[31] &= 127;
+        scalar_bytes[31] |= 64;
+        
+        let x25519_secret = StaticSecret::from(scalar_bytes);
+        let x25519_public = X25519PublicKey::from(&x25519_secret);
+        
         Keypair {
             key_type: KeyType::X25519,
-            public: ed.public.clone(),
-            secret: ed.secret.clone(),
+            public: x25519_public.to_bytes().to_vec(),
+            secret: x25519_secret.to_bytes().to_vec(),
         }
     }
 
