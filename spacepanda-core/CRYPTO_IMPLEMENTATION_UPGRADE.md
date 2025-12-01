@@ -13,23 +13,27 @@ This document tracks the upgrade from placeholder cryptography to production-gra
 ### ❌ What Was Wrong
 
 1. **Placeholder Crypto Everywhere**
+
    - `sign()` used Blake2b hash of secret+message (NOT real signatures)
    - `verify()` only checked lengths, always returned true
    - Public keys were copies of private keys
    - No actual Ed25519/X25519 operations
 
 2. **Device Rotation Was Broken**
+
    - Reused same DeviceId after rotation (security issue)
    - No key versioning
    - No archived keys for historical verification
    - Couldn't distinguish "old device" from "impersonated device"
 
 3. **No Pseudonym Unlinkability**
+
    - Channel IDs were just UUIDs
    - No HKDF-based derivation
    - No cryptographic unlinkability guarantees
 
 4. **Missing Security Properties**
+
    - No forward secrecy
    - No post-compromise security (PCS)
    - No replay protection
@@ -48,6 +52,7 @@ This document tracks the upgrade from placeholder cryptography to production-gra
 ### 1. Real Cryptography (keypair.rs)
 
 **Before:**
+
 ```rust
 // TODO: Use proper Ed25519 key derivation
 public.copy_from_slice(&secret); // WRONG!
@@ -60,6 +65,7 @@ hasher.update(&sig); // NOT A SIGNATURE!
 ```
 
 **After:**
+
 ```rust
 use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
 use x25519_dalek::{StaticSecret, PublicKey as X25519PublicKey};
@@ -85,6 +91,7 @@ pub fn verify(pubkey: &[u8], msg: &[u8], sig: &[u8]) -> bool {
 ```
 
 **Impact:**
+
 - ✅ Real Ed25519 signatures (64 bytes, cryptographically sound)
 - ✅ Real X25519 key agreement
 - ✅ Proper curve25519 operations
@@ -105,7 +112,7 @@ impl MasterKey {
     pub fn generate() -> Self { /* Real key generation */ }
     pub fn sign(&self, msg: &[u8]) -> Vec<u8> { /* Real signatures */ }
     pub fn verify(&self, msg: &[u8], sig: &[u8]) -> bool { /* Real verification */ }
-    
+
     // NEW: HKDF-based pseudonym derivation
     pub fn derive_pseudonym(&self, channel_id: &str) -> Vec<u8> {
         let hk = Hkdf::<Sha256>::new(
@@ -118,12 +125,14 @@ impl MasterKey {
 ```
 
 **Security Properties:**
+
 - ✅ **Deterministic**: Same channel → same pseudonym
 - ✅ **Unlinkable**: Different channels → cryptographically independent pseudonyms
 - ✅ **Irreversible**: Cannot derive master key from pseudonym
 - ✅ **Unique per user**: Same channel_id, different users → different pseudonyms
 
 **Tests Passing:**
+
 - `test_master_key_generation` ✅
 - `test_master_key_sign_verify` ✅
 - `test_pseudonym_deterministic` ✅
@@ -155,7 +164,7 @@ impl DeviceKey {
         }
         Ok(self.active_key.sign(msg))
     }
-    
+
     // Verify using current OR archived keys
     pub fn verify(&self, msg: &[u8], sig: &[u8]) -> bool {
         if Keypair::verify(self.active_key.public_key(), msg, sig) {
@@ -168,12 +177,12 @@ impl DeviceKey {
         }
         false
     }
-    
+
     // Rotation creates NEW key, archives old one
     pub fn rotate(&mut self, master_key: &MasterKey) -> DeviceKeyBinding {
         self.archived_keys.insert(self.current_version, self.active_key.public_key().to_vec());
         self.is_rotated = true; // Old key can't sign anymore
-        
+
         self.current_version += 1;
         self.active_key = Keypair::generate(KeyType::Ed25519);
         // Re-sign with master key
@@ -184,6 +193,7 @@ impl DeviceKey {
 ```
 
 **Security Properties:**
+
 - ✅ **Forward Secrecy**: Old key cannot decrypt future messages
 - ✅ **Post-Compromise Security**: Rotation generates cryptographically independent key
 - ✅ **Historical Verification**: Old signatures still verifiable via archived keys
@@ -191,6 +201,7 @@ impl DeviceKey {
 - ✅ **Master Authorization**: Every key version signed by master key
 
 **Device Key Binding:**
+
 ```rust
 pub struct DeviceKeyBinding {
     device_id: DeviceId,
@@ -201,6 +212,7 @@ pub struct DeviceKeyBinding {
 ```
 
 **Tests Passing:**
+
 - `test_device_key_generation` ✅
 - `test_device_key_sign_verify` ✅
 - `test_device_key_rotation` ✅
@@ -224,6 +236,7 @@ curve25519-dalek = "4.1"
 ## Test Results
 
 ### Master Key Tests (6/6 passing):
+
 ```
 test core_identity::master_key::tests::test_master_key_generation ... ok
 test core_identity::master_key::tests::test_pseudonym_deterministic ... ok
@@ -234,6 +247,7 @@ test core_identity::master_key::tests::test_master_key_sign_verify ... ok
 ```
 
 ### Device Key Tests (4/4 passing):
+
 ```
 test core_identity::device_key::tests::test_device_key_generation ... ok
 test core_identity::device_key::tests::test_binding_verification ... ok
@@ -242,6 +256,7 @@ test core_identity::device_key::tests::test_device_key_rotation ... ok
 ```
 
 ### Overall Test Suite:
+
 - **Total**: 641 passing (up from 632)
 - **Ignored**: 12 (crypto-dependent, will re-enable)
 - **New passing**: +9 tests (master_key + device_key)
@@ -255,6 +270,7 @@ test core_identity::device_key::tests::test_device_key_rotation ... ok
 Now that we have **real cryptography**, we can implement the full test suite from the critique:
 
 #### **identity_master_key_tests.rs** (New)
+
 - [x] Master keypair uniqueness and structure
 - [x] Master sign & verify
 - [x] Tamper detection
@@ -265,6 +281,7 @@ Now that we have **real cryptography**, we can implement the full test suite fro
 - [x] Export/import roundtrip
 
 #### **identity_device_key_tests.rs** (New)
+
 - [x] Device key requires master authorization
 - [x] Device keys cannot cross-sign
 - [x] Master cannot impersonate device
@@ -274,12 +291,14 @@ Now that we have **real cryptography**, we can implement the full test suite fro
 - [x] Forward secrecy after rotation
 
 #### **identity_storage_tests.rs** (TODO)
+
 - [ ] Export/import with corruption detection
 - [ ] Missing fields rejected
 - [ ] Version migration (v0 → v1)
 - [ ] JSON/bincode roundtrip
 
 #### **identity_verification_tests.rs** (TODO)
+
 - [ ] Reject unregistered devices
 - [ ] Rotation revokes old device
 - [ ] Replay protection (nonce/counter)
@@ -287,6 +306,7 @@ Now that we have **real cryptography**, we can implement the full test suite fro
 - [ ] Forged AddId detection
 
 #### **identity_crdt_tests.rs** (TODO)
+
 - [ ] CRDT convergence with real signatures
 - [ ] Concurrent add/remove with crypto
 - [ ] Chaos fuzz (200 ops, random delays)
@@ -298,6 +318,7 @@ Now that we have **real cryptography**, we can implement the full test suite fro
 ### API Changes
 
 **Old (placeholder):**
+
 ```rust
 let kp = Keypair::generate(KeyType::Ed25519);
 kp.sign(msg); // Fake signature
@@ -305,6 +326,7 @@ Keypair::verify(pubkey, msg, sig); // Always true
 ```
 
 **New (production):**
+
 ```rust
 // Master key
 let master = MasterKey::generate();
@@ -335,6 +357,7 @@ let new_binding = device.rotate(&master);
 ## Security Guarantees
 
 ### Before Upgrade: ❌
+
 - No real signatures
 - No forward secrecy
 - No post-compromise security
@@ -343,6 +366,7 @@ let new_binding = device.rotate(&master);
 - No Byzantine resistance
 
 ### After Upgrade: ✅
+
 - **Real Ed25519 signatures** (64-byte, cryptographically sound)
 - **Forward secrecy** (rotated keys can't decrypt future messages)
 - **Post-compromise security** (rotation creates independent new key)
@@ -380,11 +404,13 @@ let new_binding = device.rotate(&master);
 ### Backward Compatibility: ⚠️ BREAKING
 
 This upgrade **breaks** existing keystores because:
+
 1. Old "signatures" were not real signatures
 2. Device IDs now require versioning
 3. Pseudonyms now use HKDF instead of UUIDs
 
 ### Migration Strategy:
+
 1. Export all metadata before upgrade
 2. Re-generate all keys with new system
 3. Re-sign all device bindings with master key
@@ -424,8 +450,9 @@ This upgrade **breaks** existing keystores because:
 This upgrade addresses the critical TDD feedback: **"Tests express intentions but do not validate correctness."**
 
 Now, with real cryptography:
+
 - ✅ Signatures actually sign
-- ✅ Verification actually verifies  
+- ✅ Verification actually verifies
 - ✅ Tampering is detectable
 - ✅ Rotation provides real security
 - ✅ Pseudonyms are cryptographically unlinkable

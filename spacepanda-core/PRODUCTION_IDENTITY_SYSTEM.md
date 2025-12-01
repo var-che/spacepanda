@@ -11,10 +11,13 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 ## 🎯 Achievement Summary
 
 ### Tests Implemented: **27 passing** (1 ignored)
+
 ### Total Test Suite: **668 passing** (up from 632)
+
 ### Coverage Increase: **+36 tests (+5.7%)**
 
 ### Security Properties Validated:
+
 - ✅ **Real Ed25519 Signatures** (64 bytes, cryptographically sound)
 - ✅ **Pseudonym Unlinkability** (HKDF-based derivation)
 - ✅ **Post-Compromise Security** (PCS via key rotation)
@@ -80,12 +83,14 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 ### New Modules Created:
 
 **1. `master_key.rs` (184 lines)**
+
 - Long-term Ed25519 identity key
 - HKDF-based pseudonym derivation
 - Real signature generation/verification
 - JSON/binary export/import
 
 **2. `device_key.rs` (273 lines)**
+
 - Per-device Ed25519 keys
 - Key versioning (rotation support)
 - Archived key storage
@@ -93,6 +98,7 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 - Post-compromise security
 
 **3. `identity_crypto_tests.rs` (607 lines)**
+
 - 27 comprehensive security tests
 - Real cryptographic validation
 - Byzantine attack scenarios
@@ -101,12 +107,14 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 ### Modified Modules:
 
 **1. `keypair.rs`**
+
 - Replaced placeholder crypto with real Ed25519/X25519
 - Added proper signature generation (`ed25519-dalek`)
 - Added proper verification
 - Added X25519 key agreement support
 
 **2. `Cargo.toml`**
+
 - Added `ed25519-dalek = "2.1"`
 - Added `x25519-dalek = "2.0"`
 - Added `hkdf = "0.12"`
@@ -118,6 +126,7 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 ## 🛡️ Security Guarantees
 
 ### Before Implementation:
+
 - ❌ Placeholder signatures (just hashes)
 - ❌ Public key = private key (copy)
 - ❌ Verification always returned true
@@ -127,6 +136,7 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 - ❌ No PCS
 
 ### After Implementation:
+
 - ✅ **Real Ed25519 signatures** (FIPS 186-4 compliant)
 - ✅ **Cryptographic key pairs** (public ≠ private)
 - ✅ **Real verification** (detects tampering)
@@ -141,15 +151,15 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 
 ## 📈 Performance Metrics
 
-| Operation | Time | Notes |
-|-----------|------|-------|
-| Master key generation | ~1ms | Ed25519 keypair |
-| Device key generation | ~1ms | Ed25519 + master binding |
-| Signing | ~50μs | Ed25519 |
-| Verification | ~120μs | Ed25519 |
-| Pseudonym derivation | ~10μs | HKDF-SHA256 |
-| Key rotation | ~1ms | New key + archive |
-| Export/import | ~100μs | JSON serialization |
+| Operation             | Time   | Notes                    |
+| --------------------- | ------ | ------------------------ |
+| Master key generation | ~1ms   | Ed25519 keypair          |
+| Device key generation | ~1ms   | Ed25519 + master binding |
+| Signing               | ~50μs  | Ed25519                  |
+| Verification          | ~120μs | Ed25519                  |
+| Pseudonym derivation  | ~10μs  | HKDF-SHA256              |
+| Key rotation          | ~1ms   | New key + archive        |
+| Export/import         | ~100μs | JSON serialization       |
 
 **Total overhead: Negligible for production security**
 
@@ -158,12 +168,14 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 ## 🔍 Test Coverage Breakdown
 
 ### Cryptographic Correctness:
+
 - ✅ Real signature generation (test_1_2)
 - ✅ Tamper detection (test_1_3)
 - ✅ Wrong key rejection (test_1_4)
 - ✅ Forged signature rejection (test_6_1)
 
 ### Pseudonym Properties:
+
 - ✅ Determinism (test_2_1)
 - ✅ Unlinkability (test_2_2)
 - ✅ Irreversibility (test_2_3)
@@ -171,12 +183,14 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 - ✅ Collision resistance (test_2_5)
 
 ### Device Security Model:
+
 - ✅ Master authorization required (test_3_1)
 - ✅ Device isolation (test_3_2)
 - ✅ Master/device separation (test_3_3)
 - ✅ Multi-device independence (test_7_1)
 
 ### Rotation / PCS:
+
 - ✅ New cryptographic identity (test_4_1)
 - ✅ Historical verification (test_4_2)
 - ✅ Old key disabled (test_4_3)
@@ -184,12 +198,14 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 - ✅ Forward secrecy (test_4_5)
 
 ### Persistence:
+
 - ✅ Roundtrip preservation (test_5_1)
 - ✅ Truncation rejection (test_5_3)
 - ✅ Schema validation (test_5_4)
-- ⏭️  Corruption detection (needs HMAC layer)
+- ⏭️ Corruption detection (needs HMAC layer)
 
 ### Attack Resistance:
+
 - ✅ Forgery rejection (test_6_1, test_6_3)
 - ✅ Length validation (test_6_2)
 - ✅ Replay protection structure (test_6_4)
@@ -199,24 +215,28 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 ## 📝 Known Limitations & TODOs
 
 ### 1. Corruption Detection (MEDIUM priority)
+
 **Issue:** `bincode` doesn't validate checksums
 **Impact:** Corrupted keystore might deserialize to broken key
 **Fix:** Add HMAC-SHA256 checksum layer
 **Test:** `test_5_2_corrupted_bytes_rejected` (currently ignored)
 
 ### 2. Replay Protection (HIGH priority before MLS)
+
 **Issue:** Structural test only, no actual nonce tracking
 **Impact:** Signature reuse possible
 **Fix:** Add nonce/counter to signed messages
 **Test:** `test_6_4_replay_attack_structural` needs enhancement
 
 ### 3. Forward Secrecy Full Test (LOW priority)
+
 **Issue:** Only structural test, no actual encryption
 **Impact:** None (encryption happens in MLS layer)
 **Fix:** Add X25519 ECDH + encryption test
 **Test:** `test_4_5_forward_secrecy_simulation` could be enhanced
 
 ### 4. Keystore Encryption at Rest (MEDIUM priority)
+
 **Issue:** Private keys stored unencrypted in serialized form
 **Impact:** Disk compromise reveals keys
 **Fix:** Add Argon2 + AES-GCM encryption layer
@@ -227,6 +247,7 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 ## 🎓 Lessons from Critique
 
 ### What the Critique Identified:
+
 1. **Placeholder crypto** - tests expressed intentions but didn't validate behavior
 2. **Weak device rotation** - reused DeviceId unsafely
 3. **No unlinkability** - pseudonyms were just UUIDs
@@ -235,6 +256,7 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 6. **No Byzantine tests** - no actual signature forgery testing
 
 ### What We Fixed:
+
 1. ✅ **Real crypto** - Ed25519, X25519, HKDF implementation
 2. ✅ **Safe rotation** - key versioning, archival, authorization
 3. ✅ **True unlinkability** - HKDF-SHA256 pseudonym derivation
@@ -249,23 +271,27 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 ### Phase 2: Storage & Verification Tests (TODO)
 
 **identity_storage_tests.rs:**
+
 - [ ] HMAC-based corruption detection
 - [ ] Version migration (v0 → v1 → v2)
 - [ ] Encrypted keystore roundtrip
 - [ ] Key backup/restore
 
 **identity_verification_tests.rs:**
+
 - [ ] Nonce-based replay protection
 - [ ] Device revocation enforcement
 - [ ] Signature timestamp validation
 - [ ] Byzantine attack scenarios (advanced)
 
 **identity_crdt_tests.rs:**
+
 - [ ] CRDT convergence with real signatures
 - [ ] Concurrent operations with crypto validation
 - [ ] Chaos fuzz with signature verification
 
 ### Phase 3: Integration with MLS (TODO)
+
 - [ ] MLS credential generation from master key
 - [ ] Device key → MLS signature key binding
 - [ ] Channel pseudonym → MLS group ID mapping
@@ -276,6 +302,7 @@ Implemented comprehensive cryptographic identity system with **27 production-gra
 ## 📚 API Examples
 
 ### Master Key Usage:
+
 ```rust
 // Generate master identity
 let master = MasterKey::generate();
@@ -295,6 +322,7 @@ let restored = MasterKey::from_json(&json).unwrap();
 ```
 
 ### Device Key Usage:
+
 ```rust
 // Generate device under master
 let device = DeviceKey::generate(&master);
@@ -311,6 +339,7 @@ let new_binding = device.rotate(&master);
 ```
 
 ### Multi-Device:
+
 ```rust
 let master = MasterKey::generate();
 let laptop = DeviceKey::generate(&master);
@@ -326,7 +355,7 @@ assert!(!phone.verify(b"msg", &sig_laptop)); // Isolated
 ## ✅ Validation Checklist
 
 - [x] Real Ed25519 signing/verification
-- [x] Real X25519 key agreement  
+- [x] Real X25519 key agreement
 - [x] HKDF-based pseudonym derivation
 - [x] Device key rotation with PCS
 - [x] Master key authorization binding
@@ -355,12 +384,14 @@ assert!(!phone.verify(b"msg", &sig_laptop)); // Isolated
 ## 🏆 Impact
 
 ### Before This Work:
+
 - Tests validated **structure**, not **behavior**
 - Placeholder crypto would pass all tests
 - Critical security bugs would go undetected
 - Not ready for MLS integration
 
 ### After This Work:
+
 - Tests validate **cryptographic correctness**
 - Real Ed25519/X25519 implementation
 - Security properties enforced by tests
@@ -375,6 +406,7 @@ This implementation addresses the core TDD critique:
 > **"Your tests express intentions but do not validate correctness."**
 
 Now:
+
 - ✅ Signatures actually sign (Ed25519)
 - ✅ Verification actually verifies (cryptographic validation)
 - ✅ Tampering is detected (real signature checks)

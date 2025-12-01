@@ -6,6 +6,9 @@ pub mod router_handle;
 pub mod session_manager;
 pub mod transport_manager;
 
+#[cfg(test)]
+mod tests;
+
 pub use onion_router::{
     InnerEnvelope, OnionCommand, OnionConfig, OnionEvent, OnionHeader, OnionRouter,
 };

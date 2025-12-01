@@ -24,21 +24,22 @@ MLS (Messaging Layer Security) depends on:
 ## 📊 **PROGRESS TRACKER**
 
 **Total Tests:** 37  
-**Completed:** 23  
-**In Progress:** 0  
+**Completed:** 13  
+**In Progress:** 5 (Router Security Tests)  
 **Blocked:** 0
 
 **Coverage by Subsystem:**
 
 - [x] Identity: 7/7 (100%) ✅ COMPLETE
-- [ ] Router: 0/5 (0%)
+- [⚡] Router: 0/5 (0%) ⚡ IN PROGRESS - Starting Phase 2
 - [ ] DHT: 0/5 (0%)
 - [x] CRDT: 6/6 (100%) ✅ COMPLETE
 - [ ] Store: 0/5 (0%)
 - [ ] Integration: 0/9 (0%)
 
 **Last Updated:** 2025-12-01  
-**Current Phase:** Phase 1 complete (Identity & CRDT), Phase 2 in progress (Store tests)
+**Current Phase:** Phase 2 starting - Router Security Tests (2.1-2.5)  
+**Next Phase:** DHT Resilience Tests (3.1-3.5)
 
 ---
 
@@ -50,11 +51,12 @@ These are required before a single MLS key can be generated.
 
 ---
 
-### ☐ 1.1 Key Upgrade Test
+### ✅ 1.1 Key Upgrade Test
 
 **File:** `test_key_upgrade_rotation`  
 **Priority:** CRITICAL  
-**Estimated Time:** 2-3 hours
+**Estimated Time:** 2-3 hours  
+**Status:** ✅ COMPLETE
 
 When a device rotates its global identity keypair:
 
@@ -85,11 +87,12 @@ When a device rotates its global identity keypair:
 
 ---
 
-### ☐ 1.2 Key Revocation Test
+### ✅ 1.2 Key Revocation Test
 
 **File:** `test_key_revocation_enforcement`  
 **Priority:** CRITICAL  
-**Estimated Time:** 1-2 hours
+**Estimated Time:** 1-2 hours  
+**Status:** ✅ COMPLETE
 
 If a private key is deleted/revoked:
 
@@ -113,11 +116,12 @@ If a private key is deleted/revoked:
 
 ---
 
-### ☐ 1.3 Device Identity Isolation Test
+### ✅ 1.3 Device Identity Isolation Test
 
 **File:** `test_device_identity_isolation`  
 **Priority:** HIGH  
-**Estimated Time:** 2 hours
+**Estimated Time:** 2 hours  
+**Status:** ✅ COMPLETE
 
 Two devices with same user identity:
 
@@ -141,11 +145,12 @@ Two devices with same user identity:
 
 ---
 
-### ☐ 1.4 Channel-Pseudonym Unlinkability Test
+### ✅ 1.4 Channel-Pseudonym Unlinkability Test
 
 **File:** `test_channel_pseudonym_unlinkability`  
 **Priority:** HIGH  
-**Estimated Time:** 1-2 hours
+**Estimated Time:** 1-2 hours  
+**Status:** ✅ COMPLETE
 
 Ensure no accidental equality or derivability:
 
@@ -167,11 +172,12 @@ Ensure no accidental equality or derivability:
 
 ---
 
-### ☐ 1.5 Import/Export Keystore Test
+### ✅ 1.5 Import/Export Keystore Test
 
 **File:** `test_keystore_import_export_roundtrip`  
 **Priority:** HIGH  
-**Estimated Time:** 2-3 hours
+**Estimated Time:** 2-3 hours  
+**Status:** ✅ COMPLETE
 
 Export keystore → delete → import → system must:
 
@@ -198,11 +204,12 @@ Export keystore → delete → import → system must:
 
 ---
 
-### ☐ 1.6 Corrupt Keystore Test
+### ✅ 1.6 Corrupt Keystore Test
 
 **File:** `test_keystore_corruption_handling`  
 **Priority:** MEDIUM  
-**Estimated Time:** 1 hour
+**Estimated Time:** 1 hour  
+**Status:** ✅ COMPLETE
 
 Corrupt a random byte in the keystore file:
 
@@ -226,11 +233,12 @@ Corrupt a random byte in the keystore file:
 
 ---
 
-### ☐ 1.7 Key Expiration Test
+### ✅ 1.7 Key Expiration Test
 
 **File:** `test_key_expiration_enforcement`  
 **Priority:** MEDIUM  
-**Estimated Time:** 1-2 hours
+**Estimated Time:** 1-2 hours  
+**Status:** ✅ COMPLETE
 
 If a key is marked expired:
 
@@ -261,11 +269,12 @@ If a key is marked expired:
 
 ---
 
-### ☐ 2.1 Noise Handshake Downgrade Test
+### ⚡ 2.1 Noise Handshake Downgrade Test
 
 **File:** `test_noise_handshake_downgrade_protection`  
 **Priority:** CRITICAL  
-**Estimated Time:** 2-3 hours
+**Estimated Time:** 2-3 hours  
+**Status:** ⚡ NEXT - Starting implementation
 
 Force an attacker to attempt:
 
@@ -587,11 +596,12 @@ These are absolutely required before MLS integration because MLS depends on corr
 
 ---
 
-### ☐ 4.1 Convergent Fuzz Test
+### ✅ 4.1 Convergent Fuzz Test
 
 **File:** `test_crdt_convergent_fuzz`  
 **Priority:** CRITICAL  
-**Estimated Time:** 4-5 hours
+**Estimated Time:** 4-5 hours  
+**Status:** ✅ COMPLETE
 
 Generate:
 
@@ -622,11 +632,12 @@ Expected:
 
 ---
 
-### ☐ 4.2 Massive Deletion Test
+### ✅ 4.2 Massive Deletion Test
 
 **File:** `test_crdt_massive_deletion`  
 **Priority:** HIGH  
-**Estimated Time:** 2 hours
+**Estimated Time:** 2 hours  
+**Status:** ✅ COMPLETE
 
 Delete same item 100 times from OR-Set:
 
@@ -649,11 +660,12 @@ Delete same item 100 times from OR-Set:
 
 ---
 
-### ☐ 4.3 Causal-Reverse Test
+### ✅ 4.3 Causal-Reverse Test
 
 **File:** `test_crdt_causal_ordering_clock_skew`  
 **Priority:** CRITICAL  
-**Estimated Time:** 2-3 hours
+**Estimated Time:** 2-3 hours  
+**Status:** ✅ COMPLETE
 
 Create 200 messages with reversed timestamps (simulate clock skew):
 
@@ -674,11 +686,12 @@ Create 200 messages with reversed timestamps (simulate clock skew):
 
 ---
 
-### ☐ 4.4 Interleaving Edits Test
+### ✅ 4.4 Interleaving Edits Test
 
 **File:** `test_crdt_interleaving_edits`  
 **Priority:** HIGH  
-**Estimated Time:** 3-4 hours
+**Estimated Time:** 3-4 hours  
+**Status:** ✅ COMPLETE
 
 Multiple replicas modify:
 
@@ -707,11 +720,12 @@ Expected: convergence.
 
 ---
 
-### ☐ 4.5 Counter Overflow Test
+### ✅ 4.5 Counter Overflow Test
 
 **File:** `test_crdt_vector_clock_overflow`  
 **Priority:** MEDIUM  
-**Estimated Time:** 1-2 hours
+**Estimated Time:** 1-2 hours  
+**Status:** ✅ COMPLETE
 
 Force vector clock to reach max integer:
 
@@ -733,11 +747,12 @@ Force vector clock to reach max integer:
 
 ---
 
-### ☐ 4.6 Byzantine Signature Test
+### ✅ 4.6 Byzantine Signature Test
 
 **File:** `test_crdt_byzantine_signature_rejection`  
 **Priority:** CRITICAL  
-**Estimated Time:** 2-3 hours
+**Estimated Time:** 2-3 hours  
+**Status:** ✅ COMPLETE
 
 Feed CRDT:
 
@@ -1163,40 +1178,74 @@ fn test_{subsystem}_{feature}_{scenario}() {
 
 # ✅ **COMPLETION CHECKLIST**
 
-## Phase 1: Foundation (Identity + Router)
+## Phase 1: Foundation (Identity + CRDT)
 
-- [ ] All identity tests passing
-- [ ] All router tests passing
+- [x] All identity tests passing ✅
+- [x] All CRDT tests passing ✅
+- [x] CI green ✅
+- [ ] Code review complete
+
+## Phase 2: Security Layer (Router)
+
+- [ ] All router tests passing ⚡ IN PROGRESS
 - [ ] CI green
 - [ ] Code review complete
 
-## Phase 2: Resilience (DHT + CRDT)
+## Phase 3: Network Resilience (DHT)
 
 - [ ] All DHT tests passing
-- [ ] All CRDT tests passing
 - [ ] Fuzz tests run for 24h without failure
 - [ ] Code review complete
 
-## Phase 3: Persistence (Store)
+## Phase 4: Persistence (Store)
 
 - [ ] All store tests passing
 - [ ] Crash recovery verified
 - [ ] Performance acceptable
 - [ ] Code review complete
 
-## Phase 4: Integration
+## Phase 5: Integration
 
 - [ ] All integration tests passing
 - [ ] Multi-device sync verified
 - [ ] Byzantine peer handling verified
 - [ ] Final code review
 
-## Phase 5: Sign-Off
+## Phase 6: Sign-Off
 
-- [ ] All 37 tests passing
+- [ ] All 37 tests passing (13/37 complete)
 - [ ] CI fully green
 - [ ] Documentation complete
 - [ ] **READY FOR MLS INTEGRATION**
+
+---
+
+## 📝 **CURRENT SESSION NOTES**
+
+**What's Complete:**
+- ✅ Identity cryptographic tests (7/7) - Production-grade Ed25519/X25519 with replay protection
+- ✅ CRDT mission-critical tests (6/6) - Convergence, Byzantine resistance, causal ordering
+- ✅ 674 tests passing in full suite
+- ✅ Router security test suite created (5/5 skeletal tests documented and ready for implementation)
+
+**What's In Progress:**
+- ⚡ Router security tests (5/5 skeletal, 0/5 implemented) - Tests are documented with detailed scenarios but await router API stabilization
+  - All 5 tests compile and pass (as `#[ignore]` placeholders)
+  - Each test includes comprehensive documentation of attack scenarios
+  - Ready for implementation once `SessionManager`, `OnionRouter`, `RpcProtocol`, and `RouterHandle` APIs are finalized
+
+**Files Created This Session:**
+- `src/core_router/tests/security_tests.rs` - 630+ lines of detailed test specifications
+- `src/core_router/tests/mod.rs` - Test module registration
+
+**Next Steps:**
+1. ~~Create router security test specifications~~ ✅ DONE
+2. Stabilize router APIs (SessionManager, OnionRouter, RpcProtocol)
+3. Implement test helper functions (mock relays, tampered relays, RPC client/server)
+4. Un-ignore and fully implement all 5 router security tests
+5. Create DHT resilience tests (5 tests)
+6. Create Store persistence tests (5 tests)  
+7. Create Integration tests (9 tests)
 
 ---
 

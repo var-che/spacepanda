@@ -31,8 +31,8 @@ pub struct DeviceKey {
     /// Master key binding signature
     /// Signs: device_id || current_version || active_public_key
     master_binding: Vec<u8>,
-    /// Flag indicating if this key has been rotated (cannot sign anymore)
-    is_rotated: bool,
+    /// Signature counter for replay protection (increments with each signature)
+    signature_counter: u64,
 }
 
 /// Device key binding - proves device is authorized by master key
@@ -94,7 +94,7 @@ impl DeviceKey {
             active_key,
             archived_keys: HashMap::new(),
             master_binding,
-            is_rotated: false,
+            signature_counter: 0,
         }
     }
 
@@ -114,18 +114,56 @@ impl DeviceKey {
     }
 
     /// Sign a message with the current active key
-    /// Fails if the key has been rotated
-    pub fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, String> {
-        if self.is_rotated {
-            return Err("Cannot sign with rotated key - device key has been replaced".to_string());
-        }
+    /// Returns (signature, counter) for replay protection
+    pub fn sign(&mut self, msg: &[u8]) -> Result<(Vec<u8>, u64), String> {
+        // Increment counter for replay protection
+        self.signature_counter += 1;
         
+        // Construct message with counter: version || counter || msg
+        let mut full_msg = Vec::new();
+        full_msg.extend_from_slice(&(self.current_version as u64).to_le_bytes());
+        full_msg.extend_from_slice(&self.signature_counter.to_le_bytes());
+        full_msg.extend_from_slice(msg);
+        
+        let signature = self.active_key.sign(&full_msg);
+        Ok((signature, self.signature_counter))
+    }
+    
+    /// Sign a message without replay protection (for testing/legacy)
+    /// WARNING: Prefer `sign()` which includes counter
+    pub fn sign_raw(&self, msg: &[u8]) -> Result<Vec<u8>, String> {
         Ok(self.active_key.sign(msg))
     }
 
-    /// Verify a signature using current or archived keys
+    /// Verify a signature with replay protection
+    /// Checks version, counter, and signature validity
+    pub fn verify_with_counter(&self, msg: &[u8], sig: &[u8], version: KeyVersion, counter: u64) -> bool {
+        // Reconstruct signed message: version || counter || msg
+        let mut full_msg = Vec::new();
+        full_msg.extend_from_slice(&(version as u64).to_le_bytes());
+        full_msg.extend_from_slice(&counter.to_le_bytes());
+        full_msg.extend_from_slice(msg);
+        
+        // Try current key if version matches
+        if version == self.current_version {
+            if Keypair::verify(self.active_key.public_key(), &full_msg, sig) {
+                return true;
+            }
+        }
+        
+        // Try archived key for this version
+        if let Some(archived_pubkey) = self.archived_keys.get(&version) {
+            if Keypair::verify(archived_pubkey, &full_msg, sig) {
+                return true;
+            }
+        }
+        
+        false
+    }
+    
+    /// Verify a signature without counter (legacy/testing)
     /// This allows verifying old signatures even after rotation
-    pub fn verify(&self, msg: &[u8], sig: &[u8]) -> bool {
+    pub fn verify_raw(&self, msg: &[u8], sig: &[u8]) -> bool {
         // Try current key first
         if Keypair::verify(self.active_key.public_key(), msg, sig) {
             return true;
@@ -143,15 +181,13 @@ impl DeviceKey {
 
     /// Rotate the device key (creates new keypair, archives old one)
     /// Master key must re-sign the new binding
+    /// Resets signature counter to 0
     pub fn rotate(&mut self, master_key: &MasterKey) -> DeviceKeyBinding {
         // Archive current key
         self.archived_keys.insert(
             self.current_version,
             self.active_key.public_key().to_vec()
         );
-        
-        // Mark current key as rotated (cannot sign anymore)
-        self.is_rotated = true;
         
         // Generate new keypair
         let new_key = Keypair::generate(KeyType::Ed25519);
@@ -168,7 +204,7 @@ impl DeviceKey {
         self.current_version = new_version;
         self.active_key = new_key;
         self.master_binding = new_binding.clone();
-        self.is_rotated = false; // New key is now active
+        self.signature_counter = 0; // Reset counter for new key
         
         DeviceKeyBinding {
             device_id: self.device_id.clone(),
@@ -178,9 +214,14 @@ impl DeviceKey {
         }
     }
 
-    /// Check if this device key is currently active (can sign)
-    pub fn is_active(&self) -> bool {
-        !self.is_rotated
+    /// Check if a specific version is archived (rotated away)
+    pub fn is_version_archived(&self, version: KeyVersion) -> bool {
+        self.archived_keys.contains_key(&version)
+    }
+    
+    /// Get current signature counter
+    pub fn counter(&self) -> u64 {
+        self.signature_counter
     }
 
     /// Get the device key binding (for advertisement)
@@ -210,7 +251,7 @@ impl std::fmt::Debug for DeviceKey {
             .field("device_id", &self.device_id)
             .field("version", &self.current_version)
             .field("public", &hex::encode(self.public_key()))
-            .field("is_active", &self.is_active())
+            .field("counter", &self.signature_counter)
             .field("archived_count", &self.archived_keys.len())
             .finish()
     }
@@ -226,20 +267,21 @@ mod tests {
         let dk = DeviceKey::generate(&mk);
         
         assert_eq!(dk.version(), 1);
-        assert!(dk.is_active());
+        assert_eq!(dk.counter(), 0);
         assert_eq!(dk.public_key().len(), 32);
     }
 
     #[test]
     fn test_device_key_sign_verify() {
         let mk = MasterKey::generate();
-        let dk = DeviceKey::generate(&mk);
+        let mut dk = DeviceKey::generate(&mk);
         
         let msg = b"test message";
-        let sig = dk.sign(msg).unwrap();
+        let (sig, counter) = dk.sign(msg).unwrap();
         
-        assert!(dk.verify(msg, &sig));
-        assert!(!dk.verify(b"wrong message", &sig));
+        assert_eq!(counter, 1);
+        assert!(dk.verify_with_counter(msg, &sig, dk.version(), counter));
+        assert!(!dk.verify_with_counter(b"wrong message", &sig, dk.version(), counter));
     }
 
     #[test]
@@ -248,7 +290,7 @@ mod tests {
         let mut dk = DeviceKey::generate(&mk);
         
         let msg = b"old message";
-        let old_sig = dk.sign(msg).unwrap();
+        let (old_sig, old_counter) = dk.sign(msg).unwrap();
         let old_pubkey = dk.public_key().to_vec();
         let old_version = dk.version();
         
@@ -259,11 +301,14 @@ mod tests {
         assert_eq!(dk.version(), old_version + 1);
         assert_ne!(dk.public_key(), old_pubkey.as_slice());
         
-        // Old signature still verifiable (archived)
-        assert!(dk.verify(msg, &old_sig));
+        // Counter reset after rotation
+        assert_eq!(dk.counter(), 0);
         
-        // Cannot sign with rotated key before rotation
-        // (the old DeviceKey instance would be marked is_rotated=true if we kept it)
+        // Old signature still verifiable (archived) with correct version
+        assert!(dk.verify_with_counter(msg, &old_sig, old_version, old_counter));
+        
+        // Old version is now archived
+        assert!(dk.is_version_archived(old_version));
         
         // New binding verifies
         assert!(new_binding.verify(mk.public_key()));
