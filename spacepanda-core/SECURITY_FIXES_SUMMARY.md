@@ -19,6 +19,7 @@ Implemented comprehensive security hardening based on code review of `security_t
 **Problem:** Background pruning task in `RpcProtocol::new()` had no shutdown mechanism, causing resource leaks and undefined shutdown ordering.
 
 **Fix:**
+
 - Added `prune_shutdown_tx: Option<oneshot::Sender<()>>`
 - Added `prune_task_handle: Option<JoinHandle<()>>`
 - Implemented `shutdown()` method to signal and join background task
@@ -44,6 +45,7 @@ pub async fn shutdown(&mut self) {
 **Problem:** `handle_frame` accepted unlimited payload sizes, allowing memory exhaustion DoS attacks.
 
 **Fix:**
+
 - Added `const MAX_FRAME_SIZE: usize = 64 * 1024` (64 KiB limit)
 - Check frame size before deserialization
 - Clear error message indicating size violation
@@ -63,6 +65,7 @@ if bytes.len() > MAX_FRAME_SIZE {
 **Problem:** Hardcoded 300s TTL and 60s prune interval made testing replay protection expiry impossible without long waits.
 
 **Fix:**
+
 - Created `new_with_config()` constructor accepting:
   - `default_timeout: Duration` - RPC call timeout
   - `seen_requests_ttl: Duration` - Replay protection window
@@ -89,6 +92,7 @@ pub fn new_with_config(
 **Problem:** Unbounded `seen_requests` HashMap allowed attackers to exhaust memory by sending many unique request IDs.
 
 **Fix:**
+
 - Added `seen_requests_max_capacity: usize` field (default: 100,000)
 - Enforced capacity limit during request handling (reject at capacity)
 - Prune oldest entries when capacity exceeded during background cleanup
@@ -112,6 +116,7 @@ if seen.len() >= self.seen_requests_max_capacity {
 **Problem:** Magic numbers for error codes scattered throughout code made maintenance difficult.
 
 **Fix:**
+
 - Defined constants for JSON-RPC error codes:
   - `ERR_METHOD_NOT_FOUND: i32 = -32601`
   - `ERR_INTERNAL_ERROR: i32 = -32603`
@@ -126,6 +131,7 @@ if seen.len() >= self.seen_requests_max_capacity {
 **Problem:** `test_connection_flood_protection` had tautological assertion: `assert!(response.is_ok() || response.is_err())` which is always true.
 
 **Fix:**
+
 - Changed to unwrap `JoinHandle` results and check inner task outcomes
 - Verify tasks completed without panic
 - Assert router responds within timeout (no deadlock)
@@ -147,10 +153,12 @@ assert!(response.is_ok(), "Router should return quickly (no deadlock)");
 ### 7. ✅ Removed Duplicate Ignored Test
 
 **Problem:** Two onion tests with similar names caused confusion:
+
 - `#[ignore] test_onion_routing_privacy()` (deferred)
 - `test_onion_relay_privacy()` (implemented)
 
 **Fix:**
+
 - Removed ignored duplicate
 - Added comment explaining the implemented test location
 
@@ -161,24 +169,29 @@ assert!(response.is_ok(), "Router should return quickly (no deadlock)");
 Added 5 comprehensive security tests to `rpc_protocol.rs`:
 
 ### `test_oversized_frame_rejection`
+
 - Verifies frames > 64 KiB are rejected
 - Checks error message clarity
 
 ### `test_seen_requests_capacity_limit`
+
 - Creates RPC with 10-request capacity limit
 - Sends 11 unique requests
 - Verifies 11th request rejected with clear error
 
 ### `test_seen_requests_ttl_pruning`
+
 - Uses 100ms TTL and 50ms prune interval
 - Verifies old requests are pruned after expiry
 - Confirms previously seen IDs can be reused after TTL
 
 ### `test_graceful_shutdown`
+
 - Verifies background task stops cleanly
 - Checks task handle is released
 
 ### `test_malformed_frames_dont_panic`
+
 - Tests various malformed payloads:
   - Empty frames
   - Invalid UTF-8/JSON
@@ -192,6 +205,7 @@ Added 5 comprehensive security tests to `rpc_protocol.rs`:
 ## Test Results
 
 ### Router Tests: ✅ 58 PASSING
+
 - RPC Protocol Tests: 9/9 ✅
 - Security Tests: 5/5 ✅
 - Other Router Tests: 44 ✅
@@ -203,6 +217,7 @@ test result: ok. 58 passed; 0 failed; 0 ignored
 ```
 
 ### RPC Protocol Tests Breakdown:
+
 1. `test_rpc_request_response` ✅
 2. `test_rpc_handle_incoming_request` ✅
 3. `test_rpc_method_not_found` ✅
@@ -218,21 +233,25 @@ test result: ok. 58 passed; 0 failed; 0 ignored
 ## Attack Surface Reduction
 
 ### Memory Exhaustion DoS
+
 - **Before:** Unbounded frame size, unbounded seen_requests map
 - **After:** 64 KiB frame limit, 100k seen_requests capacity limit
 - **Impact:** Prevents attacker from exhausting memory with large payloads or replay ID flooding
 
 ### Replay Attacks
+
 - **Before:** 5-minute replay window (fixed), pruned every 60s
 - **After:** Configurable TTL/prune interval, immediate rejection at capacity
 - **Impact:** Faster detection, testable behavior, bounded memory
 
 ### Resource Leaks
+
 - **Before:** Background tasks never stopped
 - **After:** Clean shutdown with signal + join
 - **Impact:** No task leaks in tests or production shutdown
 
 ### Malformed Input
+
 - **Before:** No size check before parsing
 - **After:** Size check + comprehensive malformed payload testing
 - **Impact:** Parser cannot be exploited with crafted large inputs
@@ -242,16 +261,19 @@ test result: ok. 58 passed; 0 failed; 0 ignored
 ## Recommendations for Future Work
 
 ### High Priority
+
 1. **Handshake Replay Protection:** Add test for replayed handshake frames (currently untested)
 2. **Partial Handshake Timeout:** Test incomplete handshakes that stall
 3. **Handler Backpressure:** Test handler channel saturation doesn't cause unbounded growth
 
 ### Medium Priority
+
 4. **Rate Limiting:** Per-peer rate limits for RPC calls
 5. **Timeout Cancellation:** Cancel timeout tasks when responses arrive (optimization)
 6. **LRU Eviction:** Use proper LRU for seen_requests instead of timestamp-based pruning
 
 ### Low Priority (Stylistic)
+
 7. **Structured Logging:** Add tracing/logging for security events (oversized frames, capacity limits, replays)
 8. **Metrics:** Track security-related counters (rejected frames, replay attempts, capacity hits)
 
@@ -260,16 +282,19 @@ test result: ok. 58 passed; 0 failed; 0 ignored
 ## Code Quality Improvements
 
 ### Clarity
+
 - Error messages now include specific values (frame size, limits)
 - Constants replace magic numbers
 - Race-safety documented with comments
 
 ### Maintainability
+
 - Configurable parameters allow testing without production delays
 - Shutdown mechanism enables deterministic cleanup
 - Comprehensive test suite documents expected behavior
 
 ### Production Readiness
+
 - All security properties now testable
 - No known memory exhaustion vectors
 - Clean resource lifecycle
@@ -279,6 +304,7 @@ test result: ok. 58 passed; 0 failed; 0 ignored
 ## Files Modified
 
 1. **`src/core_router/rpc_protocol.rs`** (308 lines changed)
+
    - Added shutdown mechanism
    - Added configurable constructor
    - Added frame size limit
@@ -295,12 +321,14 @@ test result: ok. 58 passed; 0 failed; 0 ignored
 ## Verification
 
 All changes verified with:
+
 ```bash
 cargo test --lib core_router --quiet
 # Result: 58 passed; 0 failed; 0 ignored
 ```
 
 Individual test verification:
+
 ```bash
 cargo test --lib core_router::rpc_protocol::tests --quiet
 # Result: 9 passed; 0 failed; 0 ignored
