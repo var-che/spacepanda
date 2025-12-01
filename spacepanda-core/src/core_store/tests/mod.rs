@@ -14,6 +14,7 @@
 pub mod crdt_tests;
 pub mod model_tests;
 pub mod convergence_tests;
+pub mod persistence_tests;
 
 // Edge case tests
 pub mod lww_edge_cases;

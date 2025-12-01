@@ -21,7 +21,7 @@ use spacepanda_core::core_dht::{
     DhtClient, DhtServer, PeerContact, DhtMessageNew as DhtMessage,
 };
 use spacepanda_core::core_router::{RouterHandle, PeerId};
-use spacepanda_core::core_identity::Ed25519Keypair;
+use spacepanda_core::core_identity::Keypair;
 
 /// Test node combining DHT client, server, and router
 struct TestDhtNode {

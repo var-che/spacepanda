@@ -11,6 +11,9 @@ pub mod message;
 pub mod client;
 pub mod server;
 
+#[cfg(test)]
+pub mod tests;
+
 pub use dht_config::{DhtConfig, ReplicationStrategy};
 pub use dht_key::DhtKey;
 pub use dht_node::{BucketEntry, DhtCommand, DhtEvent, DhtMessage, DhtNode};
