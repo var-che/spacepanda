@@ -73,17 +73,55 @@ Tests frame size validation checks (1KB - 128KB)
 
 ### 2. DHT Operations Benchmarks (`dht_operations.rs`)
 
-**Status**: ⚠️ Partial (needs API updates)
+**Status**: ✅ Working
 
-Planned tests for DHT layer:
+Tests performance of the Distributed Hash Table layer including:
 
-- DhtKey generation and batch operations
-- RoutingTable initialization with varying k-values
-- Peer insertion and table management
-- DHT value serialization
-- Peer contact creation
+#### `dht_key_generation`
+- **single_key**: ~197 ns per DhtKey hash generation
+- **batch/10**: ~1.84 µs, ~5.4 Melem/s throughput
+- **batch/100**: ~18.9 µs, ~5.3 Melem/s throughput  
+- **batch/500**: ~95.0 µs, ~5.3 Melem/s throughput
+- **batch/1000**: ~191 µs, ~5.2 Melem/s throughput
 
-**Note**: Currently blocked on API compatibility issues. Needs updates to match current DHT module structure.
+#### `dht_key_hashing`
+Tests Blake2b hashing performance with varying data sizes:
+- **32 bytes**: ~206 ns, ~148 MiB/s
+- **256 bytes**: ~380 ns, ~643 MiB/s
+- **1 KiB**: ~1.38 µs, ~705 MiB/s
+- **4 KiB**: ~5.44 µs, ~717 MiB/s
+- **16 KiB**: ~21.6 µs, ~723 MiB/s
+
+#### `dht_key_distance`
+XOR distance calculation performance (critical for routing):
+- **10 comparisons**: TBD
+- **100 comparisons**: TBD
+- **1,000 comparisons**: TBD
+- **10,000 comparisons**: TBD
+
+#### `dht_routing_table_init`
+Routing table initialization with varying k-values (8, 16, 20, 32)
+
+#### `dht_routing_insert`
+Peer insertion into routing table (10, 100, 500, 1000 peers)
+
+#### `dht_routing_lookup`
+Find closest peers lookup performance (varying table sizes)
+
+#### `dht_value_serialization`
+DhtValue serialization with bincode (100B - 50KB)
+
+#### `dht_peer_contact`
+PeerContact creation and management
+
+#### `dht_bucket_distribution`
+Bucket distribution analysis with large peer sets (100 - 5000 peers)
+
+**Key Findings**:
+- DhtKey hash generation is extremely fast (~197 ns)
+- Blake2b hashing scales well: ~700+ MiB/s for larger payloads
+- Consistent ~5.2-5.4 Melem/s throughput for batch operations
+- XOR distance calculation is a core primitive for routing efficiency
 
 ### 3. CRDT Operations Benchmarks (`crdt_operations.rs`)
 
@@ -126,6 +164,15 @@ Planned tests:
 | Lifecycle (100K cap) | 11.5 µs | 8.7 Gelem/s |
 | Shutdown             | 11.5 µs | N/A         |
 
+### DHT Operations (Current)
+
+| Operation           | Size/Count | Time    | Throughput  |
+| ------------------- | ---------- | ------- | ----------- |
+| Key generation      | Single     | 197 ns  | N/A         |
+| Key generation      | Batch 1000 | 191 µs  | 5.2 Melem/s |
+| Blake2b hashing     | 1 KiB      | 1.38 µs | 705 MiB/s   |
+| Blake2b hashing     | 16 KiB     | 21.6 µs | 723 MiB/s   |
+
 ### CRDT Operations (Current)
 
 | Operation      | Size   | Time   |
@@ -138,7 +185,7 @@ Planned tests:
 
 ### Priority 1: Fix Compatibility Issues
 
-- [ ] Update DHT benchmarks to match current `core_dht` API
+- [x] Update DHT benchmarks to match current `core_dht` API
 - [ ] Resolve CRDT `LWWRegister::set` signature (4-arg vs 3-arg)
 - [ ] Fix crypto rand crate compatibility (RngCore trait bounds)
 
