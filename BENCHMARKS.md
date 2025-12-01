@@ -78,14 +78,17 @@ Tests frame size validation checks (1KB - 128KB)
 Tests performance of the Distributed Hash Table layer including:
 
 #### `dht_key_generation`
+
 - **single_key**: ~197 ns per DhtKey hash generation
 - **batch/10**: ~1.84 µs, ~5.4 Melem/s throughput
-- **batch/100**: ~18.9 µs, ~5.3 Melem/s throughput  
+- **batch/100**: ~18.9 µs, ~5.3 Melem/s throughput
 - **batch/500**: ~95.0 µs, ~5.3 Melem/s throughput
 - **batch/1000**: ~191 µs, ~5.2 Melem/s throughput
 
 #### `dht_key_hashing`
+
 Tests Blake2b hashing performance with varying data sizes:
+
 - **32 bytes**: ~206 ns, ~148 MiB/s
 - **256 bytes**: ~380 ns, ~643 MiB/s
 - **1 KiB**: ~1.38 µs, ~705 MiB/s
@@ -93,31 +96,40 @@ Tests Blake2b hashing performance with varying data sizes:
 - **16 KiB**: ~21.6 µs, ~723 MiB/s
 
 #### `dht_key_distance`
+
 XOR distance calculation performance (critical for routing):
+
 - **10 comparisons**: TBD
 - **100 comparisons**: TBD
 - **1,000 comparisons**: TBD
 - **10,000 comparisons**: TBD
 
 #### `dht_routing_table_init`
+
 Routing table initialization with varying k-values (8, 16, 20, 32)
 
 #### `dht_routing_insert`
+
 Peer insertion into routing table (10, 100, 500, 1000 peers)
 
 #### `dht_routing_lookup`
+
 Find closest peers lookup performance (varying table sizes)
 
 #### `dht_value_serialization`
+
 DhtValue serialization with bincode (100B - 50KB)
 
 #### `dht_peer_contact`
+
 PeerContact creation and management
 
 #### `dht_bucket_distribution`
+
 Bucket distribution analysis with large peer sets (100 - 5000 peers)
 
 **Key Findings**:
+
 - DhtKey hash generation is extremely fast (~197 ns)
 - Blake2b hashing scales well: ~700+ MiB/s for larger payloads
 - Consistent ~5.2-5.4 Melem/s throughput for batch operations
@@ -166,12 +178,12 @@ Planned tests:
 
 ### DHT Operations (Current)
 
-| Operation           | Size/Count | Time    | Throughput  |
-| ------------------- | ---------- | ------- | ----------- |
-| Key generation      | Single     | 197 ns  | N/A         |
-| Key generation      | Batch 1000 | 191 µs  | 5.2 Melem/s |
-| Blake2b hashing     | 1 KiB      | 1.38 µs | 705 MiB/s   |
-| Blake2b hashing     | 16 KiB     | 21.6 µs | 723 MiB/s   |
+| Operation       | Size/Count | Time    | Throughput  |
+| --------------- | ---------- | ------- | ----------- |
+| Key generation  | Single     | 197 ns  | N/A         |
+| Key generation  | Batch 1000 | 191 µs  | 5.2 Melem/s |
+| Blake2b hashing | 1 KiB      | 1.38 µs | 705 MiB/s   |
+| Blake2b hashing | 16 KiB     | 21.6 µs | 723 MiB/s   |
 
 ### CRDT Operations (Current)
 
