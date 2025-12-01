@@ -31,14 +31,14 @@ MLS (Messaging Layer Security) depends on:
 **Coverage by Subsystem:**
 
 - [x] Identity: 7/7 (100%) ✅ COMPLETE
-- [⚡] Router: 0/5 (0%) ⚡ IN PROGRESS - Starting Phase 2
+- [⚡] Router: 1/5 (20%) ⚡ IN PROGRESS - Test 2.1 complete
 - [ ] DHT: 0/5 (0%)
 - [x] CRDT: 6/6 (100%) ✅ COMPLETE
 - [ ] Store: 0/5 (0%)
 - [ ] Integration: 0/9 (0%)
 
 **Last Updated:** 2025-12-01  
-**Current Phase:** Phase 2 starting - Router Security Tests (2.1-2.5)  
+**Current Phase:** Phase 2 - Router Security Tests (2.1 complete, 2.2 in progress)  
 **Next Phase:** DHT Resilience Tests (3.1-3.5)
 
 ---
@@ -269,12 +269,20 @@ If a key is marked expired:
 
 ---
 
-### ⚡ 2.1 Noise Handshake Downgrade Test
+### ✅ 2.1 Noise Handshake Downgrade Test
 
 **File:** `test_noise_handshake_downgrade_protection`  
 **Priority:** CRITICAL  
 **Estimated Time:** 2-3 hours  
-**Status:** ⚡ NEXT - Starting implementation
+**Status:** ✅ COMPLETE
+
+**Implemented tests:**
+
+- Valid Noise_XX handshake succeeds
+- Malformed handshake data rejected
+- Plaintext injection rejected
+- Random garbage rejected
+- No Established event on failed handshake
 
 Force an attacker to attempt:
 
@@ -302,7 +310,8 @@ Expected: handshake aborts with clear error.
 
 **File:** `test_onion_routing_privacy`  
 **Priority:** CRITICAL  
-**Estimated Time:** 3-4 hours
+**Estimated Time:** 3-4 hours  
+**Status:** ⏭️ DEFERRED - Requires OnionRouter circuit building API
 
 Ensure the relay never learns:
 
@@ -338,7 +347,8 @@ relay must not observe sender global key
 
 **File:** `test_onion_path_failure_recovery`  
 **Priority:** HIGH  
-**Estimated Time:** 2-3 hours
+**Estimated Time:** 2-3 hours  
+**Status:** ⏭️ DEFERRED - Requires RouterHandle path management + reputation
 
 Simulate:
 
@@ -368,11 +378,27 @@ Router must:
 
 ---
 
-### ☐ 2.4 RPC Request-ID Replay Test
+### ✅ 2.4 RPC Request-ID Replay Test
 
 **File:** `test_rpc_request_id_replay_protection`  
 **Priority:** HIGH  
-**Estimated Time:** 1-2 hours
+**Estimated Time:** 1-2 hours  
+**Status:** ✅ COMPLETE
+
+**Implemented features:**
+
+- Added anti-replay protection to RpcProtocol
+- Seen request IDs tracked with timestamps
+- TTL-based pruning (5min default)
+- Background cleanup task
+- Duplicate requests rejected with error code -32600
+
+**Test validates:**
+
+- First request accepted and processed
+- Replay of same ID rejected
+- Different request IDs work independently
+- Seen requests count tracked correctly
 
 Send the same "RPC request ID" twice:
 
@@ -397,7 +423,8 @@ Send the same "RPC request ID" twice:
 
 **File:** `test_connection_flood_protection`  
 **Priority:** MEDIUM  
-**Estimated Time:** 2 hours
+**Estimated Time:** 2 hours  
+**Status:** ⏭️ DEFERRED - Requires RouterHandle with rate limiting
 
 Simulate 200 fake nodes trying to connect:
 
@@ -1223,29 +1250,34 @@ fn test_{subsystem}_{feature}_{scenario}() {
 ## 📝 **CURRENT SESSION NOTES**
 
 **What's Complete:**
+
 - ✅ Identity cryptographic tests (7/7) - Production-grade Ed25519/X25519 with replay protection
 - ✅ CRDT mission-critical tests (6/6) - Convergence, Byzantine resistance, causal ordering
-- ✅ 674 tests passing in full suite
-- ✅ Router security test suite created (5/5 skeletal tests documented and ready for implementation)
+- ✅ Router test 2.1 (Noise handshake downgrade protection) - 5 attack scenarios validated
+- ✅ Router test 2.4 (RPC replay protection) - Anti-replay feature implemented + tested
+- ✅ 676 tests passing in full suite (was 674, +2 router tests)
 
 **What's In Progress:**
-- ⚡ Router security tests (5/5 skeletal, 0/5 implemented) - Tests are documented with detailed scenarios but await router API stabilization
-  - All 5 tests compile and pass (as `#[ignore]` placeholders)
-  - Each test includes comprehensive documentation of attack scenarios
-  - Ready for implementation once `SessionManager`, `OnionRouter`, `RpcProtocol`, and `RouterHandle` APIs are finalized
 
-**Files Created This Session:**
-- `src/core_router/tests/security_tests.rs` - 630+ lines of detailed test specifications
-- `src/core_router/tests/mod.rs` - Test module registration
+- ⏭️ Router tests 2.2, 2.3, 2.5 deferred pending API completion
+  - 2.2 needs OnionRouter circuit building
+  - 2.3 needs RouterHandle path management + reputation
+  - 2.5 needs RouterHandle rate limiting
+- ⚡ Ready to move to DHT or Store tests
+
+**Files Modified This Session:**
+
+- `src/core_router/tests/security_tests.rs` - Implemented 2 tests (2.1 and 2.4), ~280 lines total
+- `src/core_router/rpc_protocol.rs` - Added anti-replay protection with TTL-based pruning
+- `TESTING_TODO_BEFORE_MLS.md` - Updated progress tracker
 
 **Next Steps:**
-1. ~~Create router security test specifications~~ ✅ DONE
-2. Stabilize router APIs (SessionManager, OnionRouter, RpcProtocol)
-3. Implement test helper functions (mock relays, tampered relays, RPC client/server)
-4. Un-ignore and fully implement all 5 router security tests
-5. Create DHT resilience tests (5 tests)
-6. Create Store persistence tests (5 tests)  
-7. Create Integration tests (9 tests)
+
+1. ~~Implement test_noise_handshake_downgrade_protection~~ ✅ DONE
+2. ~~Implement test_rpc_request_id_replay_protection~~ ✅ DONE
+3. Move to DHT resilience tests (5 tests) OR Store persistence tests (5 tests)
+4. Return to router tests 2.2/2.3/2.5 after router APIs stabilize
+5. Implement integration tests (9 tests)
 
 ---
 

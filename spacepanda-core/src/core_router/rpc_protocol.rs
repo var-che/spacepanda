@@ -41,9 +41,9 @@
 */
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use uuid::Uuid;
 
@@ -123,32 +123,64 @@ struct PendingRequest {
     response_tx: oneshot::Sender<Result<serde_json::Value, RpcError>>,
 }
 
+/// Seen request ID for replay protection
+struct SeenRequest {
+    timestamp: Instant,
+}
+
 pub struct RpcProtocol {
     /// Pending requests awaiting responses
     pending_requests: Arc<Mutex<HashMap<String, PendingRequest>>>,
     /// Registered method handlers
     handlers: Arc<Mutex<HashMap<String, mpsc::Sender<RpcRequest>>>>,
+    /// Seen request IDs to prevent replay attacks (request_id -> timestamp)
+    seen_requests: Arc<Mutex<HashMap<String, SeenRequest>>>,
     /// Channel to send session commands
     session_tx: mpsc::Sender<SessionCommand>,
     /// Default timeout for RPC calls
     default_timeout: Duration,
+    /// TTL for seen request IDs (for pruning)
+    seen_requests_ttl: Duration,
 }
 
 impl RpcProtocol {
     /// Create a new RPC protocol handler
     pub fn new(session_tx: mpsc::Sender<SessionCommand>) -> Self {
-        RpcProtocol {
+        let rpc = RpcProtocol {
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
             handlers: Arc::new(Mutex::new(HashMap::new())),
+            seen_requests: Arc::new(Mutex::new(HashMap::new())),
             session_tx,
             default_timeout: Duration::from_secs(30),
-        }
+            seen_requests_ttl: Duration::from_secs(300), // 5 minutes
+        };
+        
+        // Start background task to prune old seen requests
+        let seen_requests = rpc.seen_requests.clone();
+        let ttl = rpc.seen_requests_ttl;
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                let mut seen = seen_requests.lock().await;
+                let now = Instant::now();
+                seen.retain(|_, req| now.duration_since(req.timestamp) < ttl);
+            }
+        });
+        
+        rpc
     }
 
     /// Set the default timeout for RPC calls
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.default_timeout = timeout;
         self
+    }
+    
+    /// Get the number of seen requests (for testing)
+    #[cfg(test)]
+    pub async fn seen_requests_count(&self) -> usize {
+        self.seen_requests.lock().await.len()
     }
 
     /// Handle incoming session events (plaintext frames from peers)
@@ -257,6 +289,21 @@ impl RpcProtocol {
         method: String,
         params: serde_json::Value,
     ) -> Result<(), String> {
+        // Check for replay attack
+        {
+            let mut seen = self.seen_requests.lock().await;
+            if seen.contains_key(&id) {
+                // Replay detected! Reject the request
+                let error = RpcError::new(-32600, format!("Duplicate request ID: {}", id));
+                self.send_response(peer_id, id, Err(error)).await?;
+                return Ok(()); // Don't process replay
+            }
+            // Mark this request ID as seen
+            seen.insert(id.clone(), SeenRequest {
+                timestamp: Instant::now(),
+            });
+        }
+        
         let handlers = self.handlers.lock().await;
         let handler_tx = handlers.get(&method).cloned();
         drop(handlers);
@@ -326,18 +373,25 @@ impl RpcProtocol {
         id: String,
         error: RpcError,
     ) -> Result<(), String> {
-        let message = RpcMessage::Response {
-            id,
-            result: Err(error),
-        };
+        self.send_response(peer_id, id, Err(error)).await
+    }
+    
+    /// Send a response (success or error) to a peer
+    async fn send_response(
+        &self,
+        peer_id: PeerId,
+        id: String,
+        result: Result<serde_json::Value, RpcError>,
+    ) -> Result<(), String> {
+        let message = RpcMessage::Response { id, result };
 
         let bytes = serde_json::to_vec(&message)
-            .map_err(|e| format!("Failed to serialize error response: {}", e))?;
+            .map_err(|e| format!("Failed to serialize response: {}", e))?;
 
         self.session_tx
             .send(SessionCommand::SendPlaintext(peer_id, bytes))
             .await
-            .map_err(|e| format!("Failed to send error response: {}", e))?;
+            .map_err(|e| format!("Failed to send response: {}", e))?;
 
         Ok(())
     }
