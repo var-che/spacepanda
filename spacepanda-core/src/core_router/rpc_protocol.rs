@@ -79,15 +79,15 @@ impl RpcError {
     }
 
     pub fn method_not_found(method: &str) -> Self {
-        RpcError::new(-32601, format!("Method not found: {}", method))
+        RpcError::new(ERR_METHOD_NOT_FOUND, format!("Method not found: {}", method))
     }
 
     pub fn internal_error(msg: &str) -> Self {
-        RpcError::new(-32603, format!("Internal error: {}", msg))
+        RpcError::new(ERR_INTERNAL_ERROR, format!("Internal error: {}", msg))
     }
 
     pub fn timeout() -> Self {
-        RpcError::new(-32000, "Request timeout".to_string())
+        RpcError::new(ERR_TIMEOUT, "Request timeout".to_string())
     }
 }
 
@@ -141,34 +141,96 @@ pub struct RpcProtocol {
     default_timeout: Duration,
     /// TTL for seen request IDs (for pruning)
     seen_requests_ttl: Duration,
+    /// Maximum capacity for seen_requests map to prevent memory exhaustion
+    seen_requests_max_capacity: usize,
+    /// Shutdown signal for background pruning task
+    prune_shutdown_tx: Option<oneshot::Sender<()>>,
+    /// Handle to background pruning task
+    prune_task_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
+/// Maximum frame size to prevent memory exhaustion DoS (64 KiB)
+const MAX_FRAME_SIZE: usize = 64 * 1024;
+
+/// Error codes for RPC errors
+const ERR_METHOD_NOT_FOUND: i32 = -32601;
+const ERR_INTERNAL_ERROR: i32 = -32603;
+const ERR_TIMEOUT: i32 = -32000;
+const ERR_DUPLICATE_REQUEST: i32 = -32600;
+
 impl RpcProtocol {
-    /// Create a new RPC protocol handler
+    /// Create a new RPC protocol handler with default settings
     pub fn new(session_tx: mpsc::Sender<SessionCommand>) -> Self {
-        let rpc = RpcProtocol {
-            pending_requests: Arc::new(Mutex::new(HashMap::new())),
-            handlers: Arc::new(Mutex::new(HashMap::new())),
-            seen_requests: Arc::new(Mutex::new(HashMap::new())),
+        Self::new_with_config(
             session_tx,
-            default_timeout: Duration::from_secs(30),
-            seen_requests_ttl: Duration::from_secs(300), // 5 minutes
-        };
+            Duration::from_secs(30),        // default RPC timeout
+            Duration::from_secs(300),        // 5 minute TTL for seen requests
+            Duration::from_secs(60),         // prune every 60 seconds
+            100_000,                         // max 100k seen request IDs
+        )
+    }
+    
+    /// Create a new RPC protocol handler with custom configuration
+    /// 
+    /// # Arguments
+    /// * `session_tx` - Channel to send session commands
+    /// * `default_timeout` - Default timeout for RPC calls
+    /// * `seen_requests_ttl` - TTL for seen request IDs (replay protection window)
+    /// * `prune_interval` - How often to prune expired seen requests
+    /// * `seen_requests_max_capacity` - Maximum number of seen request IDs to track
+    pub fn new_with_config(
+        session_tx: mpsc::Sender<SessionCommand>,
+        default_timeout: Duration,
+        seen_requests_ttl: Duration,
+        prune_interval: Duration,
+        seen_requests_max_capacity: usize,
+    ) -> Self {
+        let seen_requests = Arc::new(Mutex::new(HashMap::<String, SeenRequest>::new()));
+        let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
         
         // Start background task to prune old seen requests
-        let seen_requests = rpc.seen_requests.clone();
-        let ttl = rpc.seen_requests_ttl;
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
+        let seen_requests_clone = seen_requests.clone();
+        let ttl = seen_requests_ttl;
+        let max_capacity = seen_requests_max_capacity;
+        let prune_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(prune_interval);
             loop {
-                interval.tick().await;
-                let mut seen = seen_requests.lock().await;
-                let now = Instant::now();
-                seen.retain(|_, req| now.duration_since(req.timestamp) < ttl);
+                tokio::select! {
+                    _ = interval.tick() => {
+                        let mut seen = seen_requests_clone.lock().await;
+                        let now = Instant::now();
+                        // Prune expired entries
+                        seen.retain(|_, req| now.duration_since(req.timestamp) < ttl);
+                        // Enforce capacity limit by removing oldest entries if over limit
+                        if seen.len() > max_capacity {
+                            let to_remove = seen.len() - max_capacity;
+                            let mut entries: Vec<_> = seen.iter()
+                                .map(|(id, req)| (id.clone(), req.timestamp))
+                                .collect();
+                            entries.sort_by_key(|(_, ts)| *ts);
+                            for (id, _) in entries.iter().take(to_remove) {
+                                seen.remove(id);
+                            }
+                        }
+                    }
+                    _ = &mut shutdown_rx => {
+                        break;
+                    }
+                }
             }
         });
         
-        rpc
+        RpcProtocol {
+            pending_requests: Arc::new(Mutex::new(HashMap::new())),
+            handlers: Arc::new(Mutex::new(HashMap::new())),
+            seen_requests,
+            session_tx,
+            default_timeout,
+            seen_requests_ttl,
+            seen_requests_max_capacity,
+            prune_shutdown_tx: Some(shutdown_tx),
+            prune_task_handle: Some(prune_handle),
+        }
     }
 
     /// Set the default timeout for RPC calls
@@ -177,10 +239,26 @@ impl RpcProtocol {
         self
     }
     
+    /// Gracefully shutdown the RPC protocol, stopping background tasks
+    pub async fn shutdown(&mut self) {
+        if let Some(tx) = self.prune_shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+        if let Some(handle) = self.prune_task_handle.take() {
+            let _ = handle.await;
+        }
+    }
+    
     /// Get the number of seen requests (for testing)
     #[cfg(test)]
     pub async fn seen_requests_count(&self) -> usize {
         self.seen_requests.lock().await.len()
+    }
+    
+    /// Get the maximum capacity for seen requests (for testing)
+    #[cfg(test)]
+    pub fn seen_requests_max_capacity(&self) -> usize {
+        self.seen_requests_max_capacity
     }
 
     /// Handle incoming session events (plaintext frames from peers)
@@ -266,6 +344,11 @@ impl RpcProtocol {
 
     /// Handle incoming frame from a peer
     async fn handle_frame(&self, peer_id: PeerId, bytes: Vec<u8>) -> Result<(), String> {
+        // Reject oversized frames to prevent memory exhaustion DoS
+        if bytes.len() > MAX_FRAME_SIZE {
+            return Err(format!("Frame too large: {} bytes (max {})", bytes.len(), MAX_FRAME_SIZE));
+        }
+        
         let message: RpcMessage = serde_json::from_slice(&bytes)
             .map_err(|e| format!("Failed to deserialize RPC message: {}", e))?;
 
@@ -289,15 +372,25 @@ impl RpcProtocol {
         method: String,
         params: serde_json::Value,
     ) -> Result<(), String> {
-        // Check for replay attack
+        // Check for replay attack and enforce capacity limit
+        // NOTE: This is safe from race conditions because we hold the mutex
+        // during both the contains_key check and insert operation.
         {
             let mut seen = self.seen_requests.lock().await;
             if seen.contains_key(&id) {
                 // Replay detected! Reject the request
-                let error = RpcError::new(-32600, format!("Duplicate request ID: {}", id));
+                let error = RpcError::new(ERR_DUPLICATE_REQUEST, format!("Duplicate request ID: {}", id));
                 self.send_response(peer_id, id, Err(error)).await?;
                 return Ok(()); // Don't process replay
             }
+            
+            // Enforce capacity limit - reject new requests if at capacity
+            if seen.len() >= self.seen_requests_max_capacity {
+                let error = RpcError::new(ERR_INTERNAL_ERROR, "Too many pending requests".to_string());
+                self.send_response(peer_id, id, Err(error)).await?;
+                return Ok(());
+            }
+            
             // Mark this request ID as seen
             seen.insert(id.clone(), SeenRequest {
                 timestamp: Instant::now(),
@@ -591,5 +684,202 @@ mod tests {
         // Pending request should be removed
         sleep(Duration::from_millis(150)).await;
         assert_eq!(rpc.pending_count().await, 0);
+    }
+    
+    #[tokio::test]
+    async fn test_oversized_frame_rejection() {
+        let (session_tx, _session_rx) = mpsc::channel(100);
+        let mut rpc = RpcProtocol::new(session_tx);
+        
+        let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
+        
+        // Create a frame larger than MAX_FRAME_SIZE (64 KiB)
+        let oversized_payload = vec![0u8; MAX_FRAME_SIZE + 1];
+        
+        // Should reject with clear error
+        let result = rpc.handle_session_event(SessionEvent::PlaintextFrame(
+            peer_id,
+            oversized_payload,
+        )).await;
+        
+        assert!(result.is_err(), "Should reject oversized frame");
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("Frame too large"), "Error should mention frame size: {}", err_msg);
+        // The error message contains "65536" (64 * 1024) not just "64"
+        assert!(err_msg.contains("65536"), "Error should mention limit: {}", err_msg);
+        
+        // Cleanup
+        rpc.shutdown().await;
+    }
+    
+    #[tokio::test]
+    async fn test_seen_requests_capacity_limit() {
+        let (session_tx, mut session_rx) = mpsc::channel(1000);
+        // Create RPC with very small capacity for testing
+        let rpc = RpcProtocol::new_with_config(
+            session_tx,
+            Duration::from_secs(30),
+            Duration::from_secs(300),
+            Duration::from_secs(60),
+            10, // Only allow 10 seen requests
+        );
+        
+        assert_eq!(rpc.seen_requests_max_capacity(), 10);
+        
+        let (handler_tx, mut _handler_rx) = mpsc::channel(100);
+        rpc.handle_command(RpcCommand::RegisterHandler {
+            method: "test".to_string(),
+            handler_tx,
+        })
+        .await
+        .unwrap();
+        
+        let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
+        
+        // Send 10 unique requests (should all be accepted)
+        for i in 0..10 {
+            let request = RpcMessage::Request {
+                id: format!("req-{}", i),
+                method: "test".to_string(),
+                params: serde_json::json!({}),
+            };
+            let bytes = serde_json::to_vec(&request).unwrap();
+            rpc.handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes))
+                .await
+                .unwrap();
+        }
+        
+        // Should have 10 seen requests
+        assert_eq!(rpc.seen_requests_count().await, 10);
+        
+        // Send 11th unique request - should be rejected (at capacity)
+        let request = RpcMessage::Request {
+            id: "req-11".to_string(),
+            method: "test".to_string(),
+            params: serde_json::json!({}),
+        };
+        let bytes = serde_json::to_vec(&request).unwrap();
+        rpc.handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes))
+            .await
+            .unwrap();
+        
+        // Should receive error response for capacity limit
+        let cmd = timeout(Duration::from_millis(100), session_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        
+        match cmd {
+            SessionCommand::SendPlaintext(_, bytes) => {
+                let msg: RpcMessage = serde_json::from_slice(&bytes).unwrap();
+                if let RpcMessage::Response { result, .. } = msg {
+                    let err = result.unwrap_err();
+                    assert!(err.message.contains("Too many"), "Should reject at capacity: {}", err.message);
+                }
+            }
+            _ => panic!("Expected error response"),
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_seen_requests_ttl_pruning() {
+        let (session_tx, _session_rx) = mpsc::channel(100);
+        // Create RPC with very short TTL and prune interval for testing
+        let mut rpc = RpcProtocol::new_with_config(
+            session_tx,
+            Duration::from_secs(30),
+            Duration::from_millis(100), // 100ms TTL
+            Duration::from_millis(50),  // prune every 50ms
+            1000,
+        );
+        
+        let (handler_tx, mut _handler_rx) = mpsc::channel(100);
+        rpc.handle_command(RpcCommand::RegisterHandler {
+            method: "test".to_string(),
+            handler_tx,
+        })
+        .await
+        .unwrap();
+        
+        let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
+        
+        // Send a request
+        let request = RpcMessage::Request {
+            id: "expire-test".to_string(),
+            method: "test".to_string(),
+            params: serde_json::json!({}),
+        };
+        let bytes = serde_json::to_vec(&request).unwrap();
+        rpc.handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes.clone()))
+            .await
+            .unwrap();
+        
+        // Should have 1 seen request
+        assert_eq!(rpc.seen_requests_count().await, 1);
+        
+        // Wait for TTL + prune interval
+        sleep(Duration::from_millis(200)).await;
+        
+        // Should be pruned now
+        assert_eq!(rpc.seen_requests_count().await, 0, "Old request should be pruned");
+        
+        // Should be able to reuse same ID after expiry
+        rpc.handle_session_event(SessionEvent::PlaintextFrame(peer_id, bytes))
+            .await
+            .unwrap();
+        
+        assert_eq!(rpc.seen_requests_count().await, 1, "Should accept previously expired ID");
+        
+        // Cleanup
+        rpc.shutdown().await;
+    }
+    
+    #[tokio::test]
+    async fn test_graceful_shutdown() {
+        let (session_tx, _session_rx) = mpsc::channel(100);
+        let mut rpc = RpcProtocol::new_with_config(
+            session_tx,
+            Duration::from_secs(30),
+            Duration::from_millis(100),
+            Duration::from_millis(50),
+            1000,
+        );
+        
+        // Should have background task running
+        assert!(rpc.prune_task_handle.is_some());
+        
+        // Shutdown
+        rpc.shutdown().await;
+        
+        // Background task should be stopped
+        assert!(rpc.prune_task_handle.is_none());
+        assert!(rpc.prune_shutdown_tx.is_none());
+    }
+    
+    #[tokio::test]
+    async fn test_malformed_frames_dont_panic() {
+        let (session_tx, _session_rx) = mpsc::channel(100);
+        let rpc = RpcProtocol::new(session_tx);
+        
+        let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
+        
+        // Test various malformed payloads
+        let malformed_payloads = vec![
+            vec![],                           // empty
+            vec![0xFF, 0xFF, 0xFF],          // invalid UTF-8/JSON
+            vec![b'{'; 100],                 // incomplete JSON
+            b"not json at all".to_vec(),     // plain text
+            b"{\"type\":\"unknown\"}".to_vec(), // unknown message type
+        ];
+        
+        for payload in malformed_payloads {
+            let result = rpc.handle_session_event(SessionEvent::PlaintextFrame(
+                peer_id.clone(),
+                payload.clone(),
+            )).await;
+            
+            // Should return error, not panic
+            assert!(result.is_err(), "Malformed payload should be rejected: {:?}", payload);
+        }
     }
 }
