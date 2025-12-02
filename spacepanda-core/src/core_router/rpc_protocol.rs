@@ -48,6 +48,7 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use uuid::Uuid;
 use hashlink::LruCache;
 
+use super::rate_limiter::{RateLimiter, RateLimiterConfig, RateLimitResult};
 use super::session_manager::{PeerId, SessionCommand, SessionEvent};
 
 /// RPC message types
@@ -89,6 +90,14 @@ impl RpcError {
 
     pub fn timeout() -> Self {
         RpcError::new(ERR_TIMEOUT, "Request timeout".to_string())
+    }
+
+    pub fn rate_limited() -> Self {
+        RpcError::new(ERR_RATE_LIMITED, "Rate limit exceeded".to_string())
+    }
+
+    pub fn circuit_breaker_open() -> Self {
+        RpcError::new(ERR_CIRCUIT_BREAKER, "Circuit breaker open".to_string())
     }
 }
 
@@ -133,6 +142,8 @@ pub struct RpcProtocol {
     handlers: Arc<Mutex<HashMap<String, mpsc::Sender<RpcRequest>>>>,
     /// Seen request IDs to prevent replay attacks (LRU cache with automatic eviction)
     seen_requests: Arc<Mutex<LruCache<String, ()>>>,
+    /// Rate limiter for per-peer request throttling
+    rate_limiter: Arc<RateLimiter>,
     /// Channel to send session commands
     session_tx: mpsc::Sender<SessionCommand>,
     /// Default timeout for RPC calls
@@ -147,6 +158,8 @@ const ERR_METHOD_NOT_FOUND: i32 = -32601;
 const ERR_INTERNAL_ERROR: i32 = -32603;
 const ERR_TIMEOUT: i32 = -32000;
 const ERR_DUPLICATE_REQUEST: i32 = -32600;
+const ERR_RATE_LIMITED: i32 = -32001;
+const ERR_CIRCUIT_BREAKER: i32 = -32002;
 
 impl RpcProtocol {
     /// Create a new RPC protocol handler with default settings
@@ -169,6 +182,27 @@ impl RpcProtocol {
         default_timeout: Duration,
         seen_requests_capacity: usize,
     ) -> Self {
+        Self::new_with_rate_limiting(
+            session_tx,
+            default_timeout,
+            seen_requests_capacity,
+            RateLimiterConfig::default(),
+        )
+    }
+
+    /// Create a new RPC protocol handler with custom rate limiting configuration
+    /// 
+    /// # Arguments
+    /// * `session_tx` - Channel to send session commands
+    /// * `default_timeout` - Default timeout for RPC calls
+    /// * `seen_requests_capacity` - Maximum number of seen request IDs to track (LRU)
+    /// * `rate_limiter_config` - Configuration for per-peer rate limiting
+    pub fn new_with_rate_limiting(
+        session_tx: mpsc::Sender<SessionCommand>,
+        default_timeout: Duration,
+        seen_requests_capacity: usize,
+        rate_limiter_config: RateLimiterConfig,
+    ) -> Self {
         // Create LRU cache for seen requests (O(1) insert/check, automatic eviction)
         let seen_requests = Arc::new(Mutex::new(LruCache::new(seen_requests_capacity)));
         
@@ -176,6 +210,7 @@ impl RpcProtocol {
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
             handlers: Arc::new(Mutex::new(HashMap::new())),
             seen_requests,
+            rate_limiter: Arc::new(RateLimiter::new_with_config(rate_limiter_config)),
             session_tx,
             default_timeout,
         }
@@ -284,6 +319,21 @@ impl RpcProtocol {
 
     /// Handle incoming frame from a peer
     async fn handle_frame(&self, peer_id: PeerId, bytes: Vec<u8>) -> Result<(), String> {
+        // Check rate limit first (before any processing)
+        match self.rate_limiter.check_request(&peer_id).await {
+            RateLimitResult::Allowed => {
+                // Request allowed, proceed
+            }
+            RateLimitResult::RateLimitExceeded => {
+                // Rate limit exceeded, reject request
+                return Err(format!("Rate limit exceeded for peer {:?}", peer_id));
+            }
+            RateLimitResult::CircuitBreakerOpen => {
+                // Circuit breaker open, reject request
+                return Err(format!("Circuit breaker open for peer {:?}", peer_id));
+            }
+        }
+        
         // Reject oversized frames to prevent memory exhaustion DoS
         if bytes.len() > MAX_FRAME_SIZE {
             return Err(format!("Frame too large: {} bytes (max {})", bytes.len(), MAX_FRAME_SIZE));
@@ -348,6 +398,8 @@ impl RpcProtocol {
 
             // Send to handler
             if handler_tx.send(request).await.is_err() {
+                // Handler crashed - record as failure for circuit breaker
+                self.rate_limiter.record_failure(&peer_id).await;
                 self.send_error_response(peer_id, id, RpcError::internal_error("Handler crashed"))
                     .await?;
                 return Ok(());
@@ -356,9 +408,16 @@ impl RpcProtocol {
             // Wait for handler response
             let peer_id_clone = peer_id.clone();
             let session_tx = self.session_tx.clone();
+            let rate_limiter = self.rate_limiter.clone();
             tokio::spawn(async move {
                 match response_rx.await {
                     Ok(result) => {
+                        // Record success/failure for circuit breaker based on result
+                        match &result {
+                            Ok(_) => rate_limiter.record_success(&peer_id_clone).await,
+                            Err(_) => rate_limiter.record_failure(&peer_id_clone).await,
+                        }
+                        
                         let message = RpcMessage::Response { id, result };
                         if let Ok(bytes) = serde_json::to_vec(&message) {
                             let _ = session_tx
@@ -367,12 +426,13 @@ impl RpcProtocol {
                         }
                     }
                     Err(_) => {
-                        // Handler dropped without responding
+                        // Handler dropped without responding - record as failure
+                        rate_limiter.record_failure(&peer_id_clone).await;
                     }
                 }
             });
         } else {
-            // Method not found
+            // Method not found - not a peer failure
             self.send_error_response(peer_id, id, RpcError::method_not_found(&method))
                 .await?;
         }
@@ -1055,10 +1115,20 @@ mod tests {
     async fn test_heavy_concurrent_seen_requests() {
         // Test LRU cache under heavy concurrent load (1000+ threads)
         let (session_tx, _session_rx) = mpsc::channel(10000);
-        let rpc = Arc::new(RpcProtocol::new_with_config(
+        
+        // Use very high rate limit for this stress test
+        let rate_config = RateLimiterConfig {
+            max_requests_per_sec: 10000,  // Very high limit for stress test
+            burst_size: 5000,
+            circuit_breaker_threshold: 10000,
+            circuit_breaker_timeout: Duration::from_secs(60),
+        };
+        
+        let rpc = Arc::new(RpcProtocol::new_with_rate_limiting(
             session_tx,
             Duration::from_secs(30),
             1000, // 1000 entry capacity
+            rate_config,
         ));
 
         let (handler_tx, mut _handler_rx) = mpsc::channel(10000);
@@ -1152,4 +1222,192 @@ mod tests {
         assert!(result3.is_ok());
         assert_eq!(rpc.seen_requests_count().await, 1);
     }
+
+    #[tokio::test]
+    async fn test_rate_limiting_blocks_excess_requests() {
+        let (session_tx, _session_rx) = mpsc::channel(32);
+        
+        // Create RPC with very restrictive rate limit
+        let rate_config = RateLimiterConfig {
+            max_requests_per_sec: 10,
+            burst_size: 5,  // Only allow 5 requests initially
+            circuit_breaker_threshold: 100,  // High threshold to not interfere
+            circuit_breaker_timeout: Duration::from_secs(60),
+        };
+        
+        let rpc = RpcProtocol::new_with_rate_limiting(
+            session_tx,
+            Duration::from_secs(30),
+            10000,
+            rate_config,
+        );
+
+        let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
+
+        // Send 5 requests - all should succeed (within burst)
+        for i in 0..5 {
+            let request = RpcMessage::Request {
+                id: format!("request-{}", i),
+                method: "test".to_string(),
+                params: serde_json::json!({}),
+            };
+            let bytes = serde_json::to_vec(&request).unwrap();
+            
+            let result = rpc
+                .handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes))
+                .await;
+            assert!(result.is_ok(), "Request {} should succeed (within burst)", i);
+        }
+
+        // 6th request should be rate limited
+        let request = RpcMessage::Request {
+            id: "request-6".to_string(),
+            method: "test".to_string(),
+            params: serde_json::json!({}),
+        };
+        let bytes = serde_json::to_vec(&request).unwrap();
+        
+        let result = rpc
+            .handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes))
+            .await;
+        assert!(result.is_err(), "Request should be rate limited");
+        assert!(result.unwrap_err().contains("Rate limit exceeded"));
+    }
+
+    #[tokio::test]
+    async fn test_circuit_breaker_opens_on_failures() {
+        let (session_tx, mut session_rx) = mpsc::channel(32);
+        
+        // Create RPC with low failure threshold
+        let rate_config = RateLimiterConfig {
+            max_requests_per_sec: 1000,
+            burst_size: 1000,
+            circuit_breaker_threshold: 3,  // Open after 3 failures
+            circuit_breaker_timeout: Duration::from_secs(60),
+        };
+        
+        let rpc = Arc::new(RpcProtocol::new_with_rate_limiting(
+            session_tx,
+            Duration::from_secs(30),
+            10000,
+            rate_config,
+        ));
+
+        // Register a failing handler
+        let (handler_tx, mut handler_rx) = mpsc::channel(32);
+        rpc.handle_command(RpcCommand::RegisterHandler {
+            method: "test".to_string(),
+            handler_tx,
+        })
+        .await
+        .unwrap();
+
+        let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
+
+        // Spawn task to receive and fail requests
+        let rpc_clone = rpc.clone();
+        tokio::spawn(async move {
+            while let Some(req) = handler_rx.recv().await {
+                // Send error response (failure)
+                let _ = req.response_tx.send(Err(RpcError::internal_error("Simulated failure")));
+            }
+        });
+
+        // Spawn task to drain session responses
+        tokio::spawn(async move {
+            while session_rx.recv().await.is_some() {}
+        });
+
+        // Send 3 failing requests
+        for i in 0..3 {
+            let request = RpcMessage::Request {
+                id: format!("failing-request-{}", i),
+                method: "test".to_string(),
+                params: serde_json::json!({}),
+            };
+            let bytes = serde_json::to_vec(&request).unwrap();
+            
+            rpc.handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes))
+                .await
+                .unwrap();
+            
+            // Give time for async processing
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Circuit should be open now - next request should be blocked
+        let request = RpcMessage::Request {
+            id: "blocked-request".to_string(),
+            method: "test".to_string(),
+            params: serde_json::json!({}),
+        };
+        let bytes = serde_json::to_vec(&request).unwrap();
+        
+        let result = rpc
+            .handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes))
+            .await;
+        assert!(result.is_err(), "Request should be blocked by circuit breaker");
+        assert!(result.unwrap_err().contains("Circuit breaker open"));
+    }
+
+    #[tokio::test]
+    async fn test_different_peers_have_independent_rate_limits() {
+        let (session_tx, _session_rx) = mpsc::channel(32);
+        
+        // Create RPC with restrictive rate limit
+        let rate_config = RateLimiterConfig {
+            max_requests_per_sec: 10,
+            burst_size: 3,
+            circuit_breaker_threshold: 100,
+            circuit_breaker_timeout: Duration::from_secs(60),
+        };
+        
+        let rpc = RpcProtocol::new_with_rate_limiting(
+            session_tx,
+            Duration::from_secs(30),
+            10000,
+            rate_config,
+        );
+
+        let peer1 = PeerId::from_bytes(vec![1; 32]);
+        let peer2 = PeerId::from_bytes(vec![2; 32]);
+
+        // Exhaust peer1's rate limit
+        for i in 0..3 {
+            let request = RpcMessage::Request {
+                id: format!("peer1-request-{}", i),
+                method: "test".to_string(),
+                params: serde_json::json!({}),
+            };
+            let bytes = serde_json::to_vec(&request).unwrap();
+            rpc.handle_session_event(SessionEvent::PlaintextFrame(peer1.clone(), bytes))
+                .await
+                .unwrap();
+        }
+
+        // Peer1 should be rate limited
+        let request = RpcMessage::Request {
+            id: "peer1-blocked".to_string(),
+            method: "test".to_string(),
+            params: serde_json::json!({}),
+        };
+        let bytes = serde_json::to_vec(&request).unwrap();
+        assert!(rpc.handle_session_event(SessionEvent::PlaintextFrame(peer1, bytes))
+            .await
+            .is_err());
+
+        // Peer2 should still have tokens available
+        for i in 0..3 {
+            let request = RpcMessage::Request {
+                id: format!("peer2-request-{}", i),
+                method: "test".to_string(),
+                params: serde_json::json!({}),
+            };
+            let bytes = serde_json::to_vec(&request).unwrap();
+            assert!(rpc.handle_session_event(SessionEvent::PlaintextFrame(peer2.clone(), bytes))
+                .await
+                .is_ok(), "Peer2 should not be rate limited");
+        }
+    }
 }
+

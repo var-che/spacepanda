@@ -1,5 +1,6 @@
 pub mod onion_router;
 pub mod overlay_discovery;
+pub mod rate_limiter;
 pub mod route_table;
 pub mod rpc_protocol;
 pub mod router_handle;
@@ -16,6 +17,7 @@ pub use overlay_discovery::{
     DiscoveryCommand, DiscoveryConfig, DiscoveryEvent, OverlayDiscovery, PeerDescriptor,
     PeerExchangeRequest, PeerExchangeResponse,
 };
+pub use rate_limiter::{RateLimiter, RateLimiterConfig, RateLimitResult};
 pub use route_table::{Capability, GeoLocation, PeerInfo, PeerStats, RouteTable, RouteTableCommand};
 pub use rpc_protocol::{RpcCommand, RpcError, RpcMessage, RpcProtocol, RpcRequest};
 pub use router_handle::{RouterCommand, RouterEvent, RouterHandle};
