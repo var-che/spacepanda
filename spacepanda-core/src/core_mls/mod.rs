@@ -36,11 +36,11 @@ pub mod persistence;
 pub mod tree;
 pub mod encryption;
 pub mod welcome;
+pub mod proposals;
+pub mod commit;
 
 // Placeholder modules (to be implemented incrementally)
 // pub mod group;
-// pub mod proposals;
-// pub mod commit;
 // pub mod transport;
 // pub mod api;
 
@@ -58,6 +58,10 @@ pub use encryption::{
     KeySchedule, EncryptedMessage, SenderData, HpkeContext,
 };
 pub use welcome::{Welcome, WelcomeBuilder, WelcomeGroupSecrets, TreeSnapshot};
+pub use proposals::{
+    Proposal, ProposalType, ProposalContent, ProposalRef, ProposalQueue,
+};
+pub use commit::{Commit, UpdatePath, CommitResult, CommitValidator};
 
 /// Default ciphersuite for SpacePanda MLS
 ///
