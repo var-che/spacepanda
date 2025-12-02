@@ -18,6 +18,7 @@ openmls_basic_credential = "0.4"
 openmls_traits = "0.3"
 rustls = "0.23"
 tokio.workspace = true
+async-trait = "0.1"
 snow = "0.9"  # Noise protocol implementation
 chacha20poly1305 = "0.10"  # AEAD cipher
 blake3 = "1.5"  # Modern, faster hashing (upgraded from blake2)

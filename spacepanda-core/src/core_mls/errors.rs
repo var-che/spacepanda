@@ -67,6 +67,26 @@ pub enum MlsError {
     /// Internal error (bug)
     #[error("Internal error: {0}")]
     Internal(String),
+
+    /// Storage operation failed
+    #[error("Storage error: {0}")]
+    Storage(String),
+
+    /// Item not found
+    #[error("Not found: {0}")]
+    NotFound(String),
+
+    /// Permission denied
+    #[error("Permission denied: {0}")]
+    PermissionDenied(String),
+
+    /// Invalid input
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+
+    /// Other error
+    #[error("Other: {0}")]
+    Other(String),
 }
 
 impl From<openmls::prelude::LibraryError> for MlsError {

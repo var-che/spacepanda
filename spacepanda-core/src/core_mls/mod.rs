@@ -31,6 +31,10 @@
 pub mod types;
 pub mod errors;
 pub mod crypto;
+pub mod events;
+
+// Trait boundaries for OpenMLS integration
+pub mod traits;
 
 // Implemented modules
 pub mod persistence;
