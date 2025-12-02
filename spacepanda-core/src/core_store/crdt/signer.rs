@@ -2,63 +2,58 @@
     signer.rs - CRDT operation signing and verification
     
     Signs CRDT operations to ensure authenticity and prevent tampering.
-    Uses Ed25519 signatures (placeholder for now, will integrate with core_identity).
+    Uses Ed25519 signatures integrated with core_identity.
 */
 
 use serde::{Deserialize, Serialize};
+use crate::core_identity::keypair::Keypair;
 
 /// Signature over a CRDT operation
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Signature(pub Vec<u8>);
 
-/// Public key for signature verification
+/// Public key for signature verification (32 bytes Ed25519)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PublicKey(pub Vec<u8>);
 
-/// Signing key for creating signatures
-#[derive(Debug, Clone)]
+/// Signing key for creating signatures (wraps real Ed25519 keypair)
+#[derive(Clone)]
 pub struct SigningKey {
-    // TODO: Replace with actual Ed25519 key from core_identity
-    key_bytes: Vec<u8>,
+    keypair: Keypair,
 }
 
 impl SigningKey {
-    /// Create a new signing key (placeholder implementation)
-    pub fn generate() -> Self {
-        // TODO: Use actual Ed25519 key generation
-        SigningKey {
-            key_bytes: vec![0; 32],
-        }
+    /// Create from an existing Ed25519 keypair
+    pub fn from_keypair(keypair: Keypair) -> Self {
+        SigningKey { keypair }
     }
     
-    /// Sign data
+    /// Sign data using Ed25519
     pub fn sign(&self, data: &[u8]) -> Signature {
-        // TODO: Implement actual Ed25519 signing
-        // For now, just hash the data as a placeholder
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        
-        let mut hasher = DefaultHasher::new();
-        data.hash(&mut hasher);
-        self.key_bytes.hash(&mut hasher);
-        let hash = hasher.finish();
-        
-        Signature(hash.to_le_bytes().to_vec())
+        Signature(self.keypair.sign(data))
     }
     
     /// Get the public key
     pub fn public_key(&self) -> PublicKey {
-        // TODO: Derive actual public key
-        PublicKey(self.key_bytes.clone())
+        PublicKey(self.keypair.public_key().to_vec())
     }
 }
 
 impl PublicKey {
-    /// Verify a signature
+    /// Create from raw bytes
+    pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, String> {
+        if bytes.len() != 32 {
+            return Err("Public key must be 32 bytes".to_string());
+        }
+        Ok(PublicKey(bytes))
+    }
+    
+    /// Verify a signature using Ed25519
     pub fn verify(&self, data: &[u8], signature: &Signature) -> bool {
-        // TODO: Implement actual Ed25519 verification
-        // For now, just check signature is not empty
-        !signature.0.is_empty() && !data.is_empty()
+        if signature.0.len() != 64 {
+            return false; // Ed25519 signatures are 64 bytes
+        }
+        Keypair::verify(&self.0, data, &signature.0)
     }
 }
 
@@ -120,60 +115,66 @@ impl OperationVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core_identity::keypair::KeyType;
     
     #[test]
-    fn test_signing_key_generation() {
-        let key = SigningKey::generate();
-        assert_eq!(key.key_bytes.len(), 32);
+    fn test_signing_key_creation() {
+        let keypair = Keypair::generate(KeyType::Ed25519);
+        let key = SigningKey::from_keypair(keypair);
+        let pubkey = key.public_key();
+        
+        assert_eq!(pubkey.0.len(), 32);
     }
     
     #[test]
     fn test_sign_and_verify() {
-        let key = SigningKey::generate();
+        let keypair = Keypair::generate(KeyType::Ed25519);
+        let key = SigningKey::from_keypair(keypair);
         let data = b"test data";
         
         let signature = key.sign(data);
-        let public_key = key.public_key();
+        assert_eq!(signature.0.len(), 64); // Ed25519 signatures are 64 bytes
         
+        let public_key = key.public_key();
         assert!(public_key.verify(data, &signature));
+        
+        // Wrong data should fail
+        assert!(!public_key.verify(b"wrong data", &signature));
     }
     
     #[test]
     fn test_operation_signer() {
-        let key = SigningKey::generate();
+        let keypair = Keypair::generate(KeyType::Ed25519);
+        let key = SigningKey::from_keypair(keypair);
         let signer = OperationSigner::new(key, "channel_123".to_string());
         
         let operation = b"some operation data";
         let signature = signer.sign_operation(operation);
         
-        assert!(!signature.0.is_empty());
-    }
-    
-    #[test]
-    fn test_operation_verifier() {
-        let key = SigningKey::generate();
-        let public_key = key.public_key();
-        let signer = OperationSigner::new(key, "channel_123".to_string());
-        let verifier = OperationVerifier::new(public_key, "channel_123".to_string());
+        assert_eq!(signature.0.len(), 64);
         
-        let operation = b"some operation data";
-        let signature = signer.sign_operation(operation);
-        
+        // Verify with matching context
+        let verifier = OperationVerifier::new(signer.public_key(), "channel_123".to_string());
         assert!(verifier.verify_operation(operation, &signature));
+        
+        // Wrong context should fail
+        let wrong_verifier = OperationVerifier::new(signer.public_key(), "channel_456".to_string());
+        assert!(!wrong_verifier.verify_operation(operation, &signature));
     }
     
     #[test]
-    fn test_different_context_fails() {
-        let key = SigningKey::generate();
-        let public_key = key.public_key();
-        let signer = OperationSigner::new(key, "channel_123".to_string());
-        let verifier = OperationVerifier::new(public_key, "channel_456".to_string());
+    fn test_forged_signature_rejected() {
+        let keypair1 = Keypair::generate(KeyType::Ed25519);
+        let keypair2 = Keypair::generate(KeyType::Ed25519);
         
-        let operation = b"some operation data";
-        let signature = signer.sign_operation(operation);
+        let key1 = SigningKey::from_keypair(keypair1);
+        let key2 = SigningKey::from_keypair(keypair2);
         
-        // Verification with different context should fail
-        // (in real implementation; placeholder always passes if not empty)
-        assert!(signature.0.len() > 0);
+        let data = b"test data";
+        let signature = key1.sign(data);
+        
+        // Different public key should reject signature
+        let public_key2 = key2.public_key();
+        assert!(!public_key2.verify(data, &signature));
     }
 }

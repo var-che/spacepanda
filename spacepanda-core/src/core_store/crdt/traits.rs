@@ -85,6 +85,48 @@ impl OperationMetadata {
         self.signature = Some(signature);
         self
     }
+    
+    /// Check if this operation has a signature
+    pub fn is_signed(&self) -> bool {
+        self.signature.is_some()
+    }
+    
+    /// Verify the signature on this operation
+    /// Returns Ok(()) if signature is valid or if operation is unsigned but not required
+    /// Returns Err if signature is invalid or missing when required
+    pub fn verify_signature(&self, operation_data: &[u8], public_key: &[u8], context: &str, require_signature: bool) -> StoreResult<()> {
+        use crate::core_store::crdt::signer::{PublicKey, Signature};
+        use crate::core_store::crdt::signer::OperationVerifier;
+        
+        match &self.signature {
+            Some(sig_bytes) => {
+                // Has signature - verify it
+                let public_key = PublicKey::from_bytes(public_key.to_vec())
+                    .map_err(|e| crate::core_store::store::errors::StoreError::InvalidSignature(e))?;
+                
+                let verifier = OperationVerifier::new(public_key, context.to_string());
+                let signature = Signature(sig_bytes.clone());
+                
+                if verifier.verify_operation(operation_data, &signature) {
+                    Ok(())
+                } else {
+                    Err(crate::core_store::store::errors::StoreError::InvalidSignature(
+                        "Signature verification failed".to_string()
+                    ))
+                }
+            }
+            None => {
+                // No signature
+                if require_signature {
+                    Err(crate::core_store::store::errors::StoreError::InvalidSignature(
+                        "Operation must be signed".to_string()
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
 }
 
 /// Generic CRDT operation wrapper
@@ -136,5 +178,101 @@ mod tests {
         
         assert_eq!(op.data, "test_data");
         assert_eq!(op.metadata, metadata);
+    }
+    
+    #[test]
+    fn test_signature_verification_valid() {
+        use crate::core_identity::keypair::{Keypair, KeyType};
+        use crate::core_store::crdt::signer::{SigningKey, OperationSigner};
+        
+        // Create keypair and signer
+        let keypair = Keypair::generate(KeyType::Ed25519);
+        let signing_key = SigningKey::from_keypair(keypair.clone());
+        let signer = OperationSigner::new(signing_key, "channel_123".to_string());
+        
+        // Create operation data and sign it
+        let operation_data = b"test operation";
+        let signature = signer.sign_operation(operation_data);
+        
+        // Create metadata with signature
+        let vc = VectorClock::new();
+        let metadata = OperationMetadata::new("node1".to_string(), vc)
+            .with_signature(signature.0);
+        
+        // Verify signature
+        let result = metadata.verify_signature(
+            operation_data,
+            keypair.public_key(),
+            "channel_123",
+            true
+        );
+        
+        assert!(result.is_ok(), "Valid signature should verify");
+    }
+    
+    #[test]
+    fn test_signature_verification_forged() {
+        use crate::core_identity::keypair::{Keypair, KeyType};
+        
+        // Create two different keypairs
+        let keypair1 = Keypair::generate(KeyType::Ed25519);
+        let keypair2 = Keypair::generate(KeyType::Ed25519);
+        
+        // Sign with keypair1
+        let operation_data = b"test operation";
+        let signature = keypair1.sign(operation_data);
+        
+        // Create metadata with signature from keypair1
+        let vc = VectorClock::new();
+        let metadata = OperationMetadata::new("node1".to_string(), vc)
+            .with_signature(signature);
+        
+        // Try to verify with keypair2's public key (should fail)
+        let result = metadata.verify_signature(
+            operation_data,
+            keypair2.public_key(),
+            "channel_123",
+            true
+        );
+        
+        assert!(result.is_err(), "Forged signature should be rejected");
+    }
+    
+    #[test]
+    fn test_signature_verification_unsigned_required() {
+        let vc = VectorClock::new();
+        let metadata = OperationMetadata::new("node1".to_string(), vc);
+        
+        let operation_data = b"test operation";
+        let dummy_pubkey = vec![0u8; 32];
+        
+        // Should fail when signature required but missing
+        let result = metadata.verify_signature(
+            operation_data,
+            &dummy_pubkey,
+            "channel_123",
+            true
+        );
+        
+        assert!(result.is_err(), "Unsigned operation should be rejected when signature required");
+    }
+    
+    #[test]
+    fn test_signature_verification_unsigned_optional() {
+        let vc = VectorClock::new();
+        let metadata = OperationMetadata::new("node1".to_string(), vc);
+        
+        let operation_data = b"test operation";
+        let dummy_pubkey = vec![0u8; 32];
+        
+        // Should pass when signature not required
+        let result = metadata.verify_signature(
+            operation_data,
+            &dummy_pubkey,
+            "channel_123",
+            false
+        );
+        
+        assert!(result.is_ok(), "Unsigned operation should pass when signature not required");
     }
 }

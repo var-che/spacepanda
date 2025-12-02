@@ -29,6 +29,10 @@ pub enum StoreError {
     #[error("Signature verification failed: {0}")]
     SignatureVerification(String),
     
+    /// Invalid signature (alias for signature verification failure)
+    #[error("Invalid signature: {0}")]
+    InvalidSignature(String),
+    
     /// Causal ordering violation
     #[error("Causal ordering violation: {0}")]
     CausalViolation(String),

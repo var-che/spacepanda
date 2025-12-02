@@ -29,8 +29,6 @@ fn bench_protocol_initialization(c: &mut Criterion) {
                 black_box(RpcProtocol::new_with_config(
                     session_tx,
                     Duration::from_secs(30),
-                    Duration::from_secs(300),
-                    Duration::from_secs(60),
                     100_000,
                 ))
             })
@@ -52,14 +50,12 @@ fn bench_seen_requests_tracking(c: &mut Criterion) {
             b.iter(|| {
                 rt.block_on(async {
                     let (session_tx, _session_rx) = mpsc::channel::<SessionCommand>(100);
-                    let mut protocol = RpcProtocol::new_with_config(
+                    let protocol = RpcProtocol::new_with_config(
                         session_tx,
                         Duration::from_secs(30),
-                        Duration::from_secs(300),
-                        Duration::from_secs(60),
                         n,
                     );
-                    protocol.shutdown().await;
+                    // No shutdown needed - no background task in LRU version
                     black_box(protocol)
                 })
             });
@@ -139,19 +135,19 @@ fn bench_frame_size_validation(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_protocol_shutdown(c: &mut Criterion) {
-    let mut group = c.benchmark_group("rpc_protocol_shutdown");
+fn bench_protocol_drop(c: &mut Criterion) {
+    let mut group = c.benchmark_group("rpc_protocol_drop");
     
     let rt = Runtime::new().unwrap();
     
-    // Benchmark graceful shutdown
-    group.bench_function("shutdown", |b| {
+    // Benchmark protocol drop (no background task to shutdown in LRU version)
+    group.bench_function("drop", |b| {
         b.iter(|| {
             rt.block_on(async {
                 let (session_tx, _session_rx) = mpsc::channel::<SessionCommand>(100);
-                let mut protocol = RpcProtocol::new(session_tx);
-                protocol.shutdown().await;
+                let protocol = RpcProtocol::new(session_tx);
                 black_box(protocol)
+                // Protocol drops here - LRU cache cleaned up automatically
             })
         });
     });
@@ -166,7 +162,7 @@ criterion_group!(
     bench_json_serialization,
     bench_json_deserialization,
     bench_frame_size_validation,
-    bench_protocol_shutdown
+    bench_protocol_drop
 );
 criterion_main!(benches);
 
