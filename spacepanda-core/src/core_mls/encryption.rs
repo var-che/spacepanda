@@ -95,6 +95,7 @@ impl SenderData {
 }
 
 /// Key schedule for deriving message keys
+#[derive(Clone)]
 pub struct KeySchedule {
     /// Current epoch
     pub epoch: u64,

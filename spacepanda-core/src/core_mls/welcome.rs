@@ -66,7 +66,7 @@ impl WelcomeGroupSecrets {
 }
 
 /// Snapshot of the public tree state (no secrets)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TreeSnapshot {
     /// Number of leaves in the tree
     pub leaf_count: u32,

@@ -19,6 +19,7 @@ use super::welcome::{TreeSnapshot, Welcome, WelcomeGroupSecrets};
 use std::collections::{HashMap, HashSet};
 
 /// MLS Group state
+#[derive(Clone)]
 pub struct MlsGroup {
     /// Group ID
     pub group_id: GroupId,

@@ -41,6 +41,11 @@ pub mod commit;
 pub mod group;
 pub mod transport;
 pub mod api;
+pub mod discovery;
+
+// Security testing module
+#[cfg(test)]
+pub mod security_tests;
 
 // Placeholder modules (to be implemented incrementally)
 
@@ -65,6 +70,7 @@ pub use commit::{Commit, UpdatePath, CommitResult, CommitValidator};
 pub use group::MlsGroup;
 pub use transport::{MlsTransport, MlsEnvelope, MlsMessageType};
 pub use api::MlsHandle;
+pub use discovery::{GroupPublicInfo, DiscoveryQuery};
 
 /// Default ciphersuite for SpacePanda MLS
 ///
