@@ -3,7 +3,32 @@ use spacepanda_core::core_store::crdt::lww_register::LWWRegister;
 use spacepanda_core::core_store::crdt::vector_clock::VectorClock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-// Helper to get current timestamp
+mod bench_config;
+use bench_config::{BenchConfig, create_rng};
+use rand::Rng;
+
+// Load or create benchmark configuration for reproducibility
+fn get_bench_config() -> BenchConfig {
+    let config_path = "target/bench_config.json";
+    let mut config = BenchConfig::load_or_default(config_path);
+    
+    // Set benchmark-specific parameters
+    config.set_param("benchmark_suite", "crdt_operations");
+    config.set_param("criterion_version", "0.5");
+    
+    // Save for reference
+    let _ = config.save(config_path);
+    
+    config
+}
+
+// Helper to get deterministic timestamp from RNG
+fn deterministic_timestamp(rng: &mut rand::rngs::StdRng) -> u64 {
+    // Use RNG to generate deterministic timestamps for benchmarks
+    rng.gen_range(1_000_000..10_000_000)
+}
+
+// Helper to get current timestamp (fallback)
 fn current_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -12,6 +37,8 @@ fn current_timestamp() -> u64 {
 }
 
 fn bench_lww_register_creation(c: &mut Criterion) {
+    let config = get_bench_config();
+    let _rng = create_rng(&config);
     let mut group = c.benchmark_group("crdt_lww_creation");
     
     group.bench_function("new_empty", |b| {

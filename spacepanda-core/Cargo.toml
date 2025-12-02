@@ -46,6 +46,8 @@ tempfile = "3.8"
 futures = "0.3"
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 rand_core = "0.6"
+num_cpus = "1.16"
+chrono = "0.4"
 
 [[bench]]
 name = "rpc_protocol"

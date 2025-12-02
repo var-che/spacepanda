@@ -6,6 +6,8 @@ This document describes the benchmark suite for SpacePanda Core performance test
 
 The benchmark suite uses [Criterion.rs](https://github.com/bheisler/criterion.rs) to provide statistical analysis of performance characteristics across critical code paths.
 
+**Reproducibility**: All benchmarks now use deterministic configuration with fixed RNG seeds, hardware metadata tracking, and performance metrics persistence. See [Benchmark Reproducibility](#benchmark-reproducibility) section below.
+
 ## Running Benchmarks
 
 ### Run All Benchmarks
@@ -252,22 +254,22 @@ SHA256 hashing with varying data sizes (32B - 64KB)
 
 ### CRDT Operations (Current)
 
-| Operation              | Size/Count | Time    | Throughput  |
-| ---------------------- | ---------- | ------- | ----------- |
-| LWW creation           | Single     | 147 ns  | N/A         |
-| LWW creation (batch)   | 1000       | 372 µs  | 2.7 Melem/s |
-| Vector clock merge     | 10 nodes   | TBD     | N/A         |
-| Conflict resolution    | 1000       | TBD     | N/A         |
+| Operation            | Size/Count | Time   | Throughput  |
+| -------------------- | ---------- | ------ | ----------- |
+| LWW creation         | Single     | 147 ns | N/A         |
+| LWW creation (batch) | 1000       | 372 µs | 2.7 Melem/s |
+| Vector clock merge   | 10 nodes   | TBD    | N/A         |
+| Conflict resolution  | 1000       | TBD    | N/A         |
 
 ### Crypto Operations (Current)
 
-| Operation         | Size/Count | Time     | Throughput |
-| ----------------- | ---------- | -------- | ---------- |
-| Ed25519 keygen    | Single     | ~22 µs   | N/A        |
-| Ed25519 keygen    | Batch 500  | ~11.3 ms | 44K keys/s |
-| X25519 DH         | Single     | TBD      | N/A        |
-| ChaCha20Poly1305  | 1 KiB      | TBD      | N/A        |
-| SHA256 hash       | 16 KiB     | TBD      | N/A        |
+| Operation        | Size/Count | Time     | Throughput |
+| ---------------- | ---------- | -------- | ---------- |
+| Ed25519 keygen   | Single     | ~22 µs   | N/A        |
+| Ed25519 keygen   | Batch 500  | ~11.3 ms | 44K keys/s |
+| X25519 DH        | Single     | TBD      | N/A        |
+| ChaCha20Poly1305 | 1 KiB      | TBD      | N/A        |
+| SHA256 hash      | 16 KiB     | TBD      | N/A        |
 
 ## Future Work
 
@@ -316,12 +318,101 @@ Once benchmarks are working, establish performance budgets:
 
 ## CI/CD Integration
 
-**Note**: Not yet implemented. Planned features:
+**Note**: Not yet fully implemented. Planned features:
 
 - Automatic benchmark runs on PR
 - Performance regression detection
 - Historical trend tracking
 - Comparison with baseline/main branch
+
+## Benchmark Reproducibility
+
+**Status**: ✅ Implemented (P2 Task Complete)
+
+All benchmarks use the `bench_config` module for deterministic, reproducible results.
+
+### Configuration System
+
+The `bench_config.rs` module provides:
+
+- **Deterministic RNG**: Seeded PRNG (default seed = 42) using `StdRng::seed_from_u64`
+- **Hardware Metadata**: CPU model, core count, RAM, OS version
+- **Software Metadata**: Rust version tracking
+- **Performance Metrics**: mean, std_dev, p50, p95, p99 latencies, throughput
+- **JSON Persistence**: Config saved to `target/bench_config.json`
+
+### Default Configuration
+
+```json
+{
+  "seed": 42,
+  "rust_version": "1.91.1",
+  "cpu_model": "Intel(R) Core(TM) i7-xxxx",
+  "cpu_cores": 8,
+  "ram_gb": 16,
+  "os_version": "Linux 6.x.x",
+  "parameters": {
+    "benchmark_suite": "rpc_protocol",
+    "criterion_version": "0.5"
+  }
+}
+```
+
+### Using Custom Seeds
+
+To change the random seed:
+
+1. Edit `target/bench_config.json` before running benchmarks:
+
+   ```json
+   {"seed": 12345, ...}
+   ```
+
+2. Or delete the file to regenerate with defaults
+
+### CI Integration
+
+For reproducible CI benchmarks:
+
+1. Commit `bench_config.json` to the repository
+2. Pin the seed across CI runs
+3. Parse Criterion JSON output for regression detection
+4. Config captures hardware metadata automatically
+
+### Development Guidelines
+
+When adding new benchmarks:
+
+```rust
+mod bench_config;
+use bench_config::{BenchConfig, create_rng};
+
+fn get_bench_config() -> BenchConfig {
+    let config_path = "target/bench_config.json";
+    let mut config = BenchConfig::load_or_default(config_path);
+    config.set_param("benchmark_suite", "my_benchmark");
+    let _ = config.save(config_path);
+    config
+}
+
+fn my_benchmark(c: &mut Criterion) {
+    let config = get_bench_config();
+    let mut rng = create_rng(&config);
+
+    c.bench_function("test", |b| {
+        b.iter(|| {
+            let random_data: u64 = rng.gen();
+            black_box(random_data)
+        });
+    });
+}
+```
+
+**Important**:
+
+- Use `create_rng(&config)` instead of `rand::thread_rng()` for all random data generation
+- CRDT benchmarks use `deterministic_timestamp(&mut rng)` instead of `SystemTime::now()`
+- Crypto benchmarks use `deterministic_signing_key(&mut rng)` for key generation
 
 ## Troubleshooting
 
@@ -341,8 +432,23 @@ Once benchmarks are working, establish performance budgets:
 - Reduce iteration count for expensive operations
 - Consider using `--bench <name>` to run subsets
 
+### High variance in results
+
+- Set CPU governor to `performance` mode:
+  ```bash
+  sudo cpupower frequency-set --governor performance
+  ```
+- Close background applications
+- Ensure consistent thermal conditions
+
+### Non-deterministic failures
+
+- Verify all random data uses `create_rng(&config)` from `bench_config`
+- Check for system time usage in CRDT operations (use `deterministic_timestamp` instead)
+
 ## References
 
 - [Criterion.rs User Guide](https://bheisler.github.io/criterion.rs/book/)
 - [Rust Performance Book](https://nnethercote.github.io/perf-book/)
+- [SpacePanda MLS Readiness Checklist](../../MLS_READINESS_CHECKLIST.md) (Task 11: Benchmark Reproducibility)
 - [Flamegraph profiling](https://github.com/flamegraph-rs/flamegraph)

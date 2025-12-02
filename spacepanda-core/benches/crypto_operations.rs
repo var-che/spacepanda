@@ -3,20 +3,39 @@ use ed25519_dalek::{Signer, Verifier, SigningKey};
 use x25519_dalek::{StaticSecret, PublicKey};
 use std::time::Duration;
 
-// Helper to create random Ed25519 signing key
-fn random_signing_key() -> SigningKey {
-    use rand::Rng;
-    let mut rng = rand::rng();
+mod bench_config;
+use bench_config::{BenchConfig, create_rng};
+use rand::Rng;
+
+// Load or create benchmark configuration for reproducibility
+fn get_bench_config() -> BenchConfig {
+    let config_path = "target/bench_config.json";
+    let mut config = BenchConfig::load_or_default(config_path);
+    
+    // Set benchmark-specific parameters
+    config.set_param("benchmark_suite", "crypto_operations");
+    config.set_param("criterion_version", "0.5");
+    
+    // Save for reference
+    let _ = config.save(config_path);
+    
+    config
+}
+
+// Helper to create deterministic Ed25519 signing key using benchmark RNG
+fn deterministic_signing_key(rng: &mut rand::rngs::StdRng) -> SigningKey {
     let bytes: [u8; 32] = rng.random();
     SigningKey::from_bytes(&bytes)
 }
 
 fn bench_ed25519_keypair_generation(c: &mut Criterion) {
+    let config = get_bench_config();
+    let mut rng = create_rng(&config);
     let mut group = c.benchmark_group("crypto_ed25519_keygen");
     
     group.bench_function("generate_keypair", |b| {
         b.iter(|| {
-            let signing_key = random_signing_key();
+            let signing_key = deterministic_signing_key(&mut rng);
             black_box(signing_key)
         });
     });
@@ -27,7 +46,7 @@ fn bench_ed25519_keypair_generation(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("batch_generation", batch_size), batch_size, |b, &n| {
             b.iter(|| {
                 let keys: Vec<SigningKey> = (0..n)
-                    .map(|_| random_signing_key())
+                    .map(|_| deterministic_signing_key(&mut rng))
                     .collect();
                 black_box(keys)
             });
@@ -38,9 +57,11 @@ fn bench_ed25519_keypair_generation(c: &mut Criterion) {
 }
 
 fn bench_ed25519_signing(c: &mut Criterion) {
+    let config = get_bench_config();
+    let mut rng = create_rng(&config);
     let mut group = c.benchmark_group("crypto_ed25519_signing");
     
-    let signing_key = random_signing_key();
+    let signing_key = deterministic_signing_key(&mut rng);
     
     // Benchmark signing with varying message sizes
     for size in [32, 256, 1024, 4096, 16384].iter() {
@@ -58,9 +79,11 @@ fn bench_ed25519_signing(c: &mut Criterion) {
 }
 
 fn bench_ed25519_verification(c: &mut Criterion) {
+    let config = get_bench_config();
+    let mut rng = create_rng(&config);
     let mut group = c.benchmark_group("crypto_ed25519_verification");
     
-    let signing_key = random_signing_key();
+    let signing_key = deterministic_signing_key(&mut rng);
     let verifying_key = signing_key.verifying_key();
     
     // Benchmark verification with varying message sizes
@@ -85,13 +108,12 @@ fn bench_ed25519_verification(c: &mut Criterion) {
 }
 
 fn bench_x25519_key_exchange(c: &mut Criterion) {
+    let config = get_bench_config();
+    let mut rng = create_rng(&config);
     let mut group = c.benchmark_group("crypto_x25519_key_exchange");
     
     group.bench_function("dh_exchange", |b| {
         b.iter(|| {
-            use rand::Rng;
-            let mut rng = rand::rng();
-            
             let alice_bytes: [u8; 32] = rng.random();
             let bob_bytes: [u8; 32] = rng.random();
             
@@ -113,8 +135,6 @@ fn bench_x25519_key_exchange(c: &mut Criterion) {
         group.throughput(Throughput::Elements(*batch_size as u64));
         group.bench_with_input(BenchmarkId::new("batch_exchanges", batch_size), batch_size, |b, &n| {
             b.iter(|| {
-                use rand::Rng;
-                let mut rng = rand::rng();
                 let mut shared_secrets = Vec::new();
                 
                 for _ in 0..n {

@@ -1,20 +1,45 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use spacepanda_core::core_dht::{RoutingTable, DhtKey, PeerContact, DhtValue};
 
-// Helper to create random DhtKeys for benchmarking
+mod bench_config;
+use bench_config::{BenchConfig, create_rng};
+use rand::Rng;
+
+// Load or create benchmark configuration for reproducibility
+fn get_bench_config() -> BenchConfig {
+    let config_path = "target/bench_config.json";
+    let mut config = BenchConfig::load_or_default(config_path);
+    
+    // Set benchmark-specific parameters
+    config.set_param("benchmark_suite", "dht_operations");
+    config.set_param("criterion_version", "0.5");
+    
+    // Save for reference
+    let _ = config.save(config_path);
+    
+    config
+}
+
+// Helper to create deterministic DhtKeys using config seed
+fn deterministic_dht_key(rng: &mut rand::rngs::StdRng) -> DhtKey {
+    let seed: u64 = rng.gen();
+    DhtKey::hash(&seed.to_le_bytes())
+}
+
+// Helper to create random DhtKeys for benchmarking (fallback)
 fn random_dht_key(seed: u64) -> DhtKey {
     DhtKey::hash(&seed.to_le_bytes())
 }
 
 fn bench_dht_key_generation(c: &mut Criterion) {
+    let config = get_bench_config();
+    let mut rng = create_rng(&config);
     let mut group = c.benchmark_group("dht_key_generation");
     
     // Benchmark key generation from hashing
     group.bench_function("single_key", |b| {
-        let mut counter = 0u64;
         b.iter(|| {
-            counter += 1;
-            black_box(random_dht_key(counter))
+            black_box(deterministic_dht_key(&mut rng))
         });
     });
     

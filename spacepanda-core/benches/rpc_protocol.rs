@@ -6,7 +6,26 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
+mod bench_config;
+use bench_config::BenchConfig;
+
+// Load or create benchmark configuration for reproducibility
+fn get_bench_config() -> BenchConfig {
+    let config_path = "target/bench_config.json";
+    let mut config = BenchConfig::load_or_default(config_path);
+    
+    // Set benchmark-specific parameters
+    config.set_param("benchmark_suite", "rpc_protocol");
+    config.set_param("criterion_version", "0.5");
+    
+    // Save for reference
+    let _ = config.save(config_path);
+    
+    config
+}
+
 fn bench_protocol_initialization(c: &mut Criterion) {
+    let _config = get_bench_config();
     let mut group = c.benchmark_group("rpc_protocol_init");
     
     let rt = Runtime::new().unwrap();
