@@ -21,6 +21,7 @@ use argon2::password_hash::{PasswordHash, SaltString};
 use rand::RngCore;
 use std::fs;
 use std::path::PathBuf;
+use zeroize::Zeroizing;
 
 /// Magic header for encrypted keystore files
 const MAGIC_HEADER: &[u8; 8] = b"SPKS0001";
@@ -41,8 +42,8 @@ const HEADER_SIZE: usize = 8 + 1 + SALT_LEN + NONCE_LEN;
 pub struct FileKeystore {
     /// Directory where keys are stored
     base_path: PathBuf,
-    /// Encryption password (stored for re-encryption)
-    password: Option<String>,
+    /// Encryption password (zeroized on drop)
+    password: Option<Zeroizing<String>>,
 }
 
 impl FileKeystore {
@@ -53,7 +54,7 @@ impl FileKeystore {
 
         Ok(FileKeystore {
             base_path,
-            password: password.map(|s| s.to_string()),
+            password: password.map(|s| Zeroizing::new(s.to_string())),
         })
     }
 
@@ -273,7 +274,9 @@ impl Keystore for FileKeystore {
 }
 
 /// Derive 256-bit encryption key from password using Argon2id
-fn derive_key_from_password(password: &str, salt: &[u8]) -> Result<Vec<u8>, KeystoreError> {
+/// Derive encryption key from password using Argon2id
+/// Returns a Zeroizing wrapper to ensure key is zeroized on drop
+fn derive_key_from_password(password: &str, salt: &[u8]) -> Result<Zeroizing<Vec<u8>>, KeystoreError> {
     // Use Argon2id with secure parameters
     let params = Params::new(
         19 * 1024,  // 19 MiB memory cost
@@ -288,8 +291,8 @@ fn derive_key_from_password(password: &str, salt: &[u8]) -> Result<Vec<u8>, Keys
         params,
     );
     
-    // Hash password with salt
-    let mut key = vec![0u8; 32];
+    // Hash password with salt (key will be zeroized on drop)
+    let mut key = Zeroizing::new(vec![0u8; 32]);
     argon2
         .hash_password_into(password.as_bytes(), salt, &mut key)
         .map_err(|e| KeystoreError::Encryption(format!("Key derivation failed: {}", e)))?;

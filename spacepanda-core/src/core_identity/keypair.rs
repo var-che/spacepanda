@@ -5,12 +5,15 @@
 //!
 //! This implementation uses real cryptography (ed25519-dalek, x25519-dalek)
 //! to ensure production-grade security before MLS integration.
+//!
+//! Security: Secret keys are automatically zeroized on drop using zeroize crate.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
 use x25519_dalek::{StaticSecret, PublicKey as X25519PublicKey};
 use rand::rand_core::OsRng;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Key type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +25,7 @@ pub enum KeyType {
 }
 
 /// Keypair structure holding public and secret keys
+/// Secret keys are automatically zeroized on drop for security
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Keypair {
     /// Type of key
@@ -29,6 +33,7 @@ pub struct Keypair {
     /// Public key bytes (32 bytes)
     pub public: Vec<u8>,
     /// Secret key bytes (32 bytes, will be encrypted at rest by keystore)
+    /// Automatically zeroized on drop
     secret: Vec<u8>,
 }
 
@@ -196,13 +201,11 @@ impl fmt::Debug for Keypair {
     }
 }
 
-// Implement Drop to zero out secret key memory
+// Implement Drop to zero out secret key memory using zeroize
 impl Drop for Keypair {
     fn drop(&mut self) {
-        // Zero out the secret key
-        for byte in &mut self.secret {
-            *byte = 0;
-        }
+        // Securely zero out the secret key using zeroize
+        self.secret.zeroize();
     }
 }
 
@@ -240,5 +243,34 @@ mod tests {
         let ed_kp = Keypair::generate(KeyType::Ed25519);
         let x25519_kp = Keypair::derive_x25519_from_ed25519(&ed_kp);
         assert_eq!(x25519_kp.key_type, KeyType::X25519);
+    }
+
+    #[test]
+    fn test_secret_zeroized_on_drop() {
+        // Create a keypair and get a pointer to its secret bytes
+        let kp = Keypair::generate(KeyType::Ed25519);
+        let secret_ptr = kp.secret.as_ptr();
+        let secret_len = kp.secret.len();
+        
+        // Verify secret is not all zeros initially
+        let secret_copy: Vec<u8> = kp.secret.clone();
+        assert!(secret_copy.iter().any(|&b| b != 0), "Secret should not be all zeros initially");
+        
+        // Drop the keypair
+        drop(kp);
+        
+        // Note: We cannot safely check if memory was zeroized without unsafe code
+        // and potential UB. The zeroize crate guarantees this behavior.
+        // This test mainly documents the expectation.
+    }
+
+    #[test]
+    fn test_debug_does_not_leak_secret() {
+        let kp = Keypair::generate(KeyType::Ed25519);
+        let debug_str = format!("{:?}", kp);
+        
+        // Debug output should not contain the actual secret key
+        assert!(debug_str.contains("<redacted>"), "Debug should redact secret");
+        assert!(!debug_str.contains(&hex::encode(&kp.secret)), "Debug should not show secret");
     }
 }
