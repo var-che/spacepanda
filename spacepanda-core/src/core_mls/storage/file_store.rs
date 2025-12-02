@@ -89,7 +89,7 @@ impl FileStorageProvider {
             let nonce = Nonce::from_slice(&nonce_bytes);
 
             // Encrypt
-            let cipher = Aes256Gcm::new_from_slice(&key)
+            let cipher = Aes256Gcm::new_from_slice(key.as_slice())
                 .map_err(|e| MlsError::Storage(format!("Invalid key: {}", e)))?;
 
             let ciphertext = cipher
@@ -147,7 +147,7 @@ impl FileStorageProvider {
                 .map_err(|e| MlsError::Storage(format!("Key derivation failed: {}", e)))?;
 
             // Decrypt
-            let cipher = Aes256Gcm::new_from_slice(&key)
+            let cipher = Aes256Gcm::new_from_slice(key.as_slice())
                 .map_err(|e| MlsError::Storage(format!("Invalid key: {}", e)))?;
 
             let nonce = Nonce::from_slice(nonce_bytes);

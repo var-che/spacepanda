@@ -41,6 +41,9 @@ pub mod providers;
 pub mod storage;
 pub mod integration;
 
+// OpenMLS engine wrapper (Phase 3)
+pub mod engine;
+
 // Implemented modules
 pub mod persistence;
 pub mod tree;
@@ -95,6 +98,12 @@ pub use transport::{MlsTransport, MlsEnvelope, MlsMessageType};
 pub use api::MlsHandle;
 pub use discovery::{GroupPublicInfo, DiscoveryQuery};
 pub use crypto::{MlsSigningKey, MlsVerifyingKey, sign_with_key, verify_with_key};
+
+// OpenMLS engine exports
+pub use engine::{
+    OpenMlsEngine, MessageAdapter, WireFormat, GroupOperations,
+    group_ops::ProcessedMessage,
+};
 
 /// Default ciphersuite for SpacePanda MLS
 ///

@@ -40,6 +40,14 @@ pub enum MlsError {
     #[error("Group not found: {0}")]
     GroupNotFound(String),
 
+    /// Identity error
+    #[error("Identity error: {0}")]
+    IdentityError(String),
+
+    /// Serialization error
+    #[error("Serialization error: {0}")]
+    SerializationError(String),
+
     /// Member not found
     #[error("Member not found: {0}")]
     MemberNotFound(String),
