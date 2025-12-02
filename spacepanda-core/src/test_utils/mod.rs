@@ -6,7 +6,9 @@
 pub mod fixtures;
 pub mod assertions;
 pub mod async_helpers;
+pub mod deterministic_rng;
 
 pub use fixtures::*;
 pub use assertions::*;
 pub use async_helpers::*;
+pub use deterministic_rng::*;

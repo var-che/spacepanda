@@ -13,9 +13,11 @@ repository = "https://github.com/yourusername/spacepanda"
 authors = ["Your Name <your.email@example.com>"]
 
 [workspace.dependencies]
-# Logging
+# Logging & Metrics
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+metrics = "0.22"
+metrics-exporter-prometheus = "0.13"
 
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }

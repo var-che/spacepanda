@@ -73,6 +73,7 @@ use tokio::time::{sleep, Duration};
 use rand::Rng;
 
 use super::transport_manager::{TransportCommand, TransportEvent};
+use super::metrics;
 
 /// Noise protocol pattern - using XX for mutual authentication
 const NOISE_PATTERN: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
@@ -283,6 +284,9 @@ impl SessionManager {
                 // Check if still in handshaking state
                 if let SessionState::Handshaking(_, metadata) = &session.state {
                     if metadata.is_expired() {
+                        // Record timeout metric
+                        metrics::handshake_timeout();
+                        
                         // Remove expired handshake
                         sessions.remove(&conn_id);
                         drop(sessions);
@@ -315,6 +319,7 @@ impl SessionManager {
                 // Check if handshake has expired
                 if metadata.is_expired() {
                     drop(sessions);
+                    metrics::expired_handshake_rejected();
                     self.transport_tx
                         .send(TransportCommand::Close(conn_id))
                         .await
@@ -336,6 +341,7 @@ impl SessionManager {
                     // Check for replay attack
                     if metadata.is_replay(nonce) {
                         drop(sessions);
+                        metrics::handshake_replay_detected();
                         return Err("Replay attack detected: duplicate nonce".to_string());
                     }
                 }

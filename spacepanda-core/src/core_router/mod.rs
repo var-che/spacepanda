@@ -6,6 +6,7 @@ pub mod rpc_protocol;
 pub mod router_handle;
 pub mod session_manager;
 pub mod transport_manager;
+pub mod metrics;
 
 #[cfg(test)]
 mod tests;

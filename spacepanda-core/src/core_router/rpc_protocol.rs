@@ -50,6 +50,7 @@ use hashlink::LruCache;
 use tracing::{debug, warn, info, trace, instrument};
 
 use super::rate_limiter::{RateLimiter, RateLimiterConfig, RateLimitResult};
+use super::metrics;
 use super::session_manager::{PeerId, SessionCommand, SessionEvent};
 
 /// RPC message types
@@ -329,16 +330,19 @@ impl RpcProtocol {
         match self.rate_limiter.check_request(&peer_id).await {
             RateLimitResult::Allowed => {
                 trace!("Rate limit check passed");
+                metrics::rpc_request_allowed();
                 // Request allowed, proceed
             }
             RateLimitResult::RateLimitExceeded => {
                 // Rate limit exceeded, reject request
                 warn!("Request rejected: rate limit exceeded");
+                metrics::rpc_request_rate_limited();
                 return Err(format!("Rate limit exceeded for peer {:?}", peer_id));
             }
             RateLimitResult::CircuitBreakerOpen => {
                 // Circuit breaker open, reject request
                 warn!("Request rejected: circuit breaker open");
+                metrics::rpc_request_circuit_breaker_open();
                 return Err(format!("Circuit breaker open for peer {:?}", peer_id));
             }
         }
@@ -350,6 +354,7 @@ impl RpcProtocol {
                 max_size = MAX_FRAME_SIZE,
                 "Oversized frame rejected"
             );
+            metrics::oversized_frame_rejected(bytes.len());
             return Err(format!("Frame too large: {} bytes (max {})", bytes.len(), MAX_FRAME_SIZE));
         }
         
@@ -358,6 +363,7 @@ impl RpcProtocol {
 
         match message {
             RpcMessage::Request { id, method, params } => {
+                metrics::rpc_method_invoked(&method);
                 self.handle_request(peer_id, id, method, params).await?;
             }
             RpcMessage::Response { id, result } => {
@@ -390,6 +396,7 @@ impl RpcProtocol {
                     method = %method,
                     "Replay attack detected: duplicate request ID"
                 );
+                metrics::replay_attack_detected();
                 let error = RpcError::new(ERR_DUPLICATE_REQUEST, format!("Duplicate request ID: {}", id));
                 self.send_response(peer_id, id, Err(error)).await?;
                 return Ok(()); // Don't process replay
@@ -422,6 +429,7 @@ impl RpcProtocol {
             if handler_tx.send(request).await.is_err() {
                 // Handler crashed - record as failure for circuit breaker
                 warn!(method = %method_clone, "Handler channel closed: handler crashed");
+                metrics::rpc_handler_error("handler_crashed");
                 self.rate_limiter.record_failure(&peer_id).await;
                 self.send_error_response(peer_id, id, RpcError::internal_error("Handler crashed"))
                     .await?;
@@ -464,6 +472,7 @@ impl RpcProtocol {
         } else {
             // Method not found - not a peer failure
             warn!(method, "Method not found");
+            metrics::rpc_handler_error("method_not_found");
             self.send_error_response(peer_id, id, RpcError::method_not_found(&method))
                 .await?;
         }

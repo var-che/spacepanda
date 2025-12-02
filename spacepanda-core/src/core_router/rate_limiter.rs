@@ -12,6 +12,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, warn, info, trace};
 
 use super::session_manager::PeerId;
+use super::metrics;
 
 /// Configuration for rate limiting
 #[derive(Debug, Clone)]
@@ -145,6 +146,7 @@ impl CircuitBreaker {
                             timeout_secs = self.timeout.as_secs(),
                             "Circuit breaker transitioning from OPEN to HALF-OPEN for recovery test"
                         );
+                        metrics::circuit_breaker_transition("open_to_halfopen");
                         self.state = CircuitState::HalfOpen;
                         self.consecutive_failures = 0;
                         true
@@ -175,6 +177,7 @@ impl CircuitBreaker {
             CircuitState::HalfOpen => {
                 // Success in half-open state -> close circuit
                 info!("Circuit breaker: recovery successful, transitioning from HALF-OPEN to CLOSED");
+                metrics::circuit_breaker_transition("halfopen_to_closed");
                 self.state = CircuitState::Closed;
                 self.consecutive_failures = 0;
                 self.opened_at = None;
@@ -199,6 +202,7 @@ impl CircuitBreaker {
                         timeout_secs = self.timeout.as_secs(),
                         "Circuit breaker OPENING: failure threshold reached"
                     );
+                    metrics::circuit_breaker_transition("closed_to_open");
                     self.state = CircuitState::Open;
                     self.opened_at = Some(Instant::now());
                 } else {
@@ -215,6 +219,7 @@ impl CircuitBreaker {
                     consecutive_failures = self.consecutive_failures,
                     "Circuit breaker: recovery failed, reopening circuit"
                 );
+                metrics::circuit_breaker_transition("halfopen_to_open");
                 self.state = CircuitState::Open;
                 self.opened_at = Some(Instant::now());
             }
