@@ -6,6 +6,11 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+default = ["openmls-engine"]
+openmls-engine = []  # Use OpenMLS for MLS operations (recommended)
+legacy-mls = []      # Use legacy custom MLS implementation
+
 [dependencies]
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["json"] }

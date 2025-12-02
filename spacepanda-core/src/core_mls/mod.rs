@@ -44,6 +44,9 @@ pub mod integration;
 // OpenMLS engine wrapper (Phase 3)
 pub mod engine;
 
+// Feature-gated MLS handle selector
+pub mod handle;
+
 // Implemented modules
 pub mod persistence;
 pub mod tree;
@@ -105,8 +108,16 @@ pub use crypto::{MlsSigningKey, MlsVerifyingKey, sign_with_key, verify_with_key}
 // OpenMLS engine exports
 pub use engine::{
     OpenMlsEngine, MessageAdapter, WireFormat, GroupOperations,
+    OpenMlsHandleAdapter,
     group_ops::ProcessedMessage,
 };
+
+// Feature-gated exports
+#[cfg(feature = "openmls-engine")]
+pub use handle::MlsHandle as MlsHandleV2;  // New OpenMLS-based handle
+
+#[cfg(feature = "legacy-mls")]
+pub use api::MlsHandle as MlsHandleLegacy;  // Original implementation
 
 /// Default ciphersuite for SpacePanda MLS
 ///

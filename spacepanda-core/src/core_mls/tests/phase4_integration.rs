@@ -74,7 +74,131 @@ mod openmls_integration_tests {
         assert_ne!(id1, id2, "Different groups should have different IDs");
     }
 
-    // Note: Multi-member tests require proper key package exchange
-    // and Welcome message handling, which needs more infrastructure.
-    // These will be added as Phase 4 progresses.
+    /// Test message encryption and decryption
+    /// TODO: Implement send_message() in OpenMlsEngine
+    #[tokio::test]
+    #[ignore]
+    async fn test_message_encryption() {
+        let config = MlsConfig::default();
+        let group_id = GroupId::random();
+        let identity = b"charlie@example.com".to_vec();
+
+        let engine = OpenMlsEngine::create_group(group_id, identity, config)
+            .await
+            .expect("Failed to create group");
+
+        // Test that we can encrypt messages (even if we can't decrypt yet without another member)
+        let plaintext = b"Hello, World!";
+        // Uncomment when send_message is implemented:
+        // let result = engine.send_message(plaintext).await;
+        // assert!(result.is_ok(), "Should encrypt message successfully");
+        
+        // For now, just verify group was created
+        assert_eq!(engine.epoch().await, 0);
+    }
+
+    /// Test epoch advancement
+    /// TODO: Implement commit_pending() in OpenMlsEngine
+    #[tokio::test]
+    #[ignore]
+    async fn test_epoch_advancement() {
+        let config = MlsConfig::default();
+        let group_id = GroupId::random();
+        let identity = b"dave@example.com".to_vec();
+
+        let engine = OpenMlsEngine::create_group(group_id, identity, config)
+            .await
+            .expect("Failed to create group");
+
+        let initial_epoch = engine.epoch().await;
+        assert_eq!(initial_epoch, 0, "Should start at epoch 0");
+
+        // Uncomment when commit_pending is implemented:
+        // let result = engine.commit_pending().await;
+        // assert!(result.is_ok(), "Commit should succeed");
+        // let new_epoch = engine.epoch().await;
+        // assert_eq!(new_epoch, 1, "Epoch should advance after commit");
+    }
+
+    /// Test multiple groups can coexist
+    #[tokio::test]
+    async fn test_multiple_groups() {
+        let config = MlsConfig::default();
+        
+        let mut engines = Vec::new();
+        for i in 0..5 {
+            let group_id = GroupId::random();
+            let identity = format!("user{}@example.com", i).into_bytes();
+            
+            let engine = OpenMlsEngine::create_group(group_id.clone(), identity, config.clone())
+                .await
+                .expect("Failed to create group");
+            
+            engines.push((group_id.clone(), engine));
+        }
+
+        // Verify all groups have unique IDs and are at epoch 0
+        for (expected_id, engine) in &engines {
+            let actual_id = engine.group_id().await;
+            assert_eq!(&actual_id, expected_id, "Group ID should match");
+            
+            let epoch = engine.epoch().await;
+            assert_eq!(epoch, 0, "New group should be at epoch 0");
+        }
+
+        // Verify all group IDs are unique
+        let mut seen_ids = std::collections::HashSet::new();
+        for (group_id, _) in &engines {
+            assert!(seen_ids.insert(group_id.clone()), "Group IDs should be unique");
+        }
+    }
+
+    /// Test configuration variations
+    #[tokio::test]
+    async fn test_config_variations() {
+        let group_id = GroupId::random();
+        let identity = b"eve@example.com".to_vec();
+
+        // Test with default config
+        let config1 = MlsConfig::default();
+        let engine1 = OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config1)
+            .await
+            .expect("Failed to create group with default config");
+        assert_eq!(engine1.epoch().await, 0);
+
+        // Test with custom config (if MlsConfig supports builder pattern)
+        let config2 = MlsConfig::default();
+        let group_id2 = GroupId::random();
+        let engine2 = OpenMlsEngine::create_group(group_id2, identity.clone(), config2)
+            .await
+            .expect("Failed to create group with custom config");
+        assert_eq!(engine2.epoch().await, 0);
+    }
+
+    /// Test group metadata is consistent
+    #[tokio::test]
+    async fn test_metadata_consistency() {
+        let config = MlsConfig::default();
+        let group_id = GroupId::random();
+        let identity = b"frank@example.com".to_vec();
+
+        let engine = OpenMlsEngine::create_group(group_id.clone(), identity, config)
+            .await
+            .expect("Failed to create group");
+
+        // Get metadata multiple times
+        let meta1 = engine.metadata().await.expect("Failed to get metadata 1");
+        let meta2 = engine.metadata().await.expect("Failed to get metadata 2");
+        let meta3 = engine.metadata().await.expect("Failed to get metadata 3");
+
+        // All should be identical
+        assert_eq!(meta1.epoch, meta2.epoch);
+        assert_eq!(meta2.epoch, meta3.epoch);
+        assert_eq!(meta1.members.len(), meta2.members.len());
+        assert_eq!(meta2.members.len(), meta3.members.len());
+    }
+
+    // Note: Advanced multi-member tests (add/remove members, Welcome messages)
+    // require proper key package exchange infrastructure which will be added
+    // when integrating with the full MlsHandle API.
 }

@@ -6,7 +6,9 @@
 pub mod openmls_engine;
 pub mod message_adapter;
 pub mod group_ops;
+pub mod adapter;
 
 pub use openmls_engine::OpenMlsEngine;
 pub use message_adapter::{MessageAdapter, WireFormat};
 pub use group_ops::GroupOperations;
+pub use adapter::OpenMlsHandleAdapter;
