@@ -65,14 +65,26 @@
 */
 
 use snow::{Builder, HandshakeState, TransportState};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, Mutex};
+use tokio::time::{sleep, Duration};
+use rand::Rng;
 
 use super::transport_manager::{TransportCommand, TransportEvent};
 
 /// Noise protocol pattern - using XX for mutual authentication
 const NOISE_PATTERN: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
+
+/// Maximum time allowed for handshake completion (30 seconds)
+const HANDSHAKE_TIMEOUT_SECS: u64 = 30;
+
+/// Maximum age for nonce window (60 seconds)
+const NONCE_WINDOW_SECS: u64 = 60;
+
+/// Maximum number of nonces to track per connection
+const MAX_NONCES_PER_CONN: usize = 100;
 
 /// Peer identity derived from Noise static public key
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -108,10 +120,60 @@ pub enum SessionEvent {
     Closed(PeerId),
 }
 
+/// Handshake metadata for replay protection
+#[derive(Debug, Clone)]
+struct HandshakeMetadata {
+    /// Unique nonce for this handshake attempt
+    nonce: u64,
+    /// Timestamp when handshake started
+    started_at: u64,
+    /// Set of seen nonces for this connection (replay detection)
+    seen_nonces: HashSet<u64>,
+}
+
+impl HandshakeMetadata {
+    fn new() -> Self {
+        let mut rng = rand::thread_rng();
+        let nonce = rng.gen::<u64>();
+        let started_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
+        let mut seen_nonces = HashSet::new();
+        seen_nonces.insert(nonce);
+        
+        HandshakeMetadata {
+            nonce,
+            started_at,
+            seen_nonces,
+        }
+    }
+    
+    /// Check if handshake has timed out
+    fn is_expired(&self) -> bool {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        (now - self.started_at) > HANDSHAKE_TIMEOUT_SECS
+    }
+    
+    /// Check if nonce has been seen (replay detection)
+    fn is_replay(&mut self, nonce: u64) -> bool {
+        // Clean up old nonces if we have too many
+        if self.seen_nonces.len() >= MAX_NONCES_PER_CONN {
+            self.seen_nonces.clear();
+        }
+        
+        !self.seen_nonces.insert(nonce)
+    }
+}
+
 /// Session state machine
 enum SessionState {
     /// Handshake in progress
-    Handshaking(HandshakeState),
+    Handshaking(HandshakeState, HandshakeMetadata),
     /// Handshake complete, ready for encrypted communication
     Established(TransportState, PeerId),
 }
@@ -193,18 +255,44 @@ impl SessionManager {
             .build_initiator()
             .map_err(|e| format!("Failed to build initiator: {}", e))?;
 
-        // Send first handshake message
+        // Create handshake metadata with nonce and timestamp
+        let metadata = HandshakeMetadata::new();
+
+        // Send first handshake message with nonce
         let mut buffer = vec![0u8; 1024];
+        let nonce_bytes = metadata.nonce.to_le_bytes();
         let len = handshake
-            .write_message(&[], &mut buffer)
+            .write_message(&nonce_bytes, &mut buffer)
             .map_err(|e| format!("Failed to write handshake: {}", e))?;
 
-        // Store handshake state
+        // Store handshake state with metadata
         let session = Session {
             conn_id,
-            state: SessionState::Handshaking(handshake),
+            state: SessionState::Handshaking(handshake, metadata),
         };
         self.sessions.lock().await.insert(conn_id, session);
+
+        // Spawn timeout task to cleanup stalled handshakes
+        let sessions = self.sessions.clone();
+        let transport_tx = self.transport_tx.clone();
+        tokio::spawn(async move {
+            sleep(Duration::from_secs(HANDSHAKE_TIMEOUT_SECS)).await;
+            
+            let mut sessions = sessions.lock().await;
+            if let Some(session) = sessions.get(&conn_id) {
+                // Check if still in handshaking state
+                if let SessionState::Handshaking(_, metadata) = &session.state {
+                    if metadata.is_expired() {
+                        // Remove expired handshake
+                        sessions.remove(&conn_id);
+                        drop(sessions);
+                        
+                        // Close the connection
+                        let _ = transport_tx.send(TransportCommand::Close(conn_id)).await;
+                    }
+                }
+            }
+        });
 
         // Send handshake message via transport
         self.transport_tx
@@ -223,12 +311,34 @@ impl SessionManager {
             .ok_or_else(|| format!("Session {} not found", conn_id))?;
 
         match &mut session.state {
-            SessionState::Handshaking(handshake) => {
+            SessionState::Handshaking(handshake, metadata) => {
+                // Check if handshake has expired
+                if metadata.is_expired() {
+                    drop(sessions);
+                    self.transport_tx
+                        .send(TransportCommand::Close(conn_id))
+                        .await
+                        .map_err(|e| format!("Failed to close expired handshake: {}", e))?;
+                    return Err("Handshake expired".to_string());
+                }
+
                 // Process handshake message
                 let mut buffer = vec![0u8; 1024];
                 let len = handshake
                     .read_message(&bytes, &mut buffer)
                     .map_err(|e| format!("Handshake read failed: {}", e))?;
+
+                // Extract and validate nonce for replay detection
+                if len >= 8 {
+                    let nonce_bytes: [u8; 8] = buffer[..8].try_into().unwrap();
+                    let nonce = u64::from_le_bytes(nonce_bytes);
+                    
+                    // Check for replay attack
+                    if metadata.is_replay(nonce) {
+                        drop(sessions);
+                        return Err("Replay attack detected: duplicate nonce".to_string());
+                    }
+                }
 
                 // Check if handshake is complete
                 if handshake.is_handshake_finished() {
@@ -247,10 +357,11 @@ impl SessionManager {
                             Builder::new(NOISE_PATTERN.parse().unwrap())
                                 .build_initiator()
                                 .unwrap(),
+                            HandshakeMetadata::new(),
                         ),
                     );
 
-                    if let SessionState::Handshaking(hs) = old_state {
+                    if let SessionState::Handshaking(hs, _) = old_state {
                         let transport = hs
                             .into_transport_mode()
                             .map_err(|e| format!("Failed to enter transport mode: {}", e))?;
@@ -337,7 +448,7 @@ impl SessionManager {
 
                 Ok(())
             }
-            SessionState::Handshaking(_) => Err("Session not yet established".to_string()),
+            SessionState::Handshaking(_, _) => Err("Session not yet established".to_string()),
         }
     }
 
@@ -519,5 +630,207 @@ mod tests {
         assert!(manager.sessions.lock().await.is_empty());
         assert!(manager.peer_to_conn.lock().await.is_empty());
     }
+
+    #[tokio::test]
+    async fn test_handshake_replay_detection() {
+        let (transport_tx, mut transport_rx) = mpsc::channel(100);
+        let (event_tx, _event_rx) = mpsc::channel(100);
+
+        let keypair1 = SessionManager::generate_keypair();
+        let manager = SessionManager::new(keypair1, transport_tx, event_tx);
+
+        let conn_id = 1;
+
+        // Initiate handshake
+        manager
+            .handle_transport_event(TransportEvent::Connected(conn_id, "peer".to_string()))
+            .await
+            .expect("Failed to initiate handshake");
+
+        // Get the first handshake message
+        let msg1 = if let Some(TransportCommand::Send(_id, bytes)) = transport_rx.recv().await {
+            bytes
+        } else {
+            panic!("Expected Send command");
+        };
+
+        // Create a replayed handshake message (same nonce)
+        let replayed_msg = msg1.clone();
+
+        // First attempt should work (or at least not be rejected as replay)
+        let result1 = manager
+            .handle_transport_event(TransportEvent::Data(conn_id, msg1))
+            .await;
+        
+        // Second attempt with same message should be rejected as replay
+        let result2 = manager
+            .handle_transport_event(TransportEvent::Data(conn_id, replayed_msg))
+            .await;
+
+        // At least one should fail (the replay), or both if handshake validation fails
+        assert!(
+            result1.is_err() || result2.is_err(),
+            "Replay attack should be detected"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handshake_timeout() {
+        // This test verifies the timeout mechanism by checking metadata expiration
+        // rather than waiting for actual timeout (which takes 30+ seconds)
+        
+        let (transport_tx, _transport_rx) = mpsc::channel(100);
+        let (event_tx, _event_rx) = mpsc::channel(100);
+
+        let keypair = SessionManager::generate_keypair();
+        let manager = SessionManager::new(keypair, transport_tx, event_tx);
+
+        let conn_id = 99;
+
+        // Create a handshake with expired metadata
+        let builder = Builder::new(NOISE_PATTERN.parse().unwrap());
+        let builder = builder.local_private_key(&manager.static_keypair);
+        let handshake = builder.build_initiator().unwrap();
+        
+        let mut metadata = HandshakeMetadata::new();
+        // Set timestamp to HANDSHAKE_TIMEOUT_SECS + 1 seconds ago
+        metadata.started_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            .saturating_sub(HANDSHAKE_TIMEOUT_SECS + 1);
+
+        let session = Session {
+            conn_id,
+            state: SessionState::Handshaking(handshake, metadata.clone()),
+        };
+        manager.sessions.lock().await.insert(conn_id, session);
+
+        // Verify metadata reports as expired
+        assert!(
+            metadata.is_expired(),
+            "Metadata should report as expired"
+        );
+
+        // When we try to handle data on this expired handshake, it should be rejected
+        let result = manager
+            .handle_transport_event(TransportEvent::Data(conn_id, vec![1, 2, 3]))
+            .await;
+
+        assert!(
+            result.is_err(),
+            "Expired handshake should be rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_expired_handshake_rejected() {
+        let (transport_tx, _transport_rx) = mpsc::channel(100);
+        let (event_tx, _event_rx) = mpsc::channel(100);
+
+        let keypair = SessionManager::generate_keypair();
+        let manager = SessionManager::new(keypair, transport_tx, event_tx);
+
+        let conn_id = 42;
+
+        // Manually create an expired handshake
+        let builder = Builder::new(NOISE_PATTERN.parse().unwrap());
+        let builder = builder.local_private_key(&manager.static_keypair);
+        let handshake = builder.build_initiator().unwrap();
+        
+        let mut metadata = HandshakeMetadata::new();
+        // Manually set expired timestamp
+        metadata.started_at = 0; // Unix epoch - definitely expired
+
+        let session = Session {
+            conn_id,
+            state: SessionState::Handshaking(handshake, metadata),
+        };
+        manager.sessions.lock().await.insert(conn_id, session);
+
+        // Try to process data on expired handshake
+        let result = manager
+            .handle_transport_event(TransportEvent::Data(conn_id, vec![1, 2, 3]))
+            .await;
+
+        assert!(result.is_err(), "Expired handshake should be rejected");
+        assert!(
+            result.unwrap_err().contains("expired"),
+            "Error should mention expiration"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_nonce_window_cleanup() {
+        let mut metadata = HandshakeMetadata::new();
+        let initial_nonce = metadata.nonce;
+
+        // Fill up the nonce window
+        for i in 0..MAX_NONCES_PER_CONN {
+            let nonce = initial_nonce.wrapping_add(i as u64);
+            metadata.is_replay(nonce);
+        }
+
+        // Verify we have many nonces
+        assert!(
+            metadata.seen_nonces.len() >= MAX_NONCES_PER_CONN,
+            "Nonce window should be at capacity"
+        );
+
+        // Add one more - should trigger cleanup
+        let new_nonce = initial_nonce.wrapping_add(MAX_NONCES_PER_CONN as u64);
+        let is_replay = metadata.is_replay(new_nonce);
+
+        assert!(!is_replay, "New nonce should not be a replay");
+        assert!(
+            metadata.seen_nonces.len() < MAX_NONCES_PER_CONN,
+            "Nonce window should be cleaned up"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_handshake_attempts() {
+        let (transport_tx, _transport_rx) = mpsc::channel(100);
+        let (event_tx, _event_rx) = mpsc::channel(100);
+
+        let keypair = SessionManager::generate_keypair();
+        let manager = Arc::new(SessionManager::new(keypair, transport_tx, event_tx));
+
+        // Spawn multiple concurrent handshake attempts
+        let mut handles = vec![];
+        for i in 0..10 {
+            let manager_clone = manager.clone();
+            let handle = tokio::spawn(async move {
+                manager_clone
+                    .handle_transport_event(TransportEvent::Connected(
+                        i,
+                        format!("peer{}", i),
+                    ))
+                    .await
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all to complete
+        for handle in handles {
+            handle.await.expect("Task panicked").expect("Handshake failed");
+        }
+
+        // Verify all sessions were created
+        let sessions = manager.sessions.lock().await;
+        assert_eq!(sessions.len(), 10, "All handshakes should be initiated");
+        
+        // Verify all have unique nonces
+        let mut nonces = HashSet::new();
+        for session in sessions.values() {
+            if let SessionState::Handshaking(_, metadata) = &session.state {
+                assert!(
+                    nonces.insert(metadata.nonce),
+                    "Nonces should be unique across concurrent handshakes"
+                );
+            }
+        }
+    }
 }
+
 

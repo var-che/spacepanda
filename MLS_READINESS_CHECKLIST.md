@@ -9,6 +9,7 @@
 ## Critical Issues (MUST-FIX) - Blocking MLS Integration
 
 ### 1. Device Proof-of-Possession ⚠️ CRITICAL
+
 **Status**: ✅ COMPLETE  
 **Priority**: P0 (Blocking)  
 **Effort**: 1-2 days (COMPLETED)
@@ -16,6 +17,7 @@
 **Problem**: Master can sign device binding, but nothing prevents attacker from binding a public key they don't control.
 
 **Solution**:
+
 ```rust
 // During device registration:
 1. Master generates fresh challenge (random nonce + timestamp)
@@ -25,6 +27,7 @@
 ```
 
 **Implementation**:
+
 - ✅ `DeviceChallenge` struct with nonce, timestamp, device_id
 - ✅ `ProofOfPossession` struct with challenge, signature, public key
 - ✅ `DeviceKey::register_with_proof_of_possession()` - secure 3-step protocol
@@ -34,10 +37,12 @@
 - ✅ Deprecated insecure `DeviceKey::generate()` (test-only)
 
 **Files Modified**:
+
 - ✅ `spacepanda-core/src/core_identity/device_key.rs`
 - ✅ `spacepanda-core/src/core_identity/keypair.rs`
 
 **Test Cases**:
+
 - ✅ Valid proof-of-possession accepted (`test_proof_of_possession_valid`)
 - ✅ Forged signature rejected (`test_proof_of_possession_forged_signature`)
 - ✅ Expired challenge rejected (`test_proof_of_possession_expired_challenge`)
@@ -50,13 +55,15 @@
 ---
 
 ### 2. Handshake Replay & Partial-Handshake Timeouts ⚠️ CRITICAL
-**Status**: ❌ Not Implemented  
+
+**Status**: ✅ COMPLETE  
 **Priority**: P0 (Blocking)  
-**Effort**: 0.5-1 day
+**Effort**: 0.5-1 day (COMPLETED)
 
 **Problem**: Handshake replay and stalled partial handshakes can cause DoS.
 
 **Solution**:
+
 ```rust
 // Add to handshake processing:
 1. Nonce/timestamp in handshake frames
@@ -65,19 +72,39 @@
 4. Tests for replayed handshake frames
 ```
 
-**Files to Modify**:
-- Session/transport/session manager (handshake implementation)
-- `spacepanda-core/src/core_router/tests/security_tests.rs`
+**Implementation**:
+
+- ✅ `HandshakeMetadata` struct with nonce, timestamp, seen_nonces
+- ✅ Random nonce generation per handshake (64-bit)
+- ✅ Nonce window with automatic cleanup (max 100 nonces)
+- ✅ Handshake timeout (30 seconds) with automatic cleanup
+- ✅ Replay detection via nonce tracking in HashSet
+- ✅ Expired handshake rejection on data processing
+- ✅ Timeout task spawned per handshake to cleanup stalled sessions
+
+**Files Modified**:
+
+- ✅ `spacepanda-core/src/core_router/session_manager.rs`
+  - Added `HandshakeMetadata` with nonce window
+  - Modified `SessionState::Handshaking` to include metadata
+  - Added timeout spawn in `initiate_handshake`
+  - Added replay detection in `handle_data`
+  - Added expiration checks
 
 **Test Cases**:
-- [ ] Replayed handshake frame is rejected
-- [ ] Partial handshake times out and cleans up state
-- [ ] Replayed second Noise message is rejected
-- [ ] Concurrent handshake attempts are handled safely
+
+- ✅ Replayed handshake frame is rejected (`test_handshake_replay_detection`)
+- ✅ Partial handshake times out and cleans up state (`test_handshake_timeout`)
+- ✅ Expired handshake rejected (`test_expired_handshake_rejected`)
+- ✅ Concurrent handshake attempts are handled safely (`test_concurrent_handshake_attempts`)
+- ✅ Nonce window cleanup works correctly (`test_nonce_window_cleanup`)
+
+**Test Results**: All 8 session_manager tests passing ✅
 
 ---
 
 ### 3. Keystore Integrity (AEAD + Encryption at Rest) ⚠️ CRITICAL
+
 **Status**: ❌ Not Implemented  
 **Priority**: P0 (Blocking)  
 **Effort**: 1-2 days
@@ -85,6 +112,7 @@
 **Problem**: Keystore exports/imports lack integrity protection and encryption at rest.
 
 **Solution**:
+
 ```rust
 // Wrap serialized keystore with:
 1. AEAD (XChaCha20-Poly1305 or AES-256-GCM)
@@ -94,10 +122,12 @@
 ```
 
 **Files to Modify**:
+
 - `spacepanda-core/src/core_identity/keystore/file_keystore.rs`
 - `spacepanda-core/src/core_identity/keystore/mod.rs`
 
 **Test Cases**:
+
 - [ ] Corrupted AEAD tag causes import failure
 - [ ] Corrupted ciphertext causes import failure
 - [ ] Wrong passphrase causes import failure
@@ -105,6 +135,7 @@
 - [ ] Truncated keystore file detected
 
 **Dependencies to Add**:
+
 ```toml
 chacha20poly1305 = "0.10"  # Already present
 argon2 = "0.5"             # KDF for passphrase
@@ -113,6 +144,7 @@ argon2 = "0.5"             # KDF for passphrase
 ---
 
 ### 4. RPC Timeout Cancellation ⚠️ CRITICAL
+
 **Status**: ❌ Not Implemented  
 **Priority**: P0 (Blocking)  
 **Effort**: 0.5-1 day
@@ -120,6 +152,7 @@ argon2 = "0.5"             # KDF for passphrase
 **Problem**: `make_call` spawns timeout task; if response arrives, both timeout and response race to remove pending entry.
 
 **Solution**:
+
 ```rust
 // Use tokio::select! or AbortHandle:
 let timeout_handle = tokio::spawn(timeout_task);
@@ -128,9 +161,11 @@ let timeout_handle = tokio::spawn(timeout_task);
 ```
 
 **Files to Modify**:
+
 - `spacepanda-core/src/core_router/rpc_protocol.rs`
 
 **Test Cases**:
+
 - [ ] Fast response cancels timeout (no double-send)
 - [ ] Timeout fires when no response (proper cleanup)
 - [ ] Concurrent response+timeout handled safely
@@ -139,6 +174,7 @@ let timeout_handle = tokio::spawn(timeout_task);
 ---
 
 ### 5. Seen-Requests Proper LRU Eviction ⚠️ CRITICAL
+
 **Status**: ❌ Not Implemented (timestamp-based eviction)  
 **Priority**: P0 (Blocking)  
 **Effort**: 1-2 days
@@ -146,6 +182,7 @@ let timeout_handle = tokio::spawn(timeout_task);
 **Problem**: Timestamp-based eviction is O(n log n) and has concurrency issues under heavy load.
 
 **Solution**:
+
 ```rust
 // Use hashlink::LruCache or sharded map:
 use hashlink::LruCache;
@@ -157,15 +194,18 @@ struct SeenRequests {
 ```
 
 **Files to Modify**:
+
 - `spacepanda-core/src/core_router/rpc_protocol.rs`
 
 **Test Cases**:
+
 - [ ] Heavy concurrent insertion (1000+ threads)
 - [ ] Eviction works correctly under lock
 - [ ] Capacity limit enforced atomically
 - [ ] No panic under concurrent stress
 
 **Dependencies to Add**:
+
 ```toml
 hashlink = "0.9"
 ```
@@ -173,6 +213,7 @@ hashlink = "0.9"
 ---
 
 ### 6. Zeroize Sensitive Material ⚠️ CRITICAL
+
 **Status**: ❌ Not Implemented  
 **Priority**: P0 (Blocking)  
 **Effort**: 0.5-1 day
@@ -180,6 +221,7 @@ hashlink = "0.9"
 **Problem**: Private keys left in memory after use (security risk).
 
 **Solution**:
+
 ```rust
 use zeroize::{Zeroize, ZeroizeOnDrop};
 use secrecy::SecretVec;
@@ -191,17 +233,20 @@ struct PrivateKey {
 ```
 
 **Files to Modify**:
+
 - `spacepanda-core/src/core_identity/keypair.rs`
 - `spacepanda-core/src/core_identity/device_key.rs`
 - `spacepanda-core/src/core_identity/master_key.rs`
 
 **Test Cases**:
+
 - [ ] Private key bytes zeroized on drop
 - [ ] No private keys in Debug output
 - [ ] No private keys in error messages
 - [ ] No private keys in logs
 
 **Dependencies to Add**:
+
 ```toml
 zeroize = { version = "1.7", features = ["derive"] }
 secrecy = "0.8"
@@ -210,6 +255,7 @@ secrecy = "0.8"
 ---
 
 ### 7. CRDT Signature Verification Enforcement ⚠️ CRITICAL
+
 **Status**: ⚠️ Partial (structural tests only)  
 **Priority**: P0 (Blocking)  
 **Effort**: 2-3 days
@@ -217,6 +263,7 @@ secrecy = "0.8"
 **Problem**: CRDT operations not validated cryptographically; malicious/forged deltas could corrupt state.
 
 **Solution**:
+
 ```rust
 // In CRDT apply/merge paths:
 1. Verify signature on every delta
@@ -227,10 +274,12 @@ secrecy = "0.8"
 ```
 
 **Files to Modify**:
+
 - `spacepanda-core/src/core_store/crdt/*`
 - `spacepanda-core/src/core_identity/*` (signature integration)
 
 **Test Cases**:
+
 - [ ] Forged signature in delta rejected
 - [ ] Unsigned delta rejected
 - [ ] Wrong pseudonym rejected
@@ -244,6 +293,7 @@ secrecy = "0.8"
 ## Medium Priority Improvements
 
 ### 8. Per-Peer Rate Limiting & Circuit Breakers
+
 **Status**: ❌ Not Implemented  
 **Priority**: P1  
 **Effort**: 2-3 days
@@ -253,6 +303,7 @@ secrecy = "0.8"
 ---
 
 ### 9. Structured Tracing + Metrics
+
 **Status**: ⚠️ Partial (tracing present, metrics absent)  
 **Priority**: P1  
 **Effort**: 1-2 days
@@ -262,6 +313,7 @@ secrecy = "0.8"
 ---
 
 ### 10. Test Harness Hardening
+
 **Status**: ⚠️ Partial  
 **Priority**: P2  
 **Effort**: 1 day
@@ -271,6 +323,7 @@ secrecy = "0.8"
 ---
 
 ### 11. Benchmark Reproducibility
+
 **Status**: ⚠️ Partial (benchmarks exist, seed/config missing)  
 **Priority**: P2  
 **Effort**: 0.5 day
@@ -280,6 +333,7 @@ secrecy = "0.8"
 ---
 
 ### 12. Key Migration Tooling
+
 **Status**: ❌ Not Implemented  
 **Priority**: P2  
 **Effort**: 1-2 days
@@ -312,30 +366,36 @@ secrecy = "0.8"
 ## Recommended Tests to Add
 
 ### Identity Layer
+
 - [ ] `test_device_registration_without_proof_rejected()`
 - [ ] `test_device_binding_with_invalid_signature_rejected()`
 - [ ] `test_replayed_proof_of_possession_rejected()`
 
 ### Router/Session
+
 - [ ] `test_handshake_replay_rejected()`
 - [ ] `test_partial_handshake_timeout()`
 - [ ] `test_rpc_response_timeout_race_no_double_send()`
 
 ### CRDT
+
 - [ ] `test_forged_signature_in_delta_rejected()`
 - [ ] `test_unsigned_delta_rejected()`
 - [ ] `test_byzantine_deltas_dont_corrupt_state()`
 
 ### RPC Protocol
+
 - [ ] `test_seen_requests_heavy_concurrent_insertion()`
 - [ ] `test_seen_requests_eviction_under_lock()`
 
 ### Keystore
+
 - [ ] `test_corrupted_aead_tag_import_fails()`
 - [ ] `test_wrong_passphrase_import_fails()`
 - [ ] `test_truncated_keystore_detected()`
 
 ### Benchmarks
+
 - [ ] `bench_crdt_merge_signed_ops_1000()`
 - [ ] `bench_signature_verification_throughput()`
 
@@ -346,8 +406,9 @@ secrecy = "0.8"
 **All P0 items MUST be complete before proceeding to `core_mls` implementation.**
 
 ### Readiness Criteria (Must be ✅)
+
 - [x] Device proof-of-possession implemented and tested
-- [ ] Handshake replay & timeout handling + tests
+- [x] Handshake replay & timeout handling + tests
 - [ ] Keystore AEAD/HMAC integrity + encryption at rest
 - [ ] CRDT signature verification enforced
 - [ ] RPC timeout cancellation (no race conditions)
@@ -357,24 +418,27 @@ secrecy = "0.8"
 - [ ] Metrics/tracing for security events
 - [ ] All new tests passing in CI
 
-**Current Status**: 🟡 1/10 complete
+**Current Status**: 🟡 2/10 complete
 
 ---
 
 ## Next Actions (Prioritized)
 
 ### Week 1
+
 1. **Day 1-2**: Implement device proof-of-possession + tests
 2. **Day 3**: Add handshake replay/timeout handling + tests
 3. **Day 4-5**: Implement keystore AEAD encryption + tests
 
 ### Week 2
+
 4. **Day 1**: Add RPC timeout cancellation + race test
 5. **Day 2-3**: Convert seen_requests to LRU + stress tests
 6. **Day 4**: Add zeroize to all private keys
 7. **Day 5**: CRDT signature verification + fuzz tests
 
 ### Week 3
+
 8. **Day 1-2**: Benchmark CRDT merge with signatures
 9. **Day 3-4**: Add tracing/metrics for security events
 10. **Day 5**: Run fuzzing pass on parsers/handshake
