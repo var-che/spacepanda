@@ -4,6 +4,9 @@ pub mod core_router;
 pub mod core_store;
 pub mod logging;
 
+#[cfg(test)]
+pub mod test_utils;
+
 pub use core_dht::{DhtConfig, DhtKey, DhtNode, DhtValue};
 pub use core_identity::{
     ChannelHash, ChannelIdentity, GlobalIdentity, IdentityError, Keypair,
