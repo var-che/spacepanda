@@ -75,9 +75,7 @@ mod openmls_integration_tests {
     }
 
     /// Test message encryption and decryption
-    /// TODO: Implement send_message() in OpenMlsEngine
     #[tokio::test]
-    #[ignore]
     async fn test_message_encryption() {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
@@ -87,20 +85,19 @@ mod openmls_integration_tests {
             .await
             .expect("Failed to create group");
 
-        // Test that we can encrypt messages (even if we can't decrypt yet without another member)
+        // Test that we can encrypt messages
         let plaintext = b"Hello, World!";
-        // Uncomment when send_message is implemented:
-        // let result = engine.send_message(plaintext).await;
-        // assert!(result.is_ok(), "Should encrypt message successfully");
+        let result = engine.send_message(plaintext).await;
         
-        // For now, just verify group was created
-        assert_eq!(engine.epoch().await, 0);
+        // Should succeed in creating encrypted message
+        assert!(result.is_ok(), "Should encrypt message successfully");
+        let ciphertext = result.unwrap();
+        assert!(!ciphertext.is_empty(), "Ciphertext should not be empty");
+        assert_ne!(&ciphertext[..], plaintext, "Ciphertext should differ from plaintext");
     }
 
     /// Test epoch advancement
-    /// TODO: Implement commit_pending() in OpenMlsEngine
     #[tokio::test]
-    #[ignore]
     async fn test_epoch_advancement() {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
@@ -113,11 +110,12 @@ mod openmls_integration_tests {
         let initial_epoch = engine.epoch().await;
         assert_eq!(initial_epoch, 0, "Should start at epoch 0");
 
-        // Uncomment when commit_pending is implemented:
-        // let result = engine.commit_pending().await;
-        // assert!(result.is_ok(), "Commit should succeed");
-        // let new_epoch = engine.epoch().await;
-        // assert_eq!(new_epoch, 1, "Epoch should advance after commit");
+        // Commit with no changes should still advance epoch
+        let result = engine.commit_pending().await;
+        assert!(result.is_ok(), "Commit should succeed");
+
+        let new_epoch = engine.epoch().await;
+        assert_eq!(new_epoch, 1, "Epoch should advance after commit");
     }
 
     /// Test multiple groups can coexist
@@ -196,6 +194,36 @@ mod openmls_integration_tests {
         assert_eq!(meta2.epoch, meta3.epoch);
         assert_eq!(meta1.members.len(), meta2.members.len());
         assert_eq!(meta2.members.len(), meta3.members.len());
+    }
+
+    /// Test message encryption succeeds
+    /// 
+    /// Note: This tests message creation. In OpenMLS, a sender cannot decrypt their own
+    /// messages (this is RFC 9420 compliant behavior). Multi-member message testing requires
+    /// proper key package exchange and Welcome message handling, which will be added when
+    /// member operations (add/remove) are fully implemented.
+    #[tokio::test]
+    async fn test_message_send_receive() {
+        let config = MlsConfig::default();
+        let group_id = GroupId::random();
+        
+        // Create Alice's group
+        let alice_identity = b"alice@example.com".to_vec();
+        let alice_engine = OpenMlsEngine::create_group(group_id.clone(), alice_identity, config.clone())
+            .await
+            .expect("Failed to create Alice's group");
+
+        // Alice sends a message
+        let plaintext = b"Hello, World!";
+        let encrypted = alice_engine.send_message(plaintext)
+            .await
+            .expect("Failed to send message");
+        
+        assert!(!encrypted.is_empty(), "Encrypted message should not be empty");
+        assert_ne!(&encrypted[..], plaintext, "Encrypted message should differ from plaintext");
+        
+        // Note: Actual message send→receive testing requires two distinct members,
+        // which needs the full key package exchange flow implemented in group_ops.rs
     }
 
     // Note: Advanced multi-member tests (add/remove members, Welcome messages)

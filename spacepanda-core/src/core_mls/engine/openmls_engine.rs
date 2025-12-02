@@ -227,6 +227,125 @@ impl OpenMlsEngine {
     pub(crate) fn signature_keys(&self) -> &SignatureKeyPair {
         &self.signature_keys
     }
+    
+    /// Send an application message to the group
+    ///
+    /// # Arguments
+    /// * `plaintext` - The plaintext message to encrypt and send
+    ///
+    /// # Returns
+    /// Serialized MLS application message ready for transport
+    pub async fn send_message(&self, plaintext: &[u8]) -> MlsResult<Vec<u8>> {
+        let mut group = self.group.write().await;
+        
+        // Create application message
+        let message = group.create_message(
+            self.provider.as_ref(),
+            &self.signature_keys,
+            plaintext,
+        ).map_err(|e| MlsError::InvalidMessage(format!("Failed to create message: {:?}", e)))?;
+        
+        // Serialize the message for transport
+        let serialized = message.tls_serialize_detached()
+            .map_err(|e| MlsError::Internal(format!("Failed to serialize message: {:?}", e)))?;
+        
+        Ok(serialized)
+    }
+    
+    /// Commit pending proposals and advance to next epoch
+    ///
+    /// # Returns
+    /// Serialized commit message and optional welcome messages for new members
+    pub async fn commit_pending(&self) -> MlsResult<(Vec<u8>, Option<Vec<Vec<u8>>>)> {
+        let mut group = self.group.write().await;
+        
+        // Create commit for pending proposals
+        let (commit, welcome, _group_info) = group.commit_to_pending_proposals(
+            self.provider.as_ref(),
+            &self.signature_keys,
+        ).map_err(|e| MlsError::InvalidMessage(format!("Failed to create commit: {:?}", e)))?;
+        
+        // Merge the commit into our own state
+        group.merge_pending_commit(self.provider.as_ref())
+            .map_err(|e| MlsError::Internal(format!("Failed to merge commit: {:?}", e)))?;
+        
+        // Serialize commit message
+        let commit_bytes = commit.tls_serialize_detached()
+            .map_err(|e| MlsError::Internal(format!("Failed to serialize commit: {:?}", e)))?;
+        
+        // Serialize welcome messages if any
+        let welcome_bytes = if let Some(w) = welcome {
+            let serialized = w.tls_serialize_detached()
+                .map_err(|e| MlsError::Internal(format!("Failed to serialize welcome: {:?}", e)))?;
+            Some(vec![serialized])
+        } else {
+            None
+        };
+        
+        Ok((commit_bytes, welcome_bytes))
+    }
+    
+    /// Process an incoming MLS message
+    ///
+    /// Handles application messages, proposals, and commits from other members
+    ///
+    /// # Returns
+    /// ProcessedMessage enum indicating what was processed
+    pub async fn process_message(&self, message_bytes: &[u8]) -> MlsResult<ProcessedMessage> {
+        let mut group = self.group.write().await;
+        
+        // Parse the wire message
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(message_bytes)
+            .map_err(|e| MlsError::InvalidMessage(format!("Failed to parse message: {:?}", e)))?;
+        
+        // Extract the protocol message from the MLS message
+        let protocol_message: ProtocolMessage = match mls_message_in.extract() {
+            MlsMessageBodyIn::PrivateMessage(pm) => pm.into(),
+            MlsMessageBodyIn::PublicMessage(pm) => pm.into(),
+            _ => return Err(MlsError::InvalidMessage("Unexpected message type".to_string())),
+        };
+        
+        // Process the message through OpenMLS - this handles decryption and validation
+        let processed = group.process_message(self.provider.as_ref(), protocol_message)
+            .map_err(|e| MlsError::InvalidMessage(format!("Failed to process message: {:?}", e)))?;
+        
+        // Handle based on message type
+        match processed.into_content() {
+            ProcessedMessageContent::ApplicationMessage(app_msg) => {
+                // Extract plaintext from application message
+                let plaintext = app_msg.into_bytes();
+                Ok(ProcessedMessage::Application(plaintext))
+            },
+            ProcessedMessageContent::ProposalMessage(_proposal) => {
+                // Proposal has been added to group's pending state
+                Ok(ProcessedMessage::Proposal)
+            },
+            ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
+                // Merge the staged commit to advance the epoch
+                group.merge_staged_commit(self.provider.as_ref(), *staged_commit)
+                    .map_err(|e| MlsError::Internal(format!("Failed to merge commit: {:?}", e)))?;
+                
+                let new_epoch = group.epoch().as_u64();
+                
+                Ok(ProcessedMessage::Commit { new_epoch })
+            },
+            ProcessedMessageContent::ExternalJoinProposalMessage(_ext_proposal) => {
+                // External join proposal received and stored
+                Ok(ProcessedMessage::Proposal)
+            },
+        }
+    }
+}
+
+/// Result of processing an incoming message
+#[derive(Debug)]
+pub enum ProcessedMessage {
+    /// Application message with decrypted plaintext
+    Application(Vec<u8>),
+    /// Proposal was received and stored
+    Proposal,
+    /// Commit was processed and epoch advanced
+    Commit { new_epoch: u64 },
 }
 
 #[cfg(test)]
