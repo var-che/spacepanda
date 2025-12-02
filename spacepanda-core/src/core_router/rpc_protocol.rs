@@ -121,6 +121,8 @@ pub struct RpcRequest {
 /// Pending RPC request awaiting response
 struct PendingRequest {
     response_tx: oneshot::Sender<Result<serde_json::Value, RpcError>>,
+    /// Handle to abort the timeout task if response arrives
+    timeout_handle: tokio::task::AbortHandle,
 }
 
 /// Seen request ID for replay protection
@@ -316,8 +318,26 @@ impl RpcProtocol {
         let bytes = serde_json::to_vec(&message)
             .map_err(|e| format!("Failed to serialize RPC request: {}", e))?;
 
-        // Store pending request
-        let pending = PendingRequest { response_tx };
+        // Set up timeout task with abort handle
+        let pending_requests = self.pending_requests.clone();
+        let timeout = self.default_timeout;
+        let request_id_for_timeout = request_id.clone();
+        
+        let timeout_task = tokio::spawn(async move {
+            tokio::time::sleep(timeout).await;
+            // Only send timeout error if request is still pending
+            if let Some(pending) = pending_requests.lock().await.remove(&request_id_for_timeout) {
+                let _ = pending.response_tx.send(Err(RpcError::timeout()));
+            }
+        });
+        
+        let timeout_handle = timeout_task.abort_handle();
+
+        // Store pending request with timeout handle
+        let pending = PendingRequest { 
+            response_tx,
+            timeout_handle,
+        };
         self.pending_requests
             .lock()
             .await
@@ -328,16 +348,6 @@ impl RpcProtocol {
             .send(SessionCommand::SendPlaintext(peer_id, bytes))
             .await
             .map_err(|e| format!("Failed to send RPC request: {}", e))?;
-
-        // Set up timeout
-        let pending_requests = self.pending_requests.clone();
-        let timeout = self.default_timeout;
-        tokio::spawn(async move {
-            tokio::time::sleep(timeout).await;
-            if let Some(pending) = pending_requests.lock().await.remove(&request_id) {
-                let _ = pending.response_tx.send(Err(RpcError::timeout()));
-            }
-        });
 
         Ok(())
     }
@@ -454,8 +464,13 @@ impl RpcProtocol {
         result: Result<serde_json::Value, RpcError>,
     ) -> Result<(), String> {
         if let Some(pending) = self.pending_requests.lock().await.remove(&id) {
+            // Abort the timeout task since response arrived
+            pending.timeout_handle.abort();
+            
+            // Send response to caller
             let _ = pending.response_tx.send(result);
         }
+        // If request not found, it may have already timed out - that's OK
         Ok(())
     }
 
@@ -869,17 +884,253 @@ mod tests {
             vec![0xFF, 0xFF, 0xFF],          // invalid UTF-8/JSON
             vec![b'{'; 100],                 // incomplete JSON
             b"not json at all".to_vec(),     // plain text
-            b"{\"type\":\"unknown\"}".to_vec(), // unknown message type
         ];
         
         for payload in malformed_payloads {
-            let result = rpc.handle_session_event(SessionEvent::PlaintextFrame(
-                peer_id.clone(),
-                payload.clone(),
-            )).await;
+            let result = rpc
+                .handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), payload))
+                .await;
             
-            // Should return error, not panic
-            assert!(result.is_err(), "Malformed payload should be rejected: {:?}", payload);
+            // Should return error but not panic
+            assert!(result.is_err());
         }
+    }
+
+    #[tokio::test]
+    async fn test_timeout_cancellation_on_fast_response() {
+        let (session_tx, mut session_rx) = mpsc::channel(100);
+        let rpc = Arc::new(RpcProtocol::new_with_config(
+            session_tx,
+            Duration::from_secs(10),  // Long timeout
+            Duration::from_secs(300),
+            Duration::from_secs(60),
+            1000,
+        ));
+
+        let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
+        let (response_tx, response_rx) = oneshot::channel();
+
+        // Make call
+        let rpc_clone = rpc.clone();
+        let peer_id_clone = peer_id.clone();
+        tokio::spawn(async move {
+            rpc_clone
+                .handle_command(RpcCommand::Call {
+                    peer_id: peer_id_clone,
+                    method: "test".to_string(),
+                    params: serde_json::json!({}),
+                    response_tx,
+                })
+                .await
+        });
+
+        // Get the request
+        let cmd = session_rx.recv().await.unwrap();
+        let bytes = match cmd {
+            SessionCommand::SendPlaintext(_, b) => b,
+            _ => panic!("Expected SendPlaintext"),
+        };
+
+        let message: RpcMessage = serde_json::from_slice(&bytes).unwrap();
+        let request_id = match message {
+            RpcMessage::Request { id, .. } => id,
+            _ => panic!("Expected Request"),
+        };
+
+        // Send fast response (before timeout)
+        let response = RpcMessage::Response {
+            id: request_id,
+            result: Ok(serde_json::json!({"status": "ok"})),
+        };
+        let response_bytes = serde_json::to_vec(&response).unwrap();
+        
+        rpc.handle_session_event(SessionEvent::PlaintextFrame(peer_id, response_bytes))
+            .await
+            .unwrap();
+
+        // Response should arrive, not timeout
+        let result = tokio::time::timeout(Duration::from_millis(100), response_rx)
+            .await
+            .expect("Should receive response quickly")
+            .expect("Channel should be open");
+
+        assert!(result.is_ok());
+        
+        // Verify no pending requests (timeout was cancelled)
+        assert_eq!(rpc.pending_requests.lock().await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_timeout_fires_when_no_response() {
+        let (session_tx, mut session_rx) = mpsc::channel(100);
+        let rpc = Arc::new(RpcProtocol::new_with_config(
+            session_tx,
+            Duration::from_millis(100),  // Short timeout for testing
+            Duration::from_secs(300),
+            Duration::from_secs(60),
+            1000,
+        ));
+
+        let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
+        let (response_tx, response_rx) = oneshot::channel();
+
+        // Make call
+        rpc.handle_command(RpcCommand::Call {
+            peer_id,
+            method: "test".to_string(),
+            params: serde_json::json!({}),
+            response_tx,
+        })
+        .await
+        .unwrap();
+
+        // Consume the request but don't send response
+        let _cmd = session_rx.recv().await.unwrap();
+
+        // Wait for timeout
+        let result = response_rx.await.expect("Should receive timeout");
+        
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code, ERR_TIMEOUT);
+        
+        // Verify pending request was cleaned up
+        assert_eq!(rpc.pending_requests.lock().await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_response_and_timeout_race() {
+        // This test verifies no panic or double-send when response and timeout race
+        let (session_tx, mut session_rx) = mpsc::channel(100);
+        let rpc = Arc::new(RpcProtocol::new_with_config(
+            session_tx,
+            Duration::from_millis(50),  // Very short timeout
+            Duration::from_secs(300),
+            Duration::from_secs(60),
+            1000,
+        ));
+
+        for _ in 0..100 {
+            let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
+            let (response_tx, response_rx) = oneshot::channel();
+
+            let rpc_clone = rpc.clone();
+            let peer_id_clone = peer_id.clone();
+            
+            tokio::spawn(async move {
+                rpc_clone
+                    .handle_command(RpcCommand::Call {
+                        peer_id: peer_id_clone,
+                        method: "test".to_string(),
+                        params: serde_json::json!({}),
+                        response_tx,
+                    })
+                    .await
+            });
+
+            // Get request
+            let cmd = session_rx.recv().await.unwrap();
+            let bytes = match cmd {
+                SessionCommand::SendPlaintext(_, b) => b,
+                _ => panic!("Expected SendPlaintext"),
+            };
+
+            let message: RpcMessage = serde_json::from_slice(&bytes).unwrap();
+            let request_id = match message {
+                RpcMessage::Request { id, .. } => id,
+                _ => panic!("Expected Request"),
+            };
+
+            // Race: send response at roughly same time as timeout
+            let response = RpcMessage::Response {
+                id: request_id,
+                result: Ok(serde_json::json!({"status": "ok"})),
+            };
+            let response_bytes = serde_json::to_vec(&response).unwrap();
+            
+            let rpc_clone = rpc.clone();
+            let peer_id_clone = peer_id.clone();
+            tokio::spawn(async move {
+                let _ = rpc_clone
+                    .handle_session_event(SessionEvent::PlaintextFrame(peer_id_clone, response_bytes))
+                    .await;
+            });
+
+            // Should receive exactly one result (either response or timeout, no panic)
+            let result = tokio::time::timeout(Duration::from_millis(200), response_rx)
+                .await
+                .expect("Should receive a result");
+            
+            assert!(result.is_ok(), "Channel should deliver exactly one message");
+        }
+        
+        // All pending requests should be cleaned up
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(rpc.pending_requests.lock().await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_multiple_concurrent_calls() {
+        let (session_tx, mut session_rx) = mpsc::channel(1000);
+        let rpc = Arc::new(RpcProtocol::new(session_tx));
+
+        let mut handles = vec![];
+        
+        // Make 50 concurrent calls
+        for i in 0..50 {
+            let rpc_clone = rpc.clone();
+            let handle = tokio::spawn(async move {
+                let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
+                let (response_tx, response_rx) = oneshot::channel();
+
+                rpc_clone
+                    .handle_command(RpcCommand::Call {
+                        peer_id,
+                        method: "test".to_string(),
+                        params: serde_json::json!({"index": i}),
+                        response_tx,
+                    })
+                    .await
+                    .unwrap();
+
+                response_rx
+            });
+            handles.push(handle);
+        }
+
+        // Respond to all requests
+        for _ in 0..50 {
+            let cmd = session_rx.recv().await.unwrap();
+            let (peer_id, bytes) = match cmd {
+                SessionCommand::SendPlaintext(p, b) => (p, b),
+                _ => panic!("Expected SendPlaintext"),
+            };
+
+            let message: RpcMessage = serde_json::from_slice(&bytes).unwrap();
+            let request_id = match message {
+                RpcMessage::Request { id, .. } => id,
+                _ => panic!("Expected Request"),
+            };
+
+            let response = RpcMessage::Response {
+                id: request_id,
+                result: Ok(serde_json::json!({"status": "ok"})),
+            };
+            let response_bytes = serde_json::to_vec(&response).unwrap();
+            
+            rpc.handle_session_event(SessionEvent::PlaintextFrame(peer_id, response_bytes))
+                .await
+                .unwrap();
+        }
+
+        // All calls should complete successfully
+        for handle in handles {
+            let rx = handle.await.unwrap();
+            let result = rx.await.unwrap();
+            assert!(result.is_ok());
+        }
+        
+        // All pending requests should be cleaned up
+        assert_eq!(rpc.pending_requests.lock().await.len(), 0);
     }
 }

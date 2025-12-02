@@ -168,31 +168,45 @@
 
 ### 4. RPC Timeout Cancellation ⚠️ CRITICAL
 
-**Status**: ❌ Not Implemented  
+**Status**: ✅ COMPLETE  
 **Priority**: P0 (Blocking)  
-**Effort**: 0.5-1 day
+**Effort**: 0.5-1 day (COMPLETED)
 
 **Problem**: `make_call` spawns timeout task; if response arrives, both timeout and response race to remove pending entry.
 
 **Solution**:
 
 ```rust
-// Use tokio::select! or AbortHandle:
-let timeout_handle = tokio::spawn(timeout_task);
+// Use AbortHandle to cancel timeout when response arrives:
+let timeout_task = tokio::spawn(timeout_logic);
+let timeout_handle = timeout_task.abort_handle();
+// Store handle in PendingRequest
 // On response: timeout_handle.abort();
-// Or: tokio::select! { response => ..., timeout => ... }
 ```
 
-**Files to Modify**:
+**Implementation**:
 
-- `spacepanda-core/src/core_router/rpc_protocol.rs`
+- ✅ Added `timeout_handle: AbortHandle` to `PendingRequest` struct
+- ✅ Store `AbortHandle` when spawning timeout task
+- ✅ Abort timeout task in `handle_response` when response arrives
+- ✅ Timeout task only sends error if request still pending
+- ✅ No race condition: only one of (response, timeout) delivers result
+
+**Files Modified**:
+
+- ✅ `spacepanda-core/src/core_router/rpc_protocol.rs`
+  - Modified `PendingRequest` to include `timeout_handle`
+  - Updated `make_call` to store abort handle
+  - Updated `handle_response` to abort timeout on response
 
 **Test Cases**:
 
-- [ ] Fast response cancels timeout (no double-send)
-- [ ] Timeout fires when no response (proper cleanup)
-- [ ] Concurrent response+timeout handled safely
-- [ ] No panic or race condition under load
+- ✅ Fast response cancels timeout (no double-send) (`test_timeout_cancellation_on_fast_response`)
+- ✅ Timeout fires when no response (proper cleanup) (`test_timeout_fires_when_no_response`)
+- ✅ Concurrent response+timeout handled safely (`test_concurrent_response_and_timeout_race`)
+- ✅ No panic or race condition under load (`test_multiple_concurrent_calls`)
+
+**Test Results**: All 13 RPC protocol tests passing ✅
 
 ---
 
@@ -434,14 +448,14 @@ secrecy = "0.8"
 - [x] Handshake replay & timeout handling + tests
 - [x] Keystore AEAD/HMAC integrity + encryption at rest
 - [ ] CRDT signature verification enforced
-- [ ] RPC timeout cancellation (no race conditions)
+- [x] RPC timeout cancellation (no race conditions)
 - [ ] LRU/sharded seen_requests with concurrency tests
 - [ ] Zeroize all secrets in memory
 - [ ] Benchmark: CRDT merge with signature verification
 - [ ] Metrics/tracing for security events
 - [ ] All new tests passing in CI
 
-**Current Status**: 🟡 3/10 complete
+**Current Status**: 🟡 4/10 complete
 
 ---
 
