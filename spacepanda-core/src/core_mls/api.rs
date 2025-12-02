@@ -29,6 +29,7 @@ use super::errors::{MlsError, MlsResult};
 use super::group::MlsGroup;
 use super::proposals::Proposal;
 use super::transport::{MlsEnvelope, MlsTransport};
+use super::tree::MlsTree;
 use super::types::{GroupId, GroupMetadata, MlsConfig};
 use std::sync::{Arc, RwLock};
 
@@ -143,6 +144,18 @@ impl MlsHandle {
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         let group = transport.group();
+        
+        // Validate: new key must be different from current key
+        if let Some(node) = group.tree.get_node(MlsTree::leaf_to_node_index(group.self_index)) {
+            if let Some(ref current_key) = node.public_key {
+                if current_key == &new_public_key {
+                    return Err(MlsError::InvalidProposal(
+                        "Update must use a new public key (cannot reuse current key)".to_string()
+                    ));
+                }
+            }
+        }
+        
         let proposal = Proposal::new_update(
             group.self_index,
             group.epoch,
@@ -206,6 +219,11 @@ impl MlsHandle {
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         Ok(transport.epoch())
+    }
+
+    /// Get current epoch (alias for epoch())
+    pub fn current_epoch(&self) -> MlsResult<u64> {
+        self.epoch()
     }
 
     /// Get member count

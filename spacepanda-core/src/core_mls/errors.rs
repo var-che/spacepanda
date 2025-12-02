@@ -48,6 +48,10 @@ pub enum MlsError {
     #[error("Invalid group state: {0}")]
     InvalidState(String),
 
+    /// Invalid proposal
+    #[error("Invalid proposal: {0}")]
+    InvalidProposal(String),
+
     /// Configuration error
     #[error("Invalid config: {0}")]
     InvalidConfig(String),

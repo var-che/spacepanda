@@ -123,6 +123,67 @@ impl MlsGroup {
             });
         }
 
+        // Validate proposal based on type
+        match &proposal.content {
+            ProposalContent::Add { public_key, .. } => {
+                // Verify sender exists
+                if proposal.sender >= self.tree.leaf_count() {
+                    return Err(MlsError::InvalidProposal(
+                        format!("Invalid sender index: {}", proposal.sender)
+                    ));
+                }
+                // Check for duplicate key in existing members
+                for i in 0..self.tree.leaf_count() {
+                    if let Some(node) = self.tree.get_node(MlsTree::leaf_to_node_index(i)) {
+                        if let Some(ref existing_key) = node.public_key {
+                            if existing_key == public_key {
+                                return Err(MlsError::InvalidProposal(
+                                    "Duplicate public key already exists in group".to_string()
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            ProposalContent::Update { .. } => {
+                // Verify sender exists
+                if proposal.sender >= self.tree.leaf_count() {
+                    return Err(MlsError::InvalidProposal(
+                        format!("Invalid sender index: {}", proposal.sender)
+                    ));
+                }
+            }
+            ProposalContent::Remove { removed } => {
+                // Verify target exists
+                if *removed >= self.tree.leaf_count() {
+                    return Err(MlsError::InvalidProposal(
+                        format!("Invalid remove target index: {}", removed)
+                    ));
+                }
+                // Verify target is not blank
+                if let Some(node) = self.tree.get_node(MlsTree::leaf_to_node_index(*removed)) {
+                    if node.public_key.is_none() {
+                        return Err(MlsError::InvalidProposal(
+                            "Cannot remove blank leaf".to_string()
+                        ));
+                    }
+                } else {
+                    return Err(MlsError::InvalidProposal(
+                        "Target leaf does not exist".to_string()
+                    ));
+                }
+                // Verify sender exists
+                if proposal.sender >= self.tree.leaf_count() {
+                    return Err(MlsError::InvalidProposal(
+                        format!("Invalid sender index: {}", proposal.sender)
+                    ));
+                }
+            }
+            ProposalContent::PreSharedKey { .. } => {
+                // PSK validation would go here
+            }
+        }
+
         self.proposals.add(proposal)
     }
 
