@@ -24,6 +24,8 @@ async fn test_store_snapshot_replay() {
         snapshot_interval: 200, // Snapshot after 200 ops
         max_log_size: 10_000_000,
         enable_compaction: false,
+        require_signatures: false,
+        authorized_keys: Vec::new(),
     };
     
     let store = LocalStore::new(config.clone()).unwrap();
@@ -217,6 +219,8 @@ async fn test_store_concurrent_write_safety() {
         snapshot_interval: 10000, // High to avoid snapshots during test
         max_log_size: 10_000_000,
         enable_compaction: false,
+        require_signatures: false,
+        authorized_keys: Vec::new(),
     };
     
     let store = std::sync::Arc::new(LocalStore::new(config).unwrap());

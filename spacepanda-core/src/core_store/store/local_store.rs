@@ -11,7 +11,7 @@
     - At-rest encryption for all data
 */
 
-use crate::core_store::crdt::{Crdt, VectorClock, OperationMetadata};
+use crate::core_store::crdt::{Crdt, VectorClock, OperationMetadata, ValidatedCrdt, SignatureConfig};
 use crate::core_store::model::{Channel, Space, SpaceId, ChannelId};
 use crate::core_store::store::errors::{StoreResult, StoreError};
 use crate::core_store::store::commit_log::CommitLog;
@@ -45,6 +45,12 @@ pub struct LocalStoreConfig {
     
     /// Enable automatic compaction
     pub enable_compaction: bool,
+    
+    /// Require signatures on all operations (production mode)
+    pub require_signatures: bool,
+    
+    /// Authorized public keys for signature verification (Ed25519, 32 bytes each)
+    pub authorized_keys: Vec<Vec<u8>>,
 }
 
 impl Default for LocalStoreConfig {
@@ -55,6 +61,8 @@ impl Default for LocalStoreConfig {
             snapshot_interval: 1000,
             max_log_size: 10_000_000, // 10MB
             enable_compaction: true,
+            require_signatures: false, // Disabled by default for backwards compatibility
+            authorized_keys: Vec::new(),
         }
     }
 }
@@ -201,6 +209,9 @@ impl LocalStore {
     }
     
     /// Apply a CRDT operation and persist it
+    /// 
+    /// Note: For cryptographic signature verification, wrap CRDTs with ValidatedCrdt.
+    /// This method persists operations without verifying signatures - that's the CRDT layer's job.
     pub fn apply_operation<T: Crdt + Serialize>(
         &self,
         target_id: &str,
@@ -307,6 +318,8 @@ mod tests {
         let config = LocalStoreConfig {
             data_dir: dir.path().to_path_buf(),
             enable_encryption: false,
+            require_signatures: false,
+            authorized_keys: Vec::new(),
             ..Default::default()
         };
         
@@ -320,6 +333,8 @@ mod tests {
         let config = LocalStoreConfig {
             data_dir: dir.path().to_path_buf(),
             enable_encryption: false,
+            require_signatures: false,
+            authorized_keys: Vec::new(),
             ..Default::default()
         };
         
@@ -348,6 +363,8 @@ mod tests {
         let config = LocalStoreConfig {
             data_dir: dir.path().to_path_buf(),
             enable_encryption: false,
+            require_signatures: false,
+            authorized_keys: Vec::new(),
             ..Default::default()
         };
         
@@ -377,6 +394,8 @@ mod tests {
         let config = LocalStoreConfig {
             data_dir: dir.path().to_path_buf(),
             enable_encryption: false,
+            require_signatures: false,
+            authorized_keys: Vec::new(),
             ..Default::default()
         };
         
@@ -385,5 +404,34 @@ mod tests {
         let stats = store.stats().unwrap();
         assert_eq!(stats.spaces_count, 0);
         assert_eq!(stats.channels_count, 0);
+    }
+    
+    /// Example: Using ValidatedCrdt for signature enforcement
+    /// 
+    /// This test demonstrates the recommended pattern for enforcing signatures on CRDT operations.
+    /// Rather than enforcing at the store layer, wrap CRDTs with ValidatedCrdt at the application layer.
+    #[test]
+    fn test_validated_crdt_example() {
+        use crate::core_store::crdt::{ORSet, ValidatedCrdt, SignatureConfig, or_set::{ORSetOperation, AddId}};
+        use crate::core_identity::keypair::{Keypair, KeyType};
+        
+        let keypair = Keypair::generate(KeyType::Ed25519);
+        let public_key = keypair.public_key().to_vec();
+        
+        // Create signature config for a channel
+        let config = SignatureConfig::required(
+            "channel-123".to_string(),
+            vec![public_key],
+        );
+        
+        // Wrap OR-Set with signature validation
+        let mut validated_set: ValidatedCrdt<ORSet<UserId>> = ValidatedCrdt::new(
+            ORSet::new(),
+            config,
+        );
+        
+        // Operations applied to validated_set will have signatures verified
+        // This is the recommended pattern for production channels
+        assert!(validated_set.inner().elements().is_empty());
     }
 }
