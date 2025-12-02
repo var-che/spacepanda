@@ -49,6 +49,10 @@ pub mod discovery;
 mod security_tests;
 #[cfg(test)]
 mod integration_tests;
+#[cfg(test)]
+mod tdd_tests;
+#[cfg(test)]
+mod core_mls_test_suite;
 
 // Placeholder modules (to be implemented incrementally)
 

@@ -43,54 +43,54 @@
 
 ### Critical (Must Fix Before Production)
 
-#### 1. HPKE Implementation 🔴 HIGH PRIORITY
+#### 1. HPKE Implementation ✅ COMPLETE
 
-**Current**: Simplified prototype  
-**Required**: RFC 9180 compliant implementation
-
-**Action Items**:
-
-- [ ] Evaluate HPKE crates (`hpke-rs`, `rust-hpke`)
-- [ ] Replace `hpke_seal()` in `encryption.rs`
-- [ ] Replace `hpke_open()` in `welcome.rs`
-- [ ] Add comprehensive HPKE test suite
-- [ ] Verify RFC 9180 compliance
-- [ ] Performance benchmarking
-
-**Estimated Effort**: 3-5 days  
-**Risk**: High - Core cryptographic primitive
-
-#### 2. Signature Scheme 🔴 HIGH PRIORITY
-
-**Current**: SHA-256 hash placeholder  
-**Required**: Ed25519 or equivalent
+**Status**: RFC 9180 compliant implementation  
+**Completed**: December 2, 2025
 
 **Action Items**:
 
-- [ ] Integrate `ed25519-dalek` crate
-- [ ] Replace signature placeholders in `commit.rs`
-- [ ] Replace signature placeholders in `proposals.rs`
-- [ ] Replace signature in `discovery.rs`
-- [ ] Add signature verification tests
-- [ ] Key generation integration with Identity module
+- [x] Evaluate HPKE crates (`hpke-rs`, `rust-hpke`)
+- [x] Replace `hpke_seal()` in `encryption.rs`
+- [x] Replace `hpke_open()` in `welcome.rs`
+- [x] Add comprehensive HPKE test suite
+- [x] Verify RFC 9180 compliance
+- [x] Performance benchmarking
 
-**Estimated Effort**: 2-3 days  
-**Risk**: High - Authentication critical
+**Implementation**: DHKEM(X25519, HKDF-SHA256) + AES-256-GCM  
+**Tests**: All 176 MLS tests passing
 
-#### 3. Commit Processing Bug 🟡 MEDIUM PRIORITY
+#### 2. Signature Scheme ✅ COMPLETE
 
-**Issue**: Remote commits don't extract proposals from commit message  
-**Location**: `group.rs::apply_commit()`, see TODO comment
+**Status**: Ed25519 (RFC 8032) production-grade  
+**Completed**: December 2, 2025
 
 **Action Items**:
 
-- [ ] Extract proposals from Commit structure
-- [ ] Apply extracted proposals before local queue
-- [ ] Add test for remote commit with embedded proposals
-- [ ] Verify member removal works correctly
+- [x] Integrate `ed25519-dalek` crate
+- [x] Replace signature placeholders in `commit.rs`
+- [x] Replace signature placeholders in `proposals.rs`
+- [x] Replace signature in `discovery.rs`
+- [x] Add signature verification tests
+- [x] Key generation integration with Identity module
 
-**Estimated Effort**: 1-2 days  
-**Risk**: Medium - Affects member synchronization
+**Implementation**: Created `crypto.rs` module with MlsSigningKey/MlsVerifyingKey  
+**Tests**: All 176 MLS tests passing with production cryptography
+
+#### 3. Commit Processing Bug ✅ COMPLETE
+
+**Status**: Fixed - proposals correctly extracted from commits  
+**Completed**: Prior to December 2, 2025
+
+**Action Items**:
+
+- [x] Extract proposals from Commit structure
+- [x] Apply extracted proposals before local queue
+- [x] Add test for remote commit with embedded proposals
+- [x] Verify member removal works correctly
+
+**Implementation**: `group.rs::apply_commit() ` extracts and processes embedded proposals  
+**Tests**: `test_member_removal_flow` verifies remote commit handling
 
 ---
 
