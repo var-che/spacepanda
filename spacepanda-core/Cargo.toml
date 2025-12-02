@@ -15,6 +15,7 @@ anyhow.workspace = true
 openmls = "0.7.1"
 openmls_rust_crypto = "0.4"
 openmls_basic_credential = "0.4"
+openmls_traits = "0.3"
 rustls = "0.23"
 tokio.workspace = true
 snow = "0.9"  # Noise protocol implementation
