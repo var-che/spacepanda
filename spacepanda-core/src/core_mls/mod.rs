@@ -39,9 +39,9 @@ pub mod welcome;
 pub mod proposals;
 pub mod commit;
 pub mod group;
+pub mod transport;
 
 // Placeholder modules (to be implemented incrementally)
-// pub mod transport;
 // pub mod api;
 
 // Re-exports
@@ -63,6 +63,7 @@ pub use proposals::{
 };
 pub use commit::{Commit, UpdatePath, CommitResult, CommitValidator};
 pub use group::MlsGroup;
+pub use transport::{MlsTransport, MlsEnvelope, MlsMessageType};
 
 /// Default ciphersuite for SpacePanda MLS
 ///

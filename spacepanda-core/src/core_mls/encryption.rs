@@ -33,7 +33,7 @@ const SENDER_DATA_LABEL: &[u8] = b"SpacePanda MLS 1.0 Sender Data";
 const MESSAGE_KEY_LABEL: &[u8] = b"SpacePanda MLS 1.0 Message Key";
 
 /// Encrypted message with metadata
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EncryptedMessage {
     /// Epoch this message was encrypted in
     pub epoch: u64,
