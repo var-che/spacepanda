@@ -35,10 +35,10 @@ pub mod errors;
 pub mod persistence;
 pub mod tree;
 pub mod encryption;
+pub mod welcome;
 
 // Placeholder modules (to be implemented incrementally)
 // pub mod group;
-// pub mod welcome;
 // pub mod proposals;
 // pub mod commit;
 // pub mod transport;
@@ -57,6 +57,7 @@ pub use encryption::{
     encrypt_message, decrypt_message,
     KeySchedule, EncryptedMessage, SenderData, HpkeContext,
 };
+pub use welcome::{Welcome, WelcomeBuilder, WelcomeGroupSecrets, TreeSnapshot};
 
 /// Default ciphersuite for SpacePanda MLS
 ///
