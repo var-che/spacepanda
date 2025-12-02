@@ -29,6 +29,15 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use super::{DhtKey, DhtValue};
 
+/// Get current Unix timestamp in seconds
+/// Returns 0 if system clock is before UNIX epoch (should never happen on modern systems)
+fn current_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 /// DHT RPC message types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DhtMessage {
@@ -179,19 +188,13 @@ impl DhtMessage {
     
     /// Create a ping request
     pub fn new_ping(sender_id: DhtKey) -> Self {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let timestamp = current_timestamp();
         DhtMessage::Ping { sender_id, timestamp }
     }
     
     /// Create a pong response
     pub fn new_pong(sender_id: DhtKey) -> Self {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let timestamp = current_timestamp();
         DhtMessage::Pong { sender_id, timestamp }
     }
 }

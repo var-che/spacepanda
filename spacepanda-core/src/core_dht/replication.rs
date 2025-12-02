@@ -64,8 +64,8 @@ impl ReplicationState {
         ReplicationState {
             last_replicated: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
             replica_peers: HashSet::new(),
             is_original,
         }
@@ -74,8 +74,8 @@ impl ReplicationState {
     fn needs_replication(&self, interval_secs: u64) -> bool {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         
         (now - self.last_replicated) > interval_secs
     }
@@ -83,8 +83,8 @@ impl ReplicationState {
     fn mark_replicated(&mut self) {
         self.last_replicated = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
     }
 
     fn add_replica_peer(&mut self, peer: DhtKey) {

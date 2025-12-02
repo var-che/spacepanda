@@ -75,6 +75,15 @@ use rand::Rng;
 use super::transport_manager::{TransportCommand, TransportEvent};
 use super::metrics;
 
+/// Get current Unix timestamp in seconds
+/// Returns 0 if system clock is before UNIX epoch (should never happen on modern systems)
+fn current_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 /// Noise protocol pattern - using XX for mutual authentication
 const NOISE_PATTERN: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
 
@@ -136,10 +145,7 @@ impl HandshakeMetadata {
     fn new() -> Self {
         let mut rng = rand::thread_rng();
         let nonce = rng.gen::<u64>();
-        let started_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
+        let started_at = current_timestamp();
         
         let mut seen_nonces = HashSet::new();
         seen_nonces.insert(nonce);
@@ -153,10 +159,7 @@ impl HandshakeMetadata {
     
     /// Check if handshake has timed out
     fn is_expired(&self) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
+        let now = current_timestamp();
         (now - self.started_at) > HANDSHAKE_TIMEOUT_SECS
     }
     

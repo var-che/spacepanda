@@ -29,6 +29,15 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Get current Unix timestamp in seconds
+/// Returns 0 if system clock is before UNIX epoch (should never happen on modern systems)
+fn current_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 use super::dht_key::DhtKey;
 use super::dht_value::DhtValue;
 
@@ -45,10 +54,7 @@ struct StorageEntry {
 
 impl StorageEntry {
     fn new(value: DhtValue) -> Self {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
+        let now = current_timestamp();
         
         StorageEntry {
             value,

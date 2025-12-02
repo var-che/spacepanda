@@ -19,6 +19,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Get current Unix timestamp in seconds
+/// Returns 0 if system clock is before UNIX epoch (should never happen on modern systems)
+fn current_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 use super::dht_key::DhtKey;
 
 /// Peer information stored in routing table
@@ -36,10 +45,7 @@ pub struct PeerContact {
 
 impl PeerContact {
     pub fn new(id: DhtKey, address: String) -> Self {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
+        let now = current_timestamp();
         
         PeerContact {
             id,
@@ -51,10 +57,7 @@ impl PeerContact {
 
     /// Update last seen timestamp
     pub fn touch(&mut self) {
-        self.last_seen = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
+        self.last_seen = current_timestamp();
         self.failed_rpcs = 0;
     }
 
@@ -65,10 +68,7 @@ impl PeerContact {
 
     /// Check if peer is considered stale (no response in threshold seconds)
     pub fn is_stale(&self, threshold_secs: u64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
+        let now = current_timestamp();
         
         (now - self.last_seen) > threshold_secs || self.failed_rpcs >= 3
     }
@@ -90,10 +90,7 @@ impl KBucket {
         KBucket {
             peers: Vec::new(),
             k,
-            last_refresh: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("System clock is before UNIX epoch")
-                .as_secs(),
+            last_refresh: current_timestamp(),
         }
     }
 
@@ -138,18 +135,12 @@ impl KBucket {
 
     /// Mark bucket as refreshed
     fn touch(&mut self) {
-        self.last_refresh = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
+        self.last_refresh = current_timestamp();
     }
 
     /// Check if bucket needs refresh
     fn needs_refresh(&self, interval_secs: u64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
+        let now = current_timestamp();
         
         (now - self.last_refresh) > interval_secs
     }
