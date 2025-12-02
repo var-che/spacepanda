@@ -17,7 +17,7 @@
     -key comparison operators
 */
 
-use blake2::{Blake2b512, Digest};
+use blake3;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -39,15 +39,13 @@ impl DhtKey {
         DhtKey(bytes)
     }
 
-    /// Hash arbitrary data using Blake2b and truncate to 256 bits
+    /// Hash arbitrary data using Blake3 and use full 256 bits
     pub fn hash(data: &[u8]) -> Self {
-        let mut hasher = Blake2b512::new();
-        hasher.update(data);
-        let result = hasher.finalize();
+        let hash = blake3::hash(data);
         
-        // Take first 32 bytes (256 bits)
+        // Blake3 produces 32 bytes (256 bits) by default
         let mut bytes = [0u8; 32];
-        bytes.copy_from_slice(&result[..32]);
+        bytes.copy_from_slice(hash.as_bytes());
         DhtKey(bytes)
     }
 

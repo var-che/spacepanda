@@ -2,7 +2,7 @@
 //!
 //! Uniquely identify each device under the same user.
 
-use blake2::{Blake2b512, Digest};
+use blake3;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -14,11 +14,9 @@ pub struct DeviceId(Vec<u8>);
 impl DeviceId {
     /// Create a DeviceId from a device public key
     pub fn from_pubkey(pubkey: &[u8]) -> Self {
-        let mut hasher = Blake2b512::new();
-        hasher.update(pubkey);
-        let hash = hasher.finalize();
+        let hash = blake3::hash(pubkey);
         // Take first 16 bytes for device ID
-        DeviceId(hash[0..16].to_vec())
+        DeviceId(hash.as_bytes()[0..16].to_vec())
     }
 
     /// Create a DeviceId from random bytes

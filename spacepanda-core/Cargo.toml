@@ -11,12 +11,14 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["json"] }
 thiserror.workspace = true
 anyhow.workspace = true
-openmls = "0.6"
+openmls = "0.7.1"
+openmls_rust_crypto = "0.4"
+openmls_basic_credential = "0.4"
 rustls = "0.23"
 tokio.workspace = true
 snow = "0.9"  # Noise protocol implementation
 chacha20poly1305 = "0.10"  # AEAD cipher
-blake2 = "0.10"  # For hashing
+blake3 = "1.5"  # Modern, faster hashing (upgraded from blake2)
 serde.workspace = true
 serde_json.workspace = true
 uuid = { version = "1.0", features = ["v4", "serde"] }

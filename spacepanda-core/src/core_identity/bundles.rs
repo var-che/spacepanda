@@ -5,7 +5,7 @@
 use crate::core_identity::device_id::DeviceId;
 use crate::core_identity::keypair::Keypair;
 use crate::core_identity::metadata::DeviceMetadata;
-use blake2::{Blake2b512, Digest};
+use blake3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -116,9 +116,8 @@ impl KeyPackage {
 
     /// Compute hash of this key package
     pub fn hash(&self) -> Hash {
-        let mut hasher = Blake2b512::new();
-        hasher.update(&self.to_bytes());
-        hasher.finalize()[0..32].to_vec()
+        let hash = blake3::hash(&self.to_bytes());
+        hash.as_bytes()[0..32].to_vec()
     }
 
     /// Verify signature on this key package

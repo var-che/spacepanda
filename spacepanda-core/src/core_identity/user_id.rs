@@ -2,7 +2,7 @@
 //!
 //! Defines the stable global identity identifier derived from long-term public key.
 
-use blake2::{Blake2b512, Digest};
+use blake3;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -14,11 +14,9 @@ pub struct UserId(Vec<u8>);
 impl UserId {
     /// Create a UserId from a public key by hashing it
     pub fn from_public_key(pubkey: &[u8]) -> Self {
-        let mut hasher = Blake2b512::new();
-        hasher.update(pubkey);
-        let hash = hasher.finalize();
-        // Take first 32 bytes
-        UserId(hash[0..32].to_vec())
+        let hash = blake3::hash(pubkey);
+        // Take full 32 bytes
+        UserId(hash.as_bytes().to_vec())
     }
 
     /// Create a UserId from raw bytes (for deserialization)
