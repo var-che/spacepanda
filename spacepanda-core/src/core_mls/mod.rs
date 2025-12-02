@@ -31,6 +31,9 @@
 pub mod types;
 pub mod errors;
 
+// Implemented modules
+pub mod persistence;
+
 // Placeholder modules (to be implemented incrementally)
 // pub mod tree;
 // pub mod group;
@@ -39,12 +42,16 @@ pub mod errors;
 // pub mod commit;
 // pub mod encryption;
 // pub mod transport;
-// pub mod persistence;
 // pub mod api;
 
 // Re-exports
-pub use types::{GroupId, MlsConfig};
+pub use types::{GroupId, MlsConfig, GroupMetadata};
 pub use errors::{MlsError, MlsResult};
+pub use persistence::{
+    encrypt_group_state, decrypt_group_state,
+    save_group_to_file, load_group_from_file,
+    EncryptedGroupBlob, GroupSecrets, PersistedGroupState,
+};
 
 /// Default ciphersuite for SpacePanda MLS
 ///

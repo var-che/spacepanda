@@ -8,21 +8,33 @@ pub type MlsResult<T> = Result<T, MlsError>;
 /// Errors that can occur in MLS operations
 #[derive(Debug, Error)]
 pub enum MlsError {
-    /// OpenMLS library error
-    #[error("OpenMLS error: {0}")]
-    OpenMls(String),
+    /// Invalid MLS message format
+    #[error("Invalid message: {0}")]
+    InvalidMessage(String),
 
-    /// Storage operation failed
-    #[error("Storage error: {0}")]
-    Storage(String),
+    /// Signature verification failed
+    #[error("Verification failed: {0}")]
+    VerifyFailed(String),
 
-    /// Serialization/deserialization error
-    #[error("Serialization error: {0}")]
-    Serialization(String),
+    /// Replay attack detected
+    #[error("Replay detected: {0}")]
+    ReplayDetected(String),
 
-    /// Invalid credential
-    #[error("Invalid credential: {0}")]
-    InvalidCredential(String),
+    /// Epoch mismatch (too old or too new)
+    #[error("Epoch mismatch: expected {expected}, got {actual}")]
+    EpochMismatch { expected: u64, actual: u64 },
+
+    /// Persistence/storage error
+    #[error("Persistence error: {0}")]
+    PersistenceError(String),
+
+    /// Unauthorized operation
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
+    /// Cryptographic operation failed
+    #[error("Crypto error: {0}")]
+    CryptoError(String),
 
     /// Group not found
     #[error("Group not found: {0}")]
@@ -34,29 +46,21 @@ pub enum MlsError {
 
     /// Invalid group state
     #[error("Invalid group state: {0}")]
-    InvalidGroupState(String),
+    InvalidState(String),
 
-    /// Unauthorized operation
-    #[error("Unauthorized: {0}")]
-    Unauthorized(String),
-
-    /// Key package error
-    #[error("Key package error: {0}")]
-    KeyPackage(String),
-
-    /// Message processing error
-    #[error("Message processing error: {0}")]
-    MessageProcessing(String),
-
-    /// Cryptographic operation failed
-    #[error("Crypto error: {0}")]
-    Crypto(String),
-
-    /// Invalid configuration
-    #[error("Invalid configuration: {0}")]
+    /// Configuration error
+    #[error("Invalid config: {0}")]
     InvalidConfig(String),
 
-    /// Internal error
+    /// Serialization/deserialization error
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+
+    /// OpenMLS library error
+    #[error("OpenMLS error: {0}")]
+    OpenMls(String),
+
+    /// Internal error (bug)
     #[error("Internal error: {0}")]
     Internal(String),
 }
@@ -69,11 +73,9 @@ impl From<openmls::prelude::LibraryError> for MlsError {
 
 impl From<openmls::prelude::KeyPackageNewError> for MlsError {
     fn from(e: openmls::prelude::KeyPackageNewError) -> Self {
-        MlsError::KeyPackage(e.to_string())
+        MlsError::OpenMls(e.to_string())
     }
 }
-
-// Note: Provider-specific error conversions will be handled contextually
 
 impl From<serde_json::Error> for MlsError {
     fn from(e: serde_json::Error) -> Self {
@@ -87,6 +89,12 @@ impl From<bincode::Error> for MlsError {
     }
 }
 
+impl From<std::io::Error> for MlsError {
+    fn from(e: std::io::Error) -> Self {
+        MlsError::PersistenceError(e.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,6 +103,12 @@ mod tests {
     fn test_error_display() {
         let err = MlsError::GroupNotFound("test_group".to_string());
         assert_eq!(err.to_string(), "Group not found: test_group");
+
+        let err = MlsError::EpochMismatch {
+            expected: 5,
+            actual: 3,
+        };
+        assert_eq!(err.to_string(), "Epoch mismatch: expected 5, got 3");
     }
 
     #[test]
@@ -102,5 +116,12 @@ mod tests {
         let json_err = serde_json::from_str::<i32>("invalid").unwrap_err();
         let mls_err: MlsError = json_err.into();
         assert!(matches!(mls_err, MlsError::Serialization(_)));
+    }
+
+    #[test]
+    fn test_io_error_conversion() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let mls_err: MlsError = io_err.into();
+        assert!(matches!(mls_err, MlsError::PersistenceError(_)));
     }
 }
