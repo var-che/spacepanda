@@ -33,9 +33,9 @@ pub mod errors;
 
 // Implemented modules
 pub mod persistence;
+pub mod tree;
 
 // Placeholder modules (to be implemented incrementally)
-// pub mod tree;
 // pub mod group;
 // pub mod welcome;
 // pub mod proposals;
@@ -52,6 +52,7 @@ pub use persistence::{
     save_group_to_file, load_group_from_file,
     EncryptedGroupBlob, GroupSecrets, PersistedGroupState,
 };
+pub use tree::{MlsTree, TreeNode, NodeIndex, LeafIndex};
 
 /// Default ciphersuite for SpacePanda MLS
 ///
