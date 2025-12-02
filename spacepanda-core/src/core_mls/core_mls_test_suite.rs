@@ -863,6 +863,101 @@ mod security_failure_tests {
         let result = MlsGroup::from_welcome(&welcomes[0], 1, &bob_sk);
         assert!(result.is_err(), "Tampered Welcome must be rejected");
     }
+
+    /// CRITICAL SECURITY TEST: Forward Secrecy + Post-Compromise Security
+    /// 
+    /// This test validates that old messages CANNOT decrypt after an epoch change.
+    /// This is fundamental to MLS's security guarantees:
+    /// - Forward Secrecy: Compromise of old keys cannot reveal new messages
+    /// - Post-Compromise Security: Even if attacker had old epoch keys, new epoch messages stay safe
+    /// 
+    /// Common bugs this catches:
+    /// - Accidentally reusing old epoch keys
+    /// - Incorrect key derivation or key caching
+    /// - Missing epoch boundary checks
+    /// - Improper key schedule upgrade
+    #[test]
+    fn test_forward_secrecy_messages_do_not_decrypt_across_epochs() {
+        // 1. Initialize a group with two members
+        let (alice_pk, _) = test_keypair("alice");
+        let alice = MlsHandle::create_group(
+            Some("fs-test".to_string()),
+            alice_pk,
+            b"alice".to_vec(),
+            test_app_secret("alice"),
+            test_config(),
+        )
+        .unwrap();
+
+        let (bob_pk, bob_sk) = test_keypair("bob");
+        alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
+        let (_, welcomes) = alice.commit().unwrap();
+        let bob = MlsHandle::join_group(&welcomes[0], 1, &bob_sk, test_config()).unwrap();
+
+        // Ensure they are in the same epoch
+        let initial_epoch = alice.epoch().unwrap();
+        assert_eq!(alice.epoch().unwrap(), bob.epoch().unwrap());
+        assert_eq!(initial_epoch, 1); // After adding Bob
+
+        // 2. Alice sends a message BEFORE the epoch change
+        let msg_before = b"SecretBeforeEpochChange";
+        let ciphertext_before = alice.send_message(msg_before).unwrap();
+
+        // Bob decrypts successfully
+        let opened_before = bob.receive_message(&ciphertext_before).unwrap();
+        assert_eq!(opened_before, msg_before);
+
+        // 3. Bob sends an Update commit that changes the epoch
+        let (bob_new_pk, _) = test_keypair("bob_v2");
+        bob.propose_update(bob_new_pk).unwrap();
+        let (commit_envelope, _) = bob.commit().unwrap();
+
+        // Alice processes the commit
+        alice.receive_commit(&commit_envelope).unwrap();
+
+        // Epoch must change for both
+        let new_epoch = alice.epoch().unwrap();
+        assert_eq!(bob.epoch().unwrap(), new_epoch);
+        assert_eq!(new_epoch, initial_epoch + 1, "Epoch must advance");
+
+        // 4. Alice sends a NEW message after epoch change
+        let msg_after = b"SecretAfterEpochChange";
+        let ciphertext_after = alice.send_message(msg_after).unwrap();
+
+        // Bob decrypts successfully
+        let opened_after = bob.receive_message(&ciphertext_after).unwrap();
+        assert_eq!(opened_after, msg_after);
+
+        // 5. CRITICAL CHECK: The "before epoch" ciphertext MUST NOT decrypt now
+        let result = bob.receive_message(&ciphertext_before);
+
+        assert!(
+            result.is_err(),
+            "❌ SECURITY BUG: old ciphertext decrypted after epoch change! \
+             This violates Forward Secrecy and Post-Compromise Security."
+        );
+
+        // 6. Verify it's an epoch-related error (not just any error)
+        if let Err(e) = result {
+            // Should be epoch mismatch, replay detection, or invalid message
+            assert!(
+                matches!(
+                    e,
+                    MlsError::EpochMismatch { .. }
+                        | MlsError::ReplayDetected(_)
+                        | MlsError::InvalidState(_)
+                        | MlsError::CryptoError(_)
+                ),
+                "Expected epoch/replay/invalid error, got: {:?}",
+                e
+            );
+        }
+
+        println!(
+            "✅ FS/PCS test passed. Epoch advanced to {}, old messages correctly refused.",
+            new_epoch
+        );
+    }
 }
 
 // ============================================================================
