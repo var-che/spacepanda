@@ -72,6 +72,9 @@ mod core_mls_test_suite;
 #[cfg(test)]
 #[path = "tests/rfc9420_conformance_tests.rs"]
 mod rfc9420_conformance_tests;
+#[cfg(test)]
+#[path = "tests/phase4_integration.rs"]
+mod phase4_integration;
 
 // Placeholder modules (to be implemented incrementally)
 

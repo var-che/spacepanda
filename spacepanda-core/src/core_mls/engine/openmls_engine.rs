@@ -80,11 +80,15 @@ impl OpenMlsEngine {
             .ciphersuite(ciphersuite)
             .build();
         
-        // Create the OpenMLS group
-        let group = MlsGroup::new(
+        // Convert our GroupId to OpenMLS GroupId
+        let openmls_group_id = openmls::prelude::GroupId::from_slice(group_id.as_bytes());
+        
+        // Create the OpenMLS group with custom group ID
+        let group = MlsGroup::new_with_group_id(
             &*provider,
             &signature_keys,
             &mls_group_config,
+            openmls_group_id,
             credential_bundle.clone(),
         ).map_err(|e| MlsError::InvalidMessage(format!("Failed to create group: {:?}", e)))?;
         
