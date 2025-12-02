@@ -1,15 +1,22 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use ed25519_dalek::{Signer, Verifier, SigningKey, VerifyingKey};
+use ed25519_dalek::{Signer, Verifier, SigningKey};
 use x25519_dalek::{StaticSecret, PublicKey};
-use rand::rngs::OsRng;
 use std::time::Duration;
+
+// Helper to create random Ed25519 signing key
+fn random_signing_key() -> SigningKey {
+    use rand::Rng;
+    let mut rng = rand::rng();
+    let bytes: [u8; 32] = rng.random();
+    SigningKey::from_bytes(&bytes)
+}
 
 fn bench_ed25519_keypair_generation(c: &mut Criterion) {
     let mut group = c.benchmark_group("crypto_ed25519_keygen");
     
     group.bench_function("generate_keypair", |b| {
         b.iter(|| {
-            let signing_key = SigningKey::generate(&mut OsRng);
+            let signing_key = random_signing_key();
             black_box(signing_key)
         });
     });
@@ -19,7 +26,9 @@ fn bench_ed25519_keypair_generation(c: &mut Criterion) {
         group.throughput(Throughput::Elements(*batch_size as u64));
         group.bench_with_input(BenchmarkId::new("batch_generation", batch_size), batch_size, |b, &n| {
             b.iter(|| {
-                let keys: Vec<SigningKey> = (0..n).map(|_| SigningKey::generate(&mut OsRng)).collect();
+                let keys: Vec<SigningKey> = (0..n)
+                    .map(|_| random_signing_key())
+                    .collect();
                 black_box(keys)
             });
         });
@@ -31,7 +40,7 @@ fn bench_ed25519_keypair_generation(c: &mut Criterion) {
 fn bench_ed25519_signing(c: &mut Criterion) {
     let mut group = c.benchmark_group("crypto_ed25519_signing");
     
-    let signing_key = SigningKey::generate(&mut OsRng);
+    let signing_key = random_signing_key();
     
     // Benchmark signing with varying message sizes
     for size in [32, 256, 1024, 4096, 16384].iter() {
@@ -51,7 +60,7 @@ fn bench_ed25519_signing(c: &mut Criterion) {
 fn bench_ed25519_verification(c: &mut Criterion) {
     let mut group = c.benchmark_group("crypto_ed25519_verification");
     
-    let signing_key = SigningKey::generate(&mut OsRng);
+    let signing_key = random_signing_key();
     let verifying_key = signing_key.verifying_key();
     
     // Benchmark verification with varying message sizes
@@ -62,10 +71,10 @@ fn bench_ed25519_verification(c: &mut Criterion) {
         group.throughput(Throughput::Bytes(*size as u64));
         group.bench_with_input(
             BenchmarkId::new("message_size", size),
-            &(message, signature, verifying_key),
-            |b, (msg, sig, vkey)| {
+            &(message, signature),
+            |b, (msg, sig)| {
                 b.iter(|| {
-                    let result = vkey.verify(black_box(msg), black_box(sig));
+                    let result = verifying_key.verify(black_box(msg), black_box(sig));
                     black_box(result)
                 });
             },
@@ -80,8 +89,14 @@ fn bench_x25519_key_exchange(c: &mut Criterion) {
     
     group.bench_function("dh_exchange", |b| {
         b.iter(|| {
-            let alice_secret = StaticSecret::random_from_rng(OsRng);
-            let bob_secret = StaticSecret::random_from_rng(OsRng);
+            use rand::Rng;
+            let mut rng = rand::rng();
+            
+            let alice_bytes: [u8; 32] = rng.random();
+            let bob_bytes: [u8; 32] = rng.random();
+            
+            let alice_secret = StaticSecret::from(alice_bytes);
+            let bob_secret = StaticSecret::from(bob_bytes);
             
             let alice_public = PublicKey::from(&alice_secret);
             let bob_public = PublicKey::from(&bob_secret);
@@ -98,13 +113,18 @@ fn bench_x25519_key_exchange(c: &mut Criterion) {
         group.throughput(Throughput::Elements(*batch_size as u64));
         group.bench_with_input(BenchmarkId::new("batch_exchanges", batch_size), batch_size, |b, &n| {
             b.iter(|| {
+                use rand::Rng;
+                let mut rng = rand::rng();
                 let mut shared_secrets = Vec::new();
                 
                 for _ in 0..n {
-                    let alice_secret = StaticSecret::random_from_rng(OsRng);
-                    let bob_secret = StaticSecret::random_from_rng(OsRng);
+                    let alice_bytes: [u8; 32] = rng.random();
+                    let bob_bytes: [u8; 32] = rng.random();
                     
-                    let alice_public = PublicKey::from(&alice_secret);
+                    let alice_secret = StaticSecret::from(alice_bytes);
+                    let bob_secret = StaticSecret::from(bob_bytes);
+                    
+                    let _alice_public = PublicKey::from(&alice_secret);
                     let bob_public = PublicKey::from(&bob_secret);
                     
                     let shared = alice_secret.diffie_hellman(&bob_public);
@@ -140,17 +160,19 @@ fn bench_noise_handshake(c: &mut Criterion) {
                 .unwrap();
             
             // -> e
-            let mut buffer = vec![0u8; 65535];
-            let len = initiator.write_message(&[], &mut buffer).unwrap();
-            let _ = responder.read_message(&buffer[..len], &mut buffer).unwrap();
+            let mut buffer_send = vec![0u8; 65535];
+            let mut buffer_recv = vec![0u8; 65535];
+            
+            let len = initiator.write_message(&[], &mut buffer_send).unwrap();
+            let _ = responder.read_message(&buffer_send[..len], &mut buffer_recv).unwrap();
             
             // <- e, ee, s, es
-            let len = responder.write_message(&[], &mut buffer).unwrap();
-            let _ = initiator.read_message(&buffer[..len], &mut buffer).unwrap();
+            let len = responder.write_message(&[], &mut buffer_send).unwrap();
+            let _ = initiator.read_message(&buffer_send[..len], &mut buffer_recv).unwrap();
             
             // -> s, se
-            let len = initiator.write_message(&[], &mut buffer).unwrap();
-            let _ = responder.read_message(&buffer[..len], &mut buffer).unwrap();
+            let len = initiator.write_message(&[], &mut buffer_send).unwrap();
+            let _ = responder.read_message(&buffer_send[..len], &mut buffer_recv).unwrap();
             
             let initiator_transport = initiator.into_transport_mode().unwrap();
             let responder_transport = responder.into_transport_mode().unwrap();
@@ -165,48 +187,24 @@ fn bench_noise_handshake(c: &mut Criterion) {
 fn bench_noise_transport(c: &mut Criterion) {
     let mut group = c.benchmark_group("crypto_noise_transport");
     
-    use snow::Builder;
-    
-    let params = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
-    
-    // Setup handshake first
-    let mut initiator = Builder::new(params.parse().unwrap())
-        .build_initiator()
-        .unwrap();
-    let mut responder = Builder::new(params.parse().unwrap())
-        .build_responder()
-        .unwrap();
-    
-    let mut buffer = vec![0u8; 65535];
-    let len = initiator.write_message(&[], &mut buffer).unwrap();
-    let _ = responder.read_message(&buffer[..len], &mut buffer).unwrap();
-    let len = responder.write_message(&[], &mut buffer).unwrap();
-    let _ = initiator.read_message(&buffer[..len], &mut buffer).unwrap();
-    let len = initiator.write_message(&[], &mut buffer).unwrap();
-    let _ = responder.read_message(&buffer[..len], &mut buffer).unwrap();
-    
-    let mut initiator_transport = initiator.into_transport_mode().unwrap();
-    let mut responder_transport = responder.into_transport_mode().unwrap();
-    
-    // Benchmark transport mode encryption/decryption
+    // Benchmark ChaCha20Poly1305 encryption (used in Noise transport)
     for size in [64, 256, 1024, 4096, 16384].iter() {
         let plaintext = vec![0u8; *size];
         group.throughput(Throughput::Bytes(*size as u64));
         
-        group.bench_with_input(BenchmarkId::new("encrypt_decrypt", size), &plaintext, |b, msg| {
+        group.bench_with_input(BenchmarkId::new("encrypt_size", size), &plaintext, |b, msg| {
             b.iter(|| {
-                let mut buffer = vec![0u8; 65535];
+                use chacha20poly1305::{
+                    aead::{Aead, AeadCore, KeyInit},
+                    ChaCha20Poly1305,
+                };
                 
-                // Encrypt
-                let len = initiator_transport.write_message(black_box(msg), &mut buffer).unwrap();
+                let key = ChaCha20Poly1305::generate_key(&mut rand::rng());
+                let cipher = ChaCha20Poly1305::new(&key);
+                let nonce = ChaCha20Poly1305::generate_nonce(&mut rand::rng());
+                let ciphertext = cipher.encrypt(&nonce, black_box(msg.as_ref())).unwrap();
                 
-                // Decrypt
-                let mut recv_buffer = vec![0u8; 65535];
-                let _ = responder_transport
-                    .read_message(&buffer[..len], &mut recv_buffer)
-                    .unwrap();
-                
-                black_box(recv_buffer)
+                black_box(ciphertext)
             });
         });
     }
@@ -296,7 +294,7 @@ fn bench_concurrent_operations(c: &mut Criterion) {
                     
                     for i in 0..n {
                         handles.push(tokio::spawn(async move {
-                            let signing_key = SigningKey::generate(&mut OsRng);
+                            let signing_key = random_signing_key();
                             let message = format!("message_{}", i);
                             let signature = signing_key.sign(message.as_bytes());
                             black_box(signature)

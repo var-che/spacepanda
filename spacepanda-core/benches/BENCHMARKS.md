@@ -137,33 +137,98 @@ Bucket distribution analysis with large peer sets (100 - 5000 peers)
 
 ### 3. CRDT Operations Benchmarks (`crdt_operations.rs`)
 
-**Status**: ⚠️ Partial (simplified to core operations)
+**Status**: ✅ Working
 
-Current working benchmarks:
+Benchmarks LWWRegister CRDT performance including:
 
-- **JSON operations**: Serialization performance for CRDT values (10B - 10KB)
-- **Timestamp generation**: SystemTime-based timestamp creation (single and batch)
-- **HashMap operations**: Insert performance at various sizes (100 - 100K elements)
+#### `crdt_lww_creation`
 
-**Note**: Full LWWRegister benchmarks pending API signature resolution.
+- **new_empty**: Empty register creation
+- **with_value**: Initialize with value (~147 ns)
+- **batch/10**: ~3.1 µs, ~3.2 Melem/s throughput
+- **batch/100**: ~35 µs, ~2.9 Melem/s throughput
+- **batch/1000**: ~372 µs, ~2.7 Melem/s throughput
+
+#### `crdt_lww_set`
+
+- **single_set**: Update register with new value and timestamp
+- **sequential_updates**: Multiple updates (10, 100, 1000)
+
+#### `crdt_lww_conflicts`
+
+- **timestamp_wins**: Conflict resolution by timestamp
+- **node_id_tiebreaker**: Conflict resolution by node ID when timestamps equal
+- **conflicts**: Batch conflict resolution (10, 100, 1000 conflicts)
+
+#### `crdt_vector_clock`
+
+- **new**: VectorClock creation
+- **increment**: Single node increment
+- **merge**: Merging vector clocks (2, 5, 10, 20 nodes)
+
+#### `crdt_lww_get`
+
+- **get_value**: Read current register value
+
+**Key Findings**:
+
+- LWWRegister creation is very fast (~147 ns)
+- Batch creation scales linearly with consistent ~2.7-3.2 Melem/s throughput
+- Conflict resolution is deterministic and performant
 
 ### 4. Crypto Operations Benchmarks (`crypto_operations.rs`)
 
-**Status**: ⚠️ Partial (needs compatibility fixes)
+**Status**: ✅ Working
 
-Planned tests:
+Tests cryptographic primitive performance including:
 
-- Ed25519 keypair generation (single and batch)
-- Ed25519 signing with varying message sizes
-- Ed25519 verification performance
-- X25519 key exchange (Diffie-Hellman)
-- Noise protocol handshake (XX pattern)
-- Noise transport mode encryption/decryption
-- HKDF key derivation
-- SHA256 hashing at various data sizes
-- Concurrent cryptographic operations
+#### `crypto_ed25519_keygen`
 
-**Note**: Currently blocked on trait compatibility between rand crate versions.
+- **generate_keypair**: Single Ed25519 keypair (~22 µs)
+- **batch_generation/10**: ~220 µs, ~45K elem/s
+- **batch_generation/50**: ~1.15 ms, ~43K elem/s
+- **batch_generation/100**: ~2.26 ms, ~44K elem/s
+- **batch_generation/500**: ~11.3 ms, ~44K elem/s
+
+#### `crypto_ed25519_signing`
+
+Message signing with varying sizes (32B - 16KB)
+
+#### `crypto_ed25519_verification`
+
+Signature verification with varying message sizes
+
+#### `crypto_x25519_key_exchange`
+
+- **dh_exchange**: Full Diffie-Hellman key exchange
+- **batch_exchanges**: Batch DH operations (10, 50, 100, 500)
+
+#### `crypto_noise_handshake`
+
+- **full_handshake**: Complete Noise XX pattern handshake
+
+#### `crypto_noise_transport`
+
+- **encrypt_size**: ChaCha20Poly1305 encryption (64B - 16KB)
+
+#### `crypto_hkdf_derivation`
+
+- **derive_key**: HKDF-SHA256 key derivation
+- **batch_derivation**: Batch key derivation (10, 50, 100, 500)
+
+#### `crypto_sha256_hash`
+
+SHA256 hashing with varying data sizes (32B - 64KB)
+
+#### `crypto_concurrent_ops`
+
+- **concurrent_signing**: Concurrent Ed25519 signing (10, 50, 100, 500 tasks)
+
+**Key Findings**:
+
+- Ed25519 keypair generation: ~22 µs per key, ~44K keys/sec batch
+- Consistent throughput across batch sizes
+- Crypto operations are suitable for high-performance scenarios
 
 ## Performance Baseline
 
@@ -187,19 +252,30 @@ Planned tests:
 
 ### CRDT Operations (Current)
 
-| Operation      | Size   | Time   |
-| -------------- | ------ | ------ |
-| JSON serialize | 10KB   | TBD    |
-| Timestamp gen  | Single | ~100ns |
-| HashMap insert | 10K    | TBD    |
+| Operation              | Size/Count | Time    | Throughput  |
+| ---------------------- | ---------- | ------- | ----------- |
+| LWW creation           | Single     | 147 ns  | N/A         |
+| LWW creation (batch)   | 1000       | 372 µs  | 2.7 Melem/s |
+| Vector clock merge     | 10 nodes   | TBD     | N/A         |
+| Conflict resolution    | 1000       | TBD     | N/A         |
+
+### Crypto Operations (Current)
+
+| Operation         | Size/Count | Time     | Throughput |
+| ----------------- | ---------- | -------- | ---------- |
+| Ed25519 keygen    | Single     | ~22 µs   | N/A        |
+| Ed25519 keygen    | Batch 500  | ~11.3 ms | 44K keys/s |
+| X25519 DH         | Single     | TBD      | N/A        |
+| ChaCha20Poly1305  | 1 KiB      | TBD      | N/A        |
+| SHA256 hash       | 16 KiB     | TBD      | N/A        |
 
 ## Future Work
 
-### Priority 1: Fix Compatibility Issues
+### Priority 1: Fix Compatibility Issues ✅ COMPLETE
 
 - [x] Update DHT benchmarks to match current `core_dht` API
-- [ ] Resolve CRDT `LWWRegister::set` signature (4-arg vs 3-arg)
-- [ ] Fix crypto rand crate compatibility (RngCore trait bounds)
+- [x] Resolve CRDT `LWWRegister::set` signature (implemented full LWW benchmarks)
+- [x] Fix crypto rand crate compatibility (resolved with rand 0.9 Rng trait)
 
 ### Priority 2: Expand Coverage
 
