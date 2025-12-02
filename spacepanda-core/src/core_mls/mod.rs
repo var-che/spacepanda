@@ -46,13 +46,21 @@ pub mod discovery;
 
 // Testing modules
 #[cfg(test)]
+#[path = "tests/security_tests.rs"]
 mod security_tests;
 #[cfg(test)]
+#[path = "tests/integration_tests.rs"]
 mod integration_tests;
 #[cfg(test)]
+#[path = "tests/tdd_tests.rs"]
 mod tdd_tests;
 #[cfg(test)]
+#[path = "tests/core_mls_test_suite.rs"]
 mod core_mls_test_suite;
+// RFC 9420 conformance tests (work in progress - 37/104 implemented)
+// #[cfg(test)]
+// #[path = "tests/rfc9420_conformance_tests.rs"]
+// mod rfc9420_conformance_tests;
 
 // Placeholder modules (to be implemented incrementally)
 
