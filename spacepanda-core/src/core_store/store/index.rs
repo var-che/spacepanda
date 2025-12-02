@@ -14,7 +14,12 @@ use crate::core_store::model::{SpaceId, ChannelId, UserId};
 use crate::core_store::store::errors::{StoreResult, StoreError};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::RwLock;
+use std::sync::{RwLock, PoisonError};
+
+/// Helper to convert poison errors into StoreError
+fn handle_poison<T>(_err: PoisonError<T>) -> StoreError {
+    StoreError::Storage("Lock poisoned: a thread panicked while holding the lock".to_string())
+}
 
 /// Index for efficient lookups
 pub struct IndexManager {
@@ -48,19 +53,19 @@ impl IndexManager {
     
     /// Index a space
     pub fn index_space(&self, space_id: &SpaceId) -> StoreResult<()> {
-        self.space_index.write().unwrap().insert(space_id.clone());
+        self.space_index.write().map_err(handle_poison)?.insert(space_id.clone());
         Ok(())
     }
     
     /// Index a channel
     pub fn index_channel(&self, channel_id: &ChannelId) -> StoreResult<()> {
-        self.channel_index.write().unwrap().insert(channel_id.clone());
+        self.channel_index.write().map_err(handle_poison)?.insert(channel_id.clone());
         Ok(())
     }
     
     /// Add user to space mapping
     pub fn add_user_to_space(&self, user_id: &UserId, space_id: &SpaceId) -> StoreResult<()> {
-        self.user_spaces.write().unwrap()
+        self.user_spaces.write().map_err(handle_poison)?
             .entry(user_id.clone())
             .or_insert_with(HashSet::new)
             .insert(space_id.clone());
@@ -69,7 +74,7 @@ impl IndexManager {
     
     /// Add user to channel mapping
     pub fn add_user_to_channel(&self, user_id: &UserId, channel_id: &ChannelId) -> StoreResult<()> {
-        self.user_channels.write().unwrap()
+        self.user_channels.write().map_err(handle_poison)?
             .entry(user_id.clone())
             .or_insert_with(HashSet::new)
             .insert(channel_id.clone());
@@ -77,39 +82,39 @@ impl IndexManager {
     }
     
     /// Get all spaces for a user
-    pub fn get_user_spaces(&self, user_id: &UserId) -> Vec<SpaceId> {
-        self.user_spaces.read().unwrap()
+    pub fn get_user_spaces(&self, user_id: &UserId) -> StoreResult<Vec<SpaceId>> {
+        Ok(self.user_spaces.read().map_err(handle_poison)?
             .get(user_id)
             .map(|set| set.iter().cloned().collect())
-            .unwrap_or_default()
+            .unwrap_or_default())
     }
     
     /// Get all channels for a user
-    pub fn get_user_channels(&self, user_id: &UserId) -> Vec<ChannelId> {
-        self.user_channels.read().unwrap()
+    pub fn get_user_channels(&self, user_id: &UserId) -> StoreResult<Vec<ChannelId>> {
+        Ok(self.user_channels.read().map_err(handle_poison)?
             .get(user_id)
             .map(|set| set.iter().cloned().collect())
-            .unwrap_or_default()
+            .unwrap_or_default())
     }
     
     /// Check if a space exists
-    pub fn has_space(&self, space_id: &SpaceId) -> bool {
-        self.space_index.read().unwrap().contains(space_id)
+    pub fn has_space(&self, space_id: &SpaceId) -> StoreResult<bool> {
+        Ok(self.space_index.read().map_err(handle_poison)?.contains(space_id))
     }
     
     /// Check if a channel exists
-    pub fn has_channel(&self, channel_id: &ChannelId) -> bool {
-        self.channel_index.read().unwrap().contains(channel_id)
+    pub fn has_channel(&self, channel_id: &ChannelId) -> StoreResult<bool> {
+        Ok(self.channel_index.read().map_err(handle_poison)?.contains(channel_id))
     }
     
     /// Get all indexed spaces
-    pub fn all_spaces(&self) -> Vec<SpaceId> {
-        self.space_index.read().unwrap().iter().cloned().collect()
+    pub fn all_spaces(&self) -> StoreResult<Vec<SpaceId>> {
+        Ok(self.space_index.read().map_err(handle_poison)?.iter().cloned().collect())
     }
     
     /// Get all indexed channels
-    pub fn all_channels(&self) -> Vec<ChannelId> {
-        self.channel_index.read().unwrap().iter().cloned().collect()
+    pub fn all_channels(&self) -> StoreResult<Vec<ChannelId>> {
+        Ok(self.channel_index.read().map_err(handle_poison)?.iter().cloned().collect())
     }
 }
 
@@ -133,7 +138,7 @@ mod tests {
         let space_id = SpaceId::generate();
         manager.index_space(&space_id).unwrap();
         
-        assert!(manager.has_space(&space_id));
+        assert!(manager.has_space(&space_id).unwrap());
     }
     
     #[test]
@@ -144,7 +149,7 @@ mod tests {
         let channel_id = ChannelId::generate();
         manager.index_channel(&channel_id).unwrap();
         
-        assert!(manager.has_channel(&channel_id));
+        assert!(manager.has_channel(&channel_id).unwrap());
     }
     
     #[test]
@@ -157,7 +162,7 @@ mod tests {
         
         manager.add_user_to_space(&user_id, &space_id).unwrap();
         
-        let spaces = manager.get_user_spaces(&user_id);
+        let spaces = manager.get_user_spaces(&user_id).unwrap();
         assert_eq!(spaces.len(), 1);
         assert_eq!(spaces[0], space_id);
     }
@@ -172,7 +177,7 @@ mod tests {
         
         manager.add_user_to_channel(&user_id, &channel_id).unwrap();
         
-        let channels = manager.get_user_channels(&user_id);
+        let channels = manager.get_user_channels(&user_id).unwrap();
         assert_eq!(channels.len(), 1);
         assert_eq!(channels[0], channel_id);
     }

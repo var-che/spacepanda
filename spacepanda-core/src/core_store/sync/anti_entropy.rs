@@ -150,7 +150,7 @@ impl AntiEntropyManager {
     pub fn add_peer(&mut self, peer_id: String, vector_clock: VectorClock) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System clock is before UNIX epoch")
             .as_secs();
         
         self.peers.insert(peer_id.clone(), PeerSyncState {
@@ -172,7 +172,7 @@ impl AntiEntropyManager {
             peer.vector_clock = clock;
             peer.last_sync = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .expect("System clock is before UNIX epoch")
                 .as_secs();
             peer.failure_count = 0;
         }
@@ -182,7 +182,7 @@ impl AntiEntropyManager {
     pub fn should_sync(&self) -> bool {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System clock is before UNIX epoch")
             .as_secs();
         
         now - self.last_sync_round >= self.config.sync_interval.as_secs()
@@ -220,7 +220,7 @@ impl AntiEntropyManager {
                         peer_id, 
                         SystemTime::now()
                             .duration_since(UNIX_EPOCH)
-                            .unwrap()
+                            .expect("System clock is before UNIX epoch")
                             .as_millis()
                     );
                     
@@ -252,7 +252,7 @@ impl AntiEntropyManager {
     pub fn mark_sync_complete(&mut self) {
         self.last_sync_round = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System clock is before UNIX epoch")
             .as_secs();
     }
     

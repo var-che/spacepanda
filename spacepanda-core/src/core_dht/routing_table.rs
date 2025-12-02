@@ -38,7 +38,7 @@ impl PeerContact {
     pub fn new(id: DhtKey, address: String) -> Self {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System clock is before UNIX epoch")
             .as_secs();
         
         PeerContact {
@@ -53,7 +53,7 @@ impl PeerContact {
     pub fn touch(&mut self) {
         self.last_seen = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System clock is before UNIX epoch")
             .as_secs();
         self.failed_rpcs = 0;
     }
@@ -67,7 +67,7 @@ impl PeerContact {
     pub fn is_stale(&self, threshold_secs: u64) -> bool {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System clock is before UNIX epoch")
             .as_secs();
         
         (now - self.last_seen) > threshold_secs || self.failed_rpcs >= 3
@@ -92,7 +92,7 @@ impl KBucket {
             k,
             last_refresh: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .expect("System clock is before UNIX epoch")
                 .as_secs(),
         }
     }
@@ -140,7 +140,7 @@ impl KBucket {
     fn touch(&mut self) {
         self.last_refresh = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System clock is before UNIX epoch")
             .as_secs();
     }
 
@@ -148,7 +148,7 @@ impl KBucket {
     fn needs_refresh(&self, interval_secs: u64) -> bool {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System clock is before UNIX epoch")
             .as_secs();
         
         (now - self.last_refresh) > interval_secs

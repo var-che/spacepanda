@@ -146,7 +146,7 @@ impl ReplicationManager {
 
     /// Perform replication round
     async fn do_replication(&self) -> Result<(), String> {
-        let keys = self.storage.active_keys();
+        let keys = self.storage.active_keys()?;
         
         for key in keys {
             if let Ok(value) = self.storage.get(&key) {
@@ -199,11 +199,11 @@ impl ReplicationManager {
 
     /// Perform garbage collection
     async fn do_garbage_collection(&self) -> Result<(), String> {
-        let removed = self.storage.cleanup_expired();
+        let removed = self.storage.cleanup_expired()?;
         
         if removed > 0 {
             // Clean up replication state for removed keys
-            let keys = self.storage.keys();
+            let keys = self.storage.keys()?;
             let mut states = self.replication_state.lock().await;
             states.retain(|k, _| keys.contains(k));
             

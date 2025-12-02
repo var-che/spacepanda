@@ -138,7 +138,7 @@ impl HandshakeMetadata {
         let nonce = rng.gen::<u64>();
         let started_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System clock is before UNIX epoch")
             .as_secs();
         
         let mut seen_nonces = HashSet::new();
@@ -155,7 +155,7 @@ impl HandshakeMetadata {
     fn is_expired(&self) -> bool {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System clock is before UNIX epoch")
             .as_secs();
         (now - self.started_at) > HANDSHAKE_TIMEOUT_SECS
     }
@@ -212,8 +212,10 @@ impl SessionManager {
 
     /// Generate a new static keypair for testing
     pub fn generate_keypair() -> Vec<u8> {
-        let builder = Builder::new(NOISE_PATTERN.parse().unwrap());
-        let keypair = builder.generate_keypair().unwrap();
+        let builder = Builder::new(NOISE_PATTERN.parse()
+            .expect("Invalid noise pattern - this is a programming error"));
+        let keypair = builder.generate_keypair()
+            .expect("Failed to generate Noise keypair");
         keypair.private.to_vec()
     }
 
@@ -249,7 +251,8 @@ impl SessionManager {
     /// Initiate Noise handshake for a new connection
     async fn initiate_handshake(&self, conn_id: u64) -> Result<(), String> {
         // Build Noise handshake state (initiator role)
-        let builder = Builder::new(NOISE_PATTERN.parse().unwrap());
+        let builder = Builder::new(NOISE_PATTERN.parse()
+            .expect("Invalid noise pattern - this is a programming error"));
         let builder = builder.local_private_key(&self.static_keypair);
 
         let mut handshake = builder
@@ -335,7 +338,8 @@ impl SessionManager {
 
                 // Extract and validate nonce for replay detection
                 if len >= 8 {
-                    let nonce_bytes: [u8; 8] = buffer[..8].try_into().unwrap();
+                    let nonce_bytes: [u8; 8] = buffer[..8].try_into()
+                        .expect("Buffer slice is exactly 8 bytes");
                     let nonce = u64::from_le_bytes(nonce_bytes);
                     
                     // Check for replay attack
@@ -360,9 +364,10 @@ impl SessionManager {
                     let old_state = std::mem::replace(
                         &mut session.state,
                         SessionState::Handshaking(
-                            Builder::new(NOISE_PATTERN.parse().unwrap())
+                            Builder::new(NOISE_PATTERN.parse()
+                                .expect("Invalid noise pattern - this is a programming error"))
                                 .build_initiator()
-                                .unwrap(),
+                                .expect("Failed to build temporary initiator"),
                             HandshakeMetadata::new(),
                         ),
                     );

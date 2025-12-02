@@ -4,7 +4,12 @@ use super::{Keystore, KeystoreError};
 use crate::core_identity::device_id::DeviceId;
 use crate::core_identity::keypair::Keypair;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, PoisonError};
+
+/// Helper to convert poison errors into KeystoreError
+fn handle_poison<T>(_err: PoisonError<T>) -> KeystoreError {
+    KeystoreError::Other("Lock poisoned: a thread panicked while holding the lock".to_string())
+}
 
 /// In-memory keystore (non-persistent, for tests)
 #[derive(Clone)]
@@ -33,20 +38,20 @@ impl Keystore for MemoryKeystore {
     fn load_identity_keypair(&self) -> Result<Keypair, KeystoreError> {
         self.identity
             .read()
-            .unwrap()
+            .map_err(handle_poison)?
             .clone()
             .ok_or_else(|| KeystoreError::NotFound("Identity keypair not found".to_string()))
     }
 
     fn save_identity_keypair(&self, kp: &Keypair) -> Result<(), KeystoreError> {
-        *self.identity.write().unwrap() = Some(kp.clone());
+        *self.identity.write().map_err(handle_poison)? = Some(kp.clone());
         Ok(())
     }
 
     fn load_device_keypair(&self, device_id: &DeviceId) -> Result<Keypair, KeystoreError> {
         self.devices
             .read()
-            .unwrap()
+            .map_err(handle_poison)?
             .get(device_id)
             .cloned()
             .ok_or_else(|| {
@@ -61,13 +66,13 @@ impl Keystore for MemoryKeystore {
     ) -> Result<(), KeystoreError> {
         self.devices
             .write()
-            .unwrap()
+            .map_err(handle_poison)?
             .insert(device_id.clone(), kp.clone());
         Ok(())
     }
 
     fn list_devices(&self) -> Result<Vec<DeviceId>, KeystoreError> {
-        Ok(self.devices.read().unwrap().keys().cloned().collect())
+        Ok(self.devices.read().map_err(handle_poison)?.keys().cloned().collect())
     }
 }
 

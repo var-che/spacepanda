@@ -29,6 +29,9 @@ pub enum KeystoreError {
 
     #[error("Invalid password")]
     InvalidPassword,
+    
+    #[error("Other error: {0}")]
+    Other(String),
 }
 
 /// Abstract keystore trait
