@@ -32,9 +32,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{SystemTime, Duration};
 use tokio::sync::{mpsc, oneshot, Mutex};
-use tokio::time::{interval, Duration};
+use tokio::time::interval;
 
 use super::dht_config::DhtConfig;
 use super::dht_key::DhtKey;

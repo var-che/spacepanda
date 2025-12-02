@@ -12,7 +12,6 @@
 
 use super::traits::OperationMetadata;
 use super::vector_clock::VectorClock;
-use super::signer::Signature;
 use crate::core_store::store::errors::{StoreError, StoreResult};
 use serde::{Deserialize, Serialize};
 

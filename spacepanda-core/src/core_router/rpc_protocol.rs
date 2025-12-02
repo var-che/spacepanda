@@ -47,7 +47,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use uuid::Uuid;
 use hashlink::LruCache;
-use tracing::{debug, warn, info, trace, instrument};
+use tracing::{debug, warn, trace, instrument};
 
 use super::rate_limiter::{RateLimiter, RateLimiterConfig, RateLimitResult};
 use super::metrics;

@@ -16,7 +16,7 @@
 */
 
 use crate::core_store::crdt::VectorClock;
-use crate::core_store::store::errors::{StoreResult, StoreError};
+use crate::core_store::store::errors::StoreResult;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

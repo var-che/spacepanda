@@ -30,7 +30,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 
 use super::{DhtKey, DhtValue, DhtStorage, RoutingTable, DhtConfig};
-use super::message::{DhtMessage, PeerInfo, FindValueResult};
+use super::message::{PeerInfo, FindValueResult, DhtMessage};
 use super::events::DhtEvent;
 use crate::core_router::RouterHandle;
 

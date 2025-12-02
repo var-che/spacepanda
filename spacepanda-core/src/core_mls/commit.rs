@@ -9,7 +9,7 @@
 //! Commits ensure atomic state transitions with proper authentication.
 
 use super::errors::{MlsError, MlsResult};
-use super::proposals::{Proposal, ProposalRef};
+use super::proposals::ProposalRef;
 use super::types::GroupId;
 use serde::{Deserialize, Serialize};
 

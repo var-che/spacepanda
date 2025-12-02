@@ -9,7 +9,6 @@
 //! Proposals are collected and applied atomically via Commits.
 
 use super::errors::{MlsError, MlsResult};
-use super::types::GroupId;
 use serde::{Deserialize, Serialize};
 
 /// Type of proposal

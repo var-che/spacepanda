@@ -16,7 +16,7 @@
 
 use crate::core_store::crdt::{Crdt, OperationMetadata};
 use crate::core_store::model::{Channel, Space};
-use crate::core_store::store::errors::{StoreResult, StoreError};
+use crate::core_store::store::errors::StoreResult;
 use serde::{Deserialize, Serialize};
 
 /// Remote CRDT operation wrapper

@@ -15,9 +15,7 @@
     - Signature: delta-level signature for integrity
 */
 
-use crate::core_store::crdt::{
-    VectorClock, OperationMetadata, LWWOperation, ORSetOperation, ORMapOperation,
-};
+use crate::core_store::crdt::VectorClock;
 use crate::core_store::store::errors::{StoreResult, StoreError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -194,7 +192,7 @@ impl DeltaEncoder {
     
     /// Compute vector clock delta (only differences from base)
     fn compute_clock_delta(&self, clock: &VectorClock) -> HashMap<String, u64> {
-        let mut delta = HashMap::new();
+        let delta = HashMap::new();
         
         // For each node in the new clock, compute the difference
         // This is a simplified version - actual implementation would need

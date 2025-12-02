@@ -12,8 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
 use x25519_dalek::{StaticSecret, PublicKey as X25519PublicKey};
-use rand::rand_core::OsRng;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::Zeroize;
 
 /// Key type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -15,7 +15,7 @@
 */
 
 use super::types::{MessageId, ChannelId, UserId, Timestamp};
-use crate::core_store::crdt::{ORMap, LWWRegister};
+use crate::core_store::crdt::ORMap;
 use serde::{Deserialize, Serialize};
 
 /// Attachment metadata (actual file stored in blob store)

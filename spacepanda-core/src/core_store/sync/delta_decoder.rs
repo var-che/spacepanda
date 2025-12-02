@@ -10,7 +10,7 @@
     - Extract individual CRDT operations
 */
 
-use crate::core_store::crdt::{VectorClock, OperationMetadata};
+use crate::core_store::crdt::VectorClock;
 use crate::core_store::store::errors::{StoreResult, StoreError};
 use super::delta_encoder::{Delta, DeltaOperation};
 use serde::de::DeserializeOwned;

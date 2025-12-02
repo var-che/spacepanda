@@ -12,7 +12,7 @@
 use super::commit::{Commit, CommitResult, CommitValidator, UpdatePath};
 use super::encryption::{encrypt_message, decrypt_message, EncryptedMessage, KeySchedule, SenderData};
 use super::errors::{MlsError, MlsResult};
-use super::proposals::{Proposal, ProposalContent, ProposalQueue, ProposalRef, ProposalType};
+use super::proposals::{Proposal, ProposalContent, ProposalQueue, ProposalRef};
 use super::tree::{LeafIndex, MlsTree};
 use super::types::{GroupId, GroupMetadata, MemberInfo, MlsConfig};
 use super::welcome::{TreeSnapshot, Welcome, WelcomeGroupSecrets};

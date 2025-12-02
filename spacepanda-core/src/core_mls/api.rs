@@ -25,15 +25,11 @@
 //! let envelope = handle.send_message(b"Hello!")?;
 //! ```
 
-use super::commit::{Commit, CommitResult};
-use super::encryption::EncryptedMessage;
 use super::errors::{MlsError, MlsResult};
 use super::group::MlsGroup;
-use super::proposals::{Proposal, ProposalType};
+use super::proposals::Proposal;
 use super::transport::{MlsEnvelope, MlsTransport};
 use super::types::{GroupId, GroupMetadata, MlsConfig};
-use super::welcome::Welcome;
-use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 /// High-level MLS API handle

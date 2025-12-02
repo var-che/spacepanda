@@ -9,9 +9,9 @@
     - Conflict resolution
 */
 
-use crate::core_store::crdt::{Crdt, OperationMetadata, VectorClock};
+use crate::core_store::crdt::{OperationMetadata, VectorClock};
 use crate::core_store::model::{SpaceId, ChannelId};
-use crate::core_store::store::errors::{StoreResult, StoreError};
+use crate::core_store::store::errors::StoreResult;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 

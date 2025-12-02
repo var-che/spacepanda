@@ -11,10 +11,10 @@
 */
 
 use crate::core_store::model::{Space, Channel, SpaceId, ChannelId};
-use crate::core_store::store::errors::{StoreResult, StoreError};
+use crate::core_store::store::errors::StoreResult;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions, create_dir_all};
+use std::fs::{File, create_dir_all};
 use std::io::{Write, Read};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};

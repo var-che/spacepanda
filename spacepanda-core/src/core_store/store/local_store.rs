@@ -11,7 +11,7 @@
     - At-rest encryption for all data
 */
 
-use crate::core_store::crdt::{Crdt, VectorClock, OperationMetadata, ValidatedCrdt, SignatureConfig};
+use crate::core_store::crdt::{Crdt, OperationMetadata};
 use crate::core_store::model::{Channel, Space, SpaceId, ChannelId};
 use crate::core_store::store::errors::{StoreResult, StoreError};
 use crate::core_store::store::commit_log::CommitLog;

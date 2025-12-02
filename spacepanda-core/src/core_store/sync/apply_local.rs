@@ -17,10 +17,9 @@
 */
 
 use crate::core_store::crdt::{
-    VectorClock, OperationMetadata, ElementId, AddId,
-    LWWOperation, ORSetOperation, ORMapOperation, GListOperation,
+    VectorClock, OperationMetadata, AddId,
 };
-use crate::core_store::model::{Channel, Space, Message, MessageId, UserId, Timestamp};
+use crate::core_store::model::{Channel, Space, MessageId, UserId, Timestamp};
 use crate::core_store::store::errors::{StoreResult, StoreError};
 use serde::{Deserialize, Serialize};
 

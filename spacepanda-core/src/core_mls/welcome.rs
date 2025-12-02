@@ -11,7 +11,7 @@
 
 use super::encryption::HpkeContext;
 use super::errors::{MlsError, MlsResult};
-use super::tree::{MlsTree, NodeIndex, TreeNode};
+use super::tree::{MlsTree, NodeIndex};
 use super::types::{GroupId, GroupMetadata, MemberInfo};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

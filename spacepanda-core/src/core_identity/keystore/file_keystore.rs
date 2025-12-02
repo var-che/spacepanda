@@ -16,8 +16,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
-use argon2::{Argon2, Params, PasswordHasher};
-use argon2::password_hash::{PasswordHash, SaltString};
+use argon2::{Argon2, Params};
 use rand::RngCore;
 use std::fs;
 use std::path::PathBuf;
