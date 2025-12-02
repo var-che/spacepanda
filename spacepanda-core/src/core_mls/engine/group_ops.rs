@@ -78,7 +78,7 @@ impl GroupOperations for OpenMlsEngine {
             .collect::<Result<Vec<_>, _>>()?;
         
         // Add members (creates proposals and commits them)
-        let (commit_msg, welcome_msg, _group_info) = group.add_members(
+        let (commit_msg, _welcome_msg, _group_info) = group.add_members(
             self.provider(),
             self.signature_keys(),
             &parsed_packages,
@@ -87,9 +87,6 @@ impl GroupOperations for OpenMlsEngine {
         // Merge pending commit (CRITICAL!)
         group.merge_pending_commit(self.provider())
             .map_err(|e| MlsError::InvalidMessage(format!("Failed to merge commit: {:?}", e)))?;
-        
-        // Note: Events could be emitted here if we had an event bus
-        // For now, we'll skip event emission in the simplified version
         
         // Serialize commit for transport
         commit_msg.tls_serialize_detached()
@@ -112,7 +109,7 @@ impl GroupOperations for OpenMlsEngine {
             .collect();
         
         // Remove members
-        let (commit_msg, welcome_opt, _group_info) = group.remove_members(
+        let (commit_msg, _welcome_opt, _group_info) = group.remove_members(
             self.provider(),
             self.signature_keys(),
             &indices,
@@ -121,9 +118,6 @@ impl GroupOperations for OpenMlsEngine {
         // Merge pending commit
         group.merge_pending_commit(self.provider())
             .map_err(|e| MlsError::InvalidMessage(format!("Failed to merge commit: {:?}", e)))?;
-        
-        // Note: Events could be emitted here if we had an event bus
-        // For now, we'll skip event emission in the simplified version
         
         // Serialize commit for transport
         commit_msg.tls_serialize_detached()

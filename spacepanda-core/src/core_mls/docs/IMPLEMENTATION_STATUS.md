@@ -102,14 +102,22 @@ pub async fn commit_pending(&self) -> MlsResult<(Vec<u8>, Option<Vec<Vec<u8>>>)>
 #### 1.3 Implement `add_members()` in OpenMlsEngine
 
 **File**: `src/core_mls/engine/group_ops.rs`
-**Status**: ⚠️ PARTIAL (trait defined, not implemented)
-**Requirement**: Add members to group, generate Welcome messages
+**Status**: ✅ **COMPLETE** (as of latest commit)
+**Implementation**: Parses key packages, validates them, calls `group.add_members()`, merges commit, returns serialized commit
+
+```rust
+async fn add_members(&self, key_packages: Vec<Vec<u8>>) -> MlsResult<Vec<u8>>
+```
 
 #### 1.4 Implement `remove_members()` in OpenMlsEngine
 
 **File**: `src/core_mls/engine/group_ops.rs`  
-**Status**: ⚠️ PARTIAL (trait defined, not implemented)
-**Requirement**: Remove members from group
+**Status**: ✅ **COMPLETE** (as of latest commit)
+**Implementation**: Converts leaf indices to LeafNodeIndex, calls `group.remove_members()`, merges commit, returns serialized commit
+
+```rust
+async fn remove_members(&self, leaf_indices: Vec<u32>) -> MlsResult<Vec<u8>>
+```
 
 #### 1.5 Implement `process_message()` - Inbound Message Handling
 
@@ -131,36 +139,46 @@ pub async fn process_message(&self, message_bytes: &[u8]) -> MlsResult<Processed
 
 #### 2.1 Define Message Envelope Structure
 
-**File**: `src/core_mls/messages/mod.rs` (needs creation)
-**Status**: ❌ NOT IMPLEMENTED
-**Requirement**: Wire format wrapping MLS messages with metadata
+**File**: `src/core_mls/messages/mod.rs`
+**Status**: ✅ **COMPLETE** (as of latest commit)
+**Implementation**: Wire format `EncryptedEnvelope` with group_id, epoch, sender, payload, and message_type
+**Tests**: 2 tests passing for serialization and accessors
 
 ```rust
 struct EncryptedEnvelope {
     group_id: GroupId,
     epoch: u64,
-    sender: IdentityId,
-    payload: Vec<u8>, // MLS ciphertext
+    sender: Vec<u8>,
+    payload: Vec<u8>,
+    message_type: MessageType,
 }
 ```
 
 #### 2.2 Implement Inbound Message Handler
 
-**File**: `src/core_mls/messages/inbound.rs` (needs creation)
-**Status**: ❌ NOT IMPLEMENTED  
-**Requirement**:
+**File**: `src/core_mls/messages/inbound.rs`
+**Status**: ✅ **COMPLETE** (as of latest commit)
+**Implementation**: Processes incoming envelopes, verifies metadata, handles Application/Proposal/Commit messages, emits events
+**Tests**: 5 tests passing for metadata verification and handler creation
 
-1. Parse `VerifiableMlsMessageIn`
-2. Verify signature
-3. Apply to group
-4. Extract commits/application messages
-5. Emit events to CRDT layer
+Key features:
+- Epoch validation (prevents replay attacks)
+- Group ID verification
+- Event emission (MessageReceived, EpochChanged)
+- Support for all message types
 
 #### 2.3 Implement Outbound Message Builder
 
-**File**: `src/core_mls/messages/outbound.rs` (needs creation)
-**Status**: ❌ NOT IMPLEMENTED
-**Requirement**: Convert user intents → MLS messages
+**File**: `src/core_mls/messages/outbound.rs`
+**Status**: ✅ **COMPLETE** (as of latest commit)
+**Implementation**: Builds application messages, commits, add/remove proposals wrapped in envelopes
+**Tests**: 3 tests passing for message building
+
+Key features:
+- `build_application_message()` - Encrypts and wraps user messages
+- `build_commit_message()` - Creates commits for pending proposals
+- `build_add_proposal()` - Adds members (commits immediately)
+- `build_remove_proposal()` - Removes members (commits immediately)
 
 ---
 

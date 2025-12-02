@@ -44,6 +44,9 @@ pub mod integration;
 // OpenMLS engine wrapper (Phase 3)
 pub mod engine;
 
+// Message lifecycle (envelopes, routing)
+pub mod messages;
+
 // Feature-gated MLS handle selector
 pub mod handle;
 
