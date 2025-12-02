@@ -12,8 +12,9 @@ pub mod or_map;
 pub mod g_list;
 pub mod oplog;
 pub mod signer;
+pub mod validated;
 
-pub use traits::{Crdt, CrdtOperation, OperationMetadata, TombstoneCrdt, ValidatedCrdt};
+pub use traits::{Crdt, CrdtOperation, OperationMetadata, TombstoneCrdt, ValidatedCrdt as ValidatedCrdtTrait};
 pub use vector_clock::{VectorClock, NodeId};
 pub use lww_register::{LWWRegister, LWWOperation};
 pub use or_set::{ORSet, ORSetOperation, AddId};
@@ -21,3 +22,4 @@ pub use or_map::{ORMap, ORMapOperation};
 pub use g_list::{GList, GListOperation, ElementId};
 pub use oplog::{OpLog, OpLogEntry};
 pub use signer::{Signature, PublicKey, SigningKey, OperationSigner, OperationVerifier};
+pub use validated::{ValidatedCrdt, SignatureConfig, SignedOperation, HasMetadata};

@@ -43,6 +43,12 @@ pub struct LWWOperation<T: Clone> {
     pub metadata: OperationMetadata,
 }
 
+impl<T: Clone> super::validated::HasMetadata for LWWOperation<T> {
+    fn metadata(&self) -> &OperationMetadata {
+        &self.metadata
+    }
+}
+
 impl<T: Clone> LWWRegister<T> {
     /// Create a new empty LWW register
     pub fn new() -> Self {

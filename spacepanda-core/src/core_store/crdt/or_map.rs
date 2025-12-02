@@ -46,6 +46,15 @@ pub enum ORMapOperation<K: Clone, V: Clone> {
     },
 }
 
+impl<K: Clone, V: Clone> super::validated::HasMetadata for ORMapOperation<K, V> {
+    fn metadata(&self) -> &OperationMetadata {
+        match self {
+            ORMapOperation::Put { metadata, .. } => metadata,
+            ORMapOperation::Remove { metadata, .. } => metadata,
+        }
+    }
+}
+
 impl<K: Clone + Eq + std::hash::Hash, V: Clone> ORMap<K, V> {
     /// Create a new empty OR-Map
     pub fn new() -> Self {

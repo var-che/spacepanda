@@ -78,6 +78,15 @@ pub enum GListOperation<T: Clone> {
     },
 }
 
+impl<T: Clone> super::validated::HasMetadata for GListOperation<T> {
+    fn metadata(&self) -> &OperationMetadata {
+        match self {
+            GListOperation::Insert { metadata, .. } => metadata,
+            GListOperation::Delete { metadata, .. } => metadata,
+        }
+    }
+}
+
 impl<T: Clone> GList<T> {
     /// Create a new empty GList
     pub fn new() -> Self {

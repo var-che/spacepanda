@@ -65,6 +65,15 @@ pub enum ORSetOperation<T: Clone> {
     },
 }
 
+impl<T: Clone> super::validated::HasMetadata for ORSetOperation<T> {
+    fn metadata(&self) -> &OperationMetadata {
+        match self {
+            ORSetOperation::Add { metadata, .. } => metadata,
+            ORSetOperation::Remove { metadata, .. } => metadata,
+        }
+    }
+}
+
 impl<T: Clone + Eq + std::hash::Hash> ORSet<T> {
     /// Create a new empty OR-Set
     pub fn new() -> Self {
