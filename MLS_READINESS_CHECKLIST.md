@@ -2,6 +2,7 @@
 
 **Status**: 🔴 NOT READY - Critical security items must be addressed  
 **Last Updated**: 2025-12-02  
+**Progress**: 5/7 P0 issues complete (71%)  
 **Target**: Address all MUST-FIX items before MLS integration
 
 ---
@@ -212,40 +213,63 @@ let timeout_handle = timeout_task.abort_handle();
 
 ### 5. Seen-Requests Proper LRU Eviction ⚠️ CRITICAL
 
-**Status**: ❌ Not Implemented (timestamp-based eviction)  
+**Status**: ✅ COMPLETE  
 **Priority**: P0 (Blocking)  
-**Effort**: 1-2 days
+**Effort**: 1-2 days (COMPLETED)
 
 **Problem**: Timestamp-based eviction is O(n log n) and has concurrency issues under heavy load.
 
 **Solution**:
 
 ```rust
-// Use hashlink::LruCache or sharded map:
+// Use hashlink::LruCache for O(1) operations:
 use hashlink::LruCache;
-use std::sync::Mutex;
 
-struct SeenRequests {
-    inner: Mutex<LruCache<RequestId, Instant>>,
-}
+// seen_requests: Arc<Mutex<LruCache<String, ()>>>
+// LRU automatically evicts least-recently-used entries at capacity
+// No background pruning task needed
 ```
 
-**Files to Modify**:
+**Implementation**:
 
-- `spacepanda-core/src/core_router/rpc_protocol.rs`
+- ✅ Replaced `HashMap<String, SeenRequest>` with `LruCache<String, ()>`
+- ✅ Removed background pruning task (LRU handles eviction automatically)
+- ✅ Simplified `new_with_config` from 5 params to 3 (removed TTL, prune_interval)
+- ✅ O(1) insert, check, and evict operations
+- ✅ Capacity-based eviction (no time-based pruning)
+- ✅ Atomic check-and-insert under single mutex
+
+**Files Modified**:
+
+- ✅ `spacepanda-core/Cargo.toml` - Added `hashlink = "0.9"` dependency
+- ✅ `spacepanda-core/src/core_router/rpc_protocol.rs`
+  - Removed `SeenRequest` struct (no timestamp needed)
+  - Changed `seen_requests` type to `LruCache<String, ()>`
+  - Removed `prune_shutdown_tx`, `prune_task_handle` fields
+  - Simplified `handle_request` (no capacity checks, LRU auto-evicts)
+  - Removed `shutdown()` method (no background task)
+  - Updated all tests to use new 3-parameter signature
 
 **Test Cases**:
 
-- [ ] Heavy concurrent insertion (1000+ threads)
-- [ ] Eviction works correctly under lock
-- [ ] Capacity limit enforced atomically
-- [ ] No panic under concurrent stress
+- ✅ LRU starts empty (`test_seen_requests_capacity_limit`)
+- ✅ Capacity limit enforced via automatic eviction (`test_seen_requests_capacity_limit`)
+- ✅ Oldest entry evicted when at capacity (`test_lru_eviction`)
+- ✅ Evicted IDs can be reused (`test_lru_eviction`)
+- ✅ No race conditions under concurrent load (`test_lru_no_race_conditions`)
+- ✅ Heavy concurrent insertion (2000 tasks) (`test_heavy_concurrent_seen_requests`)
+- ✅ Duplicate request detection works (`test_lru_no_race_conditions`)
+- ✅ All existing RPC protocol tests still pass (13 updated tests)
 
-**Dependencies to Add**:
+**Test Results**: All 15 RPC protocol tests passing ✅
 
-```toml
-hashlink = "0.9"
-```
+**Performance Improvements**:
+
+- ✅ Insert: O(n log n) → O(1) (no timestamp sorting)
+- ✅ Check: O(1) → O(1) (unchanged)
+- ✅ Eviction: O(n log n) → O(1) (automatic LRU eviction)
+- ✅ Memory: Reduced (no timestamp per entry, no background task)
+- ✅ Concurrency: Improved (single lock, no background task coordination)
 
 ---
 

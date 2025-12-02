@@ -29,6 +29,7 @@ aes-gcm = "0.10"
 argon2 = "0.5"
 crc32fast = "1.4"
 bs58 = "0.5"
+hashlink = "0.9"  # LRU cache for seen_requests
 
 # Real cryptography (fixing TODOs)
 ed25519-dalek = { version = "2.1", features = ["serde"] }
