@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
+use tracing::{debug, warn, info, trace};
 
 use super::session_manager::PeerId;
 
@@ -130,16 +131,25 @@ impl CircuitBreaker {
     fn allow_request(&mut self) -> bool {
         match self.state {
             CircuitState::Closed => true,
-            CircuitState::HalfOpen => true,  // Allow test request
+            CircuitState::HalfOpen => {
+                trace!("Circuit breaker in half-open state, allowing test request");
+                true  // Allow test request
+            }
             CircuitState::Open => {
                 // Check if timeout has elapsed
                 if let Some(opened_at) = self.opened_at {
                     if opened_at.elapsed() >= self.timeout {
                         // Transition to half-open for testing
+                        info!(
+                            consecutive_failures = self.consecutive_failures,
+                            timeout_secs = self.timeout.as_secs(),
+                            "Circuit breaker transitioning from OPEN to HALF-OPEN for recovery test"
+                        );
                         self.state = CircuitState::HalfOpen;
                         self.consecutive_failures = 0;
                         true
                     } else {
+                        trace!("Circuit breaker open, blocking request");
                         false  // Still in timeout
                     }
                 } else {
@@ -154,10 +164,17 @@ impl CircuitBreaker {
         match self.state {
             CircuitState::Closed => {
                 // Reset failure count on success
-                self.consecutive_failures = 0;
+                if self.consecutive_failures > 0 {
+                    debug!(
+                        previous_failures = self.consecutive_failures,
+                        "Circuit breaker: success, resetting failure count"
+                    );
+                    self.consecutive_failures = 0;
+                }
             }
             CircuitState::HalfOpen => {
                 // Success in half-open state -> close circuit
+                info!("Circuit breaker: recovery successful, transitioning from HALF-OPEN to CLOSED");
                 self.state = CircuitState::Closed;
                 self.consecutive_failures = 0;
                 self.opened_at = None;
@@ -176,17 +193,37 @@ impl CircuitBreaker {
             CircuitState::Closed => {
                 if self.consecutive_failures >= self.failure_threshold {
                     // Open circuit
+                    warn!(
+                        consecutive_failures = self.consecutive_failures,
+                        threshold = self.failure_threshold,
+                        timeout_secs = self.timeout.as_secs(),
+                        "Circuit breaker OPENING: failure threshold reached"
+                    );
                     self.state = CircuitState::Open;
                     self.opened_at = Some(Instant::now());
+                } else {
+                    debug!(
+                        consecutive_failures = self.consecutive_failures,
+                        threshold = self.failure_threshold,
+                        "Circuit breaker: failure recorded, still closed"
+                    );
                 }
             }
             CircuitState::HalfOpen => {
                 // Failure in half-open state -> reopen circuit
+                warn!(
+                    consecutive_failures = self.consecutive_failures,
+                    "Circuit breaker: recovery failed, reopening circuit"
+                );
                 self.state = CircuitState::Open;
                 self.opened_at = Some(Instant::now());
             }
             CircuitState::Open => {
                 // Already open, just track failures
+                trace!(
+                    consecutive_failures = self.consecutive_failures,
+                    "Circuit breaker: additional failure while open"
+                );
             }
         }
     }
@@ -254,17 +291,38 @@ impl RateLimiter {
         // Get or create limiter for this peer
         let limiter = limiters
             .entry(peer_id.clone())
-            .or_insert_with(|| PeerLimiter::new(&self.config));
+            .or_insert_with(|| {
+                debug!(peer_id = ?peer_id, "Creating new rate limiter for peer");
+                PeerLimiter::new(&self.config)
+            });
 
         // Check circuit breaker first
         if !limiter.circuit_breaker.allow_request() {
+            warn!(
+                peer_id = ?peer_id,
+                state = ?limiter.circuit_breaker.state(),
+                "Request blocked: circuit breaker open"
+            );
             return RateLimitResult::CircuitBreakerOpen;
         }
 
         // Check rate limit (consume 1 token)
+        let tokens_before = limiter.token_bucket.available_tokens();
         if limiter.token_bucket.try_consume(1.0) {
+            trace!(
+                peer_id = ?peer_id,
+                tokens_remaining = limiter.token_bucket.available_tokens(),
+                "Request allowed"
+            );
             RateLimitResult::Allowed
         } else {
+            warn!(
+                peer_id = ?peer_id,
+                tokens_available = tokens_before,
+                capacity = self.config.burst_size,
+                refill_rate = self.config.max_requests_per_sec,
+                "Request blocked: rate limit exceeded"
+            );
             RateLimitResult::RateLimitExceeded
         }
     }

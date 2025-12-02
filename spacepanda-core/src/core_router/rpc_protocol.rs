@@ -47,6 +47,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use uuid::Uuid;
 use hashlink::LruCache;
+use tracing::{debug, warn, info, trace, instrument};
 
 use super::rate_limiter::{RateLimiter, RateLimiterConfig, RateLimitResult};
 use super::session_manager::{PeerId, SessionCommand, SessionEvent};
@@ -264,6 +265,7 @@ impl RpcProtocol {
     }
 
     /// Make an RPC call to a peer
+    #[instrument(skip(self, params, response_tx), fields(peer_id = ?peer_id, method = %method))]
     async fn make_call(
         &self,
         peer_id: PeerId,
@@ -271,8 +273,10 @@ impl RpcProtocol {
         params: serde_json::Value,
         response_tx: oneshot::Sender<Result<serde_json::Value, RpcError>>,
     ) -> Result<(), String> {
+        trace!("Initiating RPC call");
         let request_id = Uuid::new_v4().to_string();
 
+        let method_clone = method.clone();
         let message = RpcMessage::Request {
             id: request_id.clone(),
             method,
@@ -292,6 +296,7 @@ impl RpcProtocol {
             tokio::time::sleep(timeout).await;
             // Only send timeout error if request is still pending
             if let Some(pending) = pending_requests.lock().await.remove(&request_id_for_timeout) {
+                warn!(request_id = %request_id_for_timeout, method = %method_clone, timeout_ms = timeout.as_millis(), "Request timeout");
                 let _ = pending.response_tx.send(Err(RpcError::timeout()));
             }
         });
@@ -318,24 +323,33 @@ impl RpcProtocol {
     }
 
     /// Handle incoming frame from a peer
+    #[instrument(skip(self, bytes), fields(peer_id = ?peer_id, frame_size = bytes.len()))]
     async fn handle_frame(&self, peer_id: PeerId, bytes: Vec<u8>) -> Result<(), String> {
         // Check rate limit first (before any processing)
         match self.rate_limiter.check_request(&peer_id).await {
             RateLimitResult::Allowed => {
+                trace!("Rate limit check passed");
                 // Request allowed, proceed
             }
             RateLimitResult::RateLimitExceeded => {
                 // Rate limit exceeded, reject request
+                warn!("Request rejected: rate limit exceeded");
                 return Err(format!("Rate limit exceeded for peer {:?}", peer_id));
             }
             RateLimitResult::CircuitBreakerOpen => {
                 // Circuit breaker open, reject request
+                warn!("Request rejected: circuit breaker open");
                 return Err(format!("Circuit breaker open for peer {:?}", peer_id));
             }
         }
         
         // Reject oversized frames to prevent memory exhaustion DoS
         if bytes.len() > MAX_FRAME_SIZE {
+            warn!(
+                frame_size = bytes.len(),
+                max_size = MAX_FRAME_SIZE,
+                "Oversized frame rejected"
+            );
             return Err(format!("Frame too large: {} bytes (max {})", bytes.len(), MAX_FRAME_SIZE));
         }
         
@@ -355,6 +369,7 @@ impl RpcProtocol {
     }
 
     /// Handle incoming RPC request
+    #[instrument(skip(self, params), fields(peer_id = ?peer_id, request_id = %id, method = %method))]
     async fn handle_request(
         &self,
         peer_id: PeerId,
@@ -370,6 +385,11 @@ impl RpcProtocol {
             // Check if request ID was already seen (replay attack)
             if seen.contains_key(&id) {
                 // Replay detected! Reject the request
+                warn!(
+                    request_id = %id,
+                    method = %method,
+                    "Replay attack detected: duplicate request ID"
+                );
                 let error = RpcError::new(ERR_DUPLICATE_REQUEST, format!("Duplicate request ID: {}", id));
                 self.send_response(peer_id, id, Err(error)).await?;
                 return Ok(()); // Don't process replay
@@ -378,6 +398,7 @@ impl RpcProtocol {
             // Insert into LRU cache (O(1) operation)
             // If at capacity, LRU automatically evicts least recently used entry
             seen.insert(id.clone(), ());
+            debug!("Request ID added to seen cache");
         }
         
         let handlers = self.handlers.lock().await;
@@ -388,6 +409,7 @@ impl RpcProtocol {
             // Create response channel
             let (response_tx, response_rx) = oneshot::channel();
 
+            let method_clone = method.clone();
             let request = RpcRequest {
                 peer_id: peer_id.clone(),
                 id: id.clone(),
@@ -399,6 +421,7 @@ impl RpcProtocol {
             // Send to handler
             if handler_tx.send(request).await.is_err() {
                 // Handler crashed - record as failure for circuit breaker
+                warn!(method = %method_clone, "Handler channel closed: handler crashed");
                 self.rate_limiter.record_failure(&peer_id).await;
                 self.send_error_response(peer_id, id, RpcError::internal_error("Handler crashed"))
                     .await?;
@@ -414,8 +437,14 @@ impl RpcProtocol {
                     Ok(result) => {
                         // Record success/failure for circuit breaker based on result
                         match &result {
-                            Ok(_) => rate_limiter.record_success(&peer_id_clone).await,
-                            Err(_) => rate_limiter.record_failure(&peer_id_clone).await,
+                            Ok(_) => {
+                                trace!(method = %method_clone, "Handler returned success");
+                                rate_limiter.record_success(&peer_id_clone).await;
+                            }
+                            Err(e) => {
+                                debug!(method = %method_clone, error_code = e.code, "Handler returned error");
+                                rate_limiter.record_failure(&peer_id_clone).await;
+                            }
                         }
                         
                         let message = RpcMessage::Response { id, result };
@@ -427,12 +456,14 @@ impl RpcProtocol {
                     }
                     Err(_) => {
                         // Handler dropped without responding - record as failure
+                        warn!(method = %method_clone, "Handler dropped without responding");
                         rate_limiter.record_failure(&peer_id_clone).await;
                     }
                 }
             });
         } else {
             // Method not found - not a peer failure
+            warn!(method, "Method not found");
             self.send_error_response(peer_id, id, RpcError::method_not_found(&method))
                 .await?;
         }
@@ -441,6 +472,7 @@ impl RpcProtocol {
     }
 
     /// Handle incoming RPC response
+    #[instrument(skip(self, result), fields(request_id = %id))]
     async fn handle_response(
         &self,
         id: String,
@@ -449,11 +481,13 @@ impl RpcProtocol {
         if let Some(pending) = self.pending_requests.lock().await.remove(&id) {
             // Abort the timeout task since response arrived
             pending.timeout_handle.abort();
+            trace!("Response received, timeout cancelled");
             
             // Send response to caller
             let _ = pending.response_tx.send(result);
+        } else {
+            debug!("Response received for unknown request (likely timed out)");
         }
-        // If request not found, it may have already timed out - that's OK
         Ok(())
     }
 
