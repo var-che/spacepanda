@@ -21,7 +21,12 @@ use crate::core_store::store::encryption::EncryptionManager;
 use serde::{Serialize, Deserialize};
 use std::path::PathBuf;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, PoisonError};
+
+/// Helper to convert poison errors into StoreError
+fn handle_poison<T>(_err: PoisonError<T>) -> StoreError {
+    StoreError::Storage("Lock poisoned: a thread panicked while holding the lock".to_string())
+}
 
 /// Configuration for local storage
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,10 +126,10 @@ impl LocalStore {
         };
         
         // Write to commit log
-        self.commit_log.write().unwrap().append(&data)?;
+        self.commit_log.write().map_err(handle_poison)?.append(&data)?;
         
         // Update cache
-        self.spaces_cache.write().unwrap().insert(space.id.clone(), space.clone());
+        self.spaces_cache.write().map_err(handle_poison)?.insert(space.id.clone(), space.clone());
         
         // Update indices
         self.index_manager.index_space(&space.id)?;
@@ -138,14 +143,14 @@ impl LocalStore {
     /// Retrieve a space by ID
     pub fn get_space(&self, space_id: &SpaceId) -> StoreResult<Option<Space>> {
         // Check cache first
-        if let Some(space) = self.spaces_cache.read().unwrap().get(space_id) {
+        if let Some(space) = self.spaces_cache.read().map_err(handle_poison)?.get(space_id) {
             return Ok(Some(space.clone()));
         }
         
         // Try to load from snapshot
         if let Some(space) = self.snapshot_manager.load_space(space_id)? {
             // Update cache
-            self.spaces_cache.write().unwrap().insert(space_id.clone(), space.clone());
+            self.spaces_cache.write().map_err(handle_poison)?.insert(space_id.clone(), space.clone());
             return Ok(Some(space));
         }
         
@@ -163,8 +168,8 @@ impl LocalStore {
             data
         };
         
-        self.commit_log.write().unwrap().append(&data)?;
-        self.channels_cache.write().unwrap().insert(channel.id.clone(), channel.clone());
+        self.commit_log.write().map_err(handle_poison)?.append(&data)?;
+        self.channels_cache.write().map_err(handle_poison)?.insert(channel.id.clone(), channel.clone());
         self.index_manager.index_channel(&channel.id)?;
         self.maybe_snapshot()?;
         
@@ -173,12 +178,12 @@ impl LocalStore {
     
     /// Retrieve a channel by ID
     pub fn get_channel(&self, channel_id: &ChannelId) -> StoreResult<Option<Channel>> {
-        if let Some(channel) = self.channels_cache.read().unwrap().get(channel_id) {
+        if let Some(channel) = self.channels_cache.read().map_err(handle_poison)?.get(channel_id) {
             return Ok(Some(channel.clone()));
         }
         
         if let Some(channel) = self.snapshot_manager.load_channel(channel_id)? {
-            self.channels_cache.write().unwrap().insert(channel_id.clone(), channel.clone());
+            self.channels_cache.write().map_err(handle_poison)?.insert(channel_id.clone(), channel.clone());
             return Ok(Some(channel));
         }
         
@@ -187,12 +192,12 @@ impl LocalStore {
     
     /// List all spaces
     pub fn list_spaces(&self) -> StoreResult<Vec<SpaceId>> {
-        Ok(self.spaces_cache.read().unwrap().keys().cloned().collect())
+        Ok(self.spaces_cache.read().map_err(handle_poison)?.keys().cloned().collect())
     }
     
     /// List all channels
     pub fn list_channels(&self) -> StoreResult<Vec<ChannelId>> {
-        Ok(self.channels_cache.read().unwrap().keys().cloned().collect())
+        Ok(self.channels_cache.read().map_err(handle_poison)?.keys().cloned().collect())
     }
     
     /// Apply a CRDT operation and persist it
@@ -213,10 +218,10 @@ impl LocalStore {
         };
         
         // Append to commit log
-        self.commit_log.write().unwrap().append(&op_data)?;
+        self.commit_log.write().map_err(handle_poison)?.append(&op_data)?;
         
         // Increment operation counter
-        *self.operation_count.write().unwrap() += 1;
+        *self.operation_count.write().map_err(handle_poison)? += 1;
         
         // Maybe snapshot
         self.maybe_snapshot()?;
@@ -226,11 +231,11 @@ impl LocalStore {
     
     /// Create a snapshot if needed
     fn maybe_snapshot(&self) -> StoreResult<()> {
-        let count = *self.operation_count.read().unwrap();
+        let count = *self.operation_count.read().map_err(handle_poison)?;
         
         if count >= self.config.snapshot_interval {
             self.create_snapshot()?;
-            *self.operation_count.write().unwrap() = 0;
+            *self.operation_count.write().map_err(handle_poison)? = 0;
         }
         
         Ok(())
@@ -238,8 +243,8 @@ impl LocalStore {
     
     /// Force create a snapshot
     pub fn create_snapshot(&self) -> StoreResult<()> {
-        let spaces = self.spaces_cache.read().unwrap().clone();
-        let channels = self.channels_cache.read().unwrap().clone();
+        let spaces = self.spaces_cache.read().map_err(handle_poison)?.clone();
+        let channels = self.channels_cache.read().map_err(handle_poison)?.clone();
         
         self.snapshot_manager.create_snapshot(spaces, channels)?;
         
@@ -251,8 +256,8 @@ impl LocalStore {
         // Load latest snapshot
         let (spaces, channels) = self.snapshot_manager.load_latest()?;
         
-        *self.spaces_cache.write().unwrap() = spaces;
-        *self.channels_cache.write().unwrap() = channels;
+        *self.spaces_cache.write().map_err(handle_poison)? = spaces;
+        *self.channels_cache.write().map_err(handle_poison)? = channels;
         
         // TODO: Replay commit log entries after snapshot
         
@@ -265,19 +270,19 @@ impl LocalStore {
         self.create_snapshot()?;
         
         // Truncate commit log
-        self.commit_log.write().unwrap().truncate()?;
+        self.commit_log.write().map_err(handle_poison)?.truncate()?;
         
         Ok(())
     }
     
     /// Get storage statistics
-    pub fn stats(&self) -> StoreStats {
-        StoreStats {
-            spaces_count: self.spaces_cache.read().unwrap().len(),
-            channels_count: self.channels_cache.read().unwrap().len(),
-            operation_count: *self.operation_count.read().unwrap(),
-            log_size: self.commit_log.read().unwrap().size(),
-        }
+    pub fn stats(&self) -> StoreResult<StoreStats> {
+        Ok(StoreStats {
+            spaces_count: self.spaces_cache.read().map_err(handle_poison)?.len(),
+            channels_count: self.channels_cache.read().map_err(handle_poison)?.len(),
+            operation_count: *self.operation_count.read().map_err(handle_poison)?,
+            log_size: self.commit_log.read().map_err(handle_poison)?.size(),
+        })
     }
 }
 
@@ -377,7 +382,7 @@ mod tests {
         
         let store = LocalStore::new(config).unwrap();
         
-        let stats = store.stats();
+        let stats = store.stats().unwrap();
         assert_eq!(stats.spaces_count, 0);
         assert_eq!(stats.channels_count, 0);
     }

@@ -76,7 +76,7 @@ async fn test_store_snapshot_replay() {
     store2.load().unwrap(); // Load from snapshot
     
     // Debug: check what was loaded
-    let stats = store2.stats();
+    let stats = store2.stats().unwrap();
     println!("Loaded from snapshot: {} spaces, {} channels", stats.spaces_count, stats.channels_count);
     
     // Verify all spaces restored
