@@ -43,9 +43,11 @@ pub mod transport;
 pub mod api;
 pub mod discovery;
 
-// Security testing module
+// Testing modules
 #[cfg(test)]
-pub mod security_tests;
+mod security_tests;
+#[cfg(test)]
+mod integration_tests;
 
 // Placeholder modules (to be implemented incrementally)
 
