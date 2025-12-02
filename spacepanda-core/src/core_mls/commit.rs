@@ -9,7 +9,7 @@
 //! Commits ensure atomic state transitions with proper authentication.
 
 use super::errors::{MlsError, MlsResult};
-use super::proposals::ProposalRef;
+use super::proposals::{Proposal, ProposalRef};
 use super::types::GroupId;
 use serde::{Deserialize, Serialize};
 
@@ -22,8 +22,10 @@ pub struct Commit {
     pub epoch: u64,
     /// Committer's leaf index
     pub sender: u32,
-    /// Proposals being committed
-    pub proposals: Vec<ProposalRef>,
+    /// Proposals being committed (embedded for reliable delivery)
+    pub proposals: Vec<Proposal>,
+    /// Legacy proposal references (for backwards compatibility)
+    pub proposal_refs: Vec<ProposalRef>,
     /// Path update (optional - only if committer updates their key)
     pub path: Option<UpdatePath>,
     /// Confirmation tag (MAC over group state)
@@ -42,19 +44,25 @@ pub struct UpdatePath {
 }
 
 impl Commit {
-    /// Create a new commit
+    /// Create a new commit with embedded proposals
     pub fn new(
         group_id: GroupId,
         epoch: u64,
         sender: u32,
-        proposals: Vec<ProposalRef>,
+        proposals: Vec<Proposal>,
         path: Option<UpdatePath>,
     ) -> Self {
+        // Generate proposal refs for backwards compatibility
+        let proposal_refs: Vec<ProposalRef> = (0..proposals.len())
+            .map(|i| ProposalRef::Index(i as u32))
+            .collect();
+
         Self {
             group_id,
             epoch,
             sender,
             proposals,
+            proposal_refs,
             path,
             confirmation_tag: Vec::new(), // Set after computing
             signature: Vec::new(),         // Set after signing
@@ -218,6 +226,7 @@ impl CommitValidator {
 mod tests {
     use super::*;
     use crate::core_mls::types::GroupId;
+    use crate::core_mls::proposals::{Proposal, ProposalContent};
 
     fn dummy_sign(data: &[u8]) -> MlsResult<Vec<u8>> {
         use sha2::{Digest, Sha256};
@@ -238,10 +247,22 @@ mod tests {
         GroupId::random()
     }
 
+    fn dummy_proposal(sender: u32, epoch: u64) -> Proposal {
+        Proposal {
+            proposal_type: crate::core_mls::proposals::ProposalType::Update,
+            content: ProposalContent::Update {
+                public_key: b"test_key".to_vec(),
+            },
+            sender,
+            epoch,
+            signature: vec![],
+        }
+    }
+
     #[test]
     fn test_commit_creation() {
         let group_id = test_group_id();
-        let proposals = vec![ProposalRef::Index(0), ProposalRef::Index(1)];
+        let proposals = vec![dummy_proposal(0, 1), dummy_proposal(1, 1)];
 
         let commit = Commit::new(group_id.clone(), 1, 0, proposals.clone(), None);
 
@@ -269,7 +290,7 @@ mod tests {
     #[test]
     fn test_commit_confirmation_tag() {
         let group_id = test_group_id();
-        let mut commit = Commit::new(group_id, 1, 0, vec![ProposalRef::Index(0)], None);
+        let mut commit = Commit::new(group_id, 1, 0, vec![dummy_proposal(0, 1)], None);
 
         let tag = b"confirmation_tag_123".to_vec();
         commit.set_confirmation_tag(tag.clone());
@@ -280,7 +301,7 @@ mod tests {
     #[test]
     fn test_commit_sign_and_verify() {
         let group_id = test_group_id();
-        let mut commit = Commit::new(group_id, 1, 0, vec![ProposalRef::Index(0)], None);
+        let mut commit = Commit::new(group_id, 1, 0, vec![dummy_proposal(0, 1)], None);
 
         commit.sign(dummy_sign).unwrap();
         assert!(!commit.signature.is_empty());
@@ -291,7 +312,7 @@ mod tests {
     #[test]
     fn test_commit_verify_invalid_signature() {
         let group_id = test_group_id();
-        let mut commit = Commit::new(group_id, 1, 0, vec![ProposalRef::Index(0)], None);
+        let mut commit = Commit::new(group_id, 1, 0, vec![dummy_proposal(0, 1)], None);
 
         commit.sign(dummy_sign).unwrap();
         commit.signature[0] ^= 0xFF; // Corrupt
@@ -303,7 +324,7 @@ mod tests {
     #[test]
     fn test_commit_verify_confirmation_tag() {
         let group_id = test_group_id();
-        let mut commit = Commit::new(group_id, 1, 0, vec![ProposalRef::Index(0)], None);
+        let mut commit = Commit::new(group_id, 1, 0, vec![dummy_proposal(0, 1)], None);
 
         let tag = b"tag123".to_vec();
         commit.set_confirmation_tag(tag.clone());
@@ -321,7 +342,7 @@ mod tests {
             group_id.clone(),
             1,
             0,
-            vec![ProposalRef::Index(0)],
+            vec![dummy_proposal(0, 1)],
             None,
         );
         commit.sign(dummy_sign).unwrap();
@@ -356,10 +377,10 @@ mod tests {
         let validator = CommitValidator::new(1, vec![0, 1, 2]);
 
         let group_id = test_group_id();
-        let valid_commit = Commit::new(group_id.clone(), 1, 0, vec![ProposalRef::Index(0)], None);
+        let valid_commit = Commit::new(group_id.clone(), 1, 0, vec![dummy_proposal(0, 1)], None);
         assert!(validator.validate_epoch(&valid_commit).is_ok());
 
-        let invalid_commit = Commit::new(group_id, 999, 0, vec![ProposalRef::Index(0)], None);
+        let invalid_commit = Commit::new(group_id, 999, 0, vec![dummy_proposal(0, 999)], None);
         assert!(validator.validate_epoch(&invalid_commit).is_err());
     }
 
@@ -368,10 +389,10 @@ mod tests {
         let validator = CommitValidator::new(1, vec![0, 1, 2]);
 
         let group_id = test_group_id();
-        let valid_commit = Commit::new(group_id.clone(), 1, 1, vec![ProposalRef::Index(0)], None);
+        let valid_commit = Commit::new(group_id.clone(), 1, 1, vec![dummy_proposal(1, 1)], None);
         assert!(validator.validate_sender(&valid_commit).is_ok());
 
-        let invalid_commit = Commit::new(group_id, 1, 99, vec![ProposalRef::Index(0)], None);
+        let invalid_commit = Commit::new(group_id, 1, 99, vec![dummy_proposal(99, 1)], None);
         assert!(validator.validate_sender(&invalid_commit).is_err());
     }
 
@@ -382,7 +403,7 @@ mod tests {
         let group_id = test_group_id();
         
         // Valid: has proposals
-        let valid_commit = Commit::new(group_id.clone(), 1, 0, vec![ProposalRef::Index(0)], None);
+        let valid_commit = Commit::new(group_id.clone(), 1, 0, vec![dummy_proposal(0, 1)], None);
         assert!(validator.validate_proposals(&valid_commit).is_ok());
 
         // Valid: has path update
@@ -403,7 +424,7 @@ mod tests {
         let validator = CommitValidator::new(1, vec![0, 1]);
 
         let group_id = test_group_id();
-        let commit = Commit::new(group_id, 1, 0, vec![ProposalRef::Index(0)], None);
+        let commit = Commit::new(group_id, 1, 0, vec![dummy_proposal(0, 1)], None);
 
         assert!(validator.validate(&commit).is_ok());
     }
@@ -415,11 +436,11 @@ mod tests {
         let group_id = test_group_id();
         
         // Wrong epoch
-        let commit1 = Commit::new(group_id.clone(), 2, 0, vec![ProposalRef::Index(0)], None);
+        let commit1 = Commit::new(group_id.clone(), 2, 0, vec![dummy_proposal(0, 2)], None);
         assert!(validator.validate(&commit1).is_err());
 
         // Unauthorized sender
-        let commit2 = Commit::new(group_id.clone(), 1, 99, vec![ProposalRef::Index(0)], None);
+        let commit2 = Commit::new(group_id.clone(), 1, 99, vec![dummy_proposal(99, 1)], None);
         assert!(validator.validate(&commit2).is_err());
 
         // Empty commit

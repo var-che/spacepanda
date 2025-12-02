@@ -116,12 +116,8 @@ mod tests {
 
     #[test]
     fn test_member_removal_flow() {
-        // TODO: Current MLS implementation has a limitation:
-        // When receiving a commit from another member, proposals embedded in the commit
-        // are not extracted and applied to local state. This requires enhancing
-        // apply_commit to process commit.proposals field.
-        //
-        // For now, this test demonstrates removal from the committer's perspective.
+        // Test that remote commits (from other members) properly apply embedded proposals
+        // This verifies the fix for commit processing bug where proposals weren't extracted
 
         let mut network = TestNetwork::new();
 
@@ -138,23 +134,48 @@ mod tests {
         // Add Bob
         alice.propose_add(b"bob_pk".to_vec(), b"bob".to_vec()).unwrap();
         let (commit1, welcomes1) = alice.commit().unwrap();
-        let _bob = MlsHandle::join_group(&welcomes1[0], 1, b"bob_pk", test_config()).unwrap();
+        let bob = MlsHandle::join_group(&welcomes1[0], 1, b"bob_pk", test_config()).unwrap();
+
+        // Bob joins via Welcome, so he already has the state at epoch 1
+        // No need to receive commit1 - he got that via the Welcome
 
         assert_eq!(alice.member_count().unwrap(), 2);
+        assert_eq!(bob.member_count().unwrap(), 2);
         assert_eq!(alice.epoch().unwrap(), 1);
+        assert_eq!(bob.epoch().unwrap(), 1);
 
-        // Alice removes Bob
-        alice.propose_remove(1).unwrap();
-        let (_remove_commit, _) = alice.commit().unwrap();
+        // Add Charlie via Alice
+        alice.propose_add(b"charlie_pk".to_vec(), b"charlie".to_vec()).unwrap();
+        let (commit2, welcomes2) = alice.commit().unwrap();
+        let charlie = MlsHandle::join_group(&welcomes2[0], 2, b"charlie_pk", test_config()).unwrap();
 
-        // Alice now at epoch 2 with 1 member
+        // Bob receives Alice's commit (with embedded Add proposal)
+        bob.receive_commit(&commit2).unwrap();
+        // Charlie already has epoch 2 state from Welcome
+
+        // All members should have 3 members at epoch 2
+        assert_eq!(alice.member_count().unwrap(), 3);
+        assert_eq!(bob.member_count().unwrap(), 3);
+        assert_eq!(charlie.member_count().unwrap(), 3);
         assert_eq!(alice.epoch().unwrap(), 2);
-        assert_eq!(alice.member_count().unwrap(), 1);
 
-        // Alice can send messages in new epoch
-        let msg = alice.send_message(b"Bob is gone").unwrap();
-        let decrypted = alice.receive_message(&msg).unwrap();
-        assert_eq!(decrypted, b"Bob is gone");
+        // Now Bob removes Charlie (testing remote commit with Remove proposal)
+        bob.propose_remove(2).unwrap();
+        let (remove_commit, _) = bob.commit().unwrap();
+
+        // Alice receives Bob's commit (Charlie is being removed)
+        alice.receive_commit(&remove_commit).unwrap();
+        
+        // Alice and Bob now at epoch 3 with 2 members
+        assert_eq!(alice.epoch().unwrap(), 3);
+        assert_eq!(bob.epoch().unwrap(), 3);
+        assert_eq!(alice.member_count().unwrap(), 2);
+        assert_eq!(bob.member_count().unwrap(), 2);
+
+        // Both can send messages in new epoch
+        let msg = alice.send_message(b"Charlie is gone").unwrap();
+        let decrypted = bob.receive_message(&msg).unwrap();
+        assert_eq!(decrypted, b"Charlie is gone");
     }
 
     #[test]

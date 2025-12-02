@@ -129,17 +129,15 @@ impl MlsGroup {
             ));
         }
 
-        // Collect proposal references
-        let proposal_refs: Vec<ProposalRef> = (0..self.proposals.len())
-            .map(|i| ProposalRef::Index(i as u32))
-            .collect();
+        // Collect all proposals from queue (embed in commit)
+        let proposals_to_commit: Vec<Proposal> = self.proposals.all().to_vec();
 
-        // Create commit
+        // Create commit with embedded proposals
         let mut commit = Commit::new(
             self.group_id.clone(),
             self.epoch,
             self.self_index,
-            proposal_refs,
+            proposals_to_commit,
             path,
         );
 
@@ -183,6 +181,14 @@ impl MlsGroup {
         // Verify confirmation tag
         let expected_tag = self.compute_confirmation_tag();
         commit.verify_confirmation_tag(&expected_tag)?;
+
+        // Clear local proposal queue and replace with commit's proposals
+        // This handles both remote commits (extract proposals) and local
+        // commits (proposals already applied, queue should be cleared)
+        self.proposals.clear();
+        for proposal in &commit.proposals {
+            self.proposals.add(proposal.clone())?;
+        }
 
         // Apply proposals
         let result = self.apply_proposals_internal()?;
