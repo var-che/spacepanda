@@ -147,6 +147,28 @@ impl Keypair {
     pub fn serialize(&self) -> Vec<u8> {
         bincode::serialize(self).expect("Failed to serialize keypair")
     }
+    
+    /// Create a keypair from only a public key (for verification-only purposes)
+    /// 
+    /// This creates a "public-key-only" keypair that can only verify signatures,
+    /// not create them. Used when registering devices where the private key
+    /// remains on the device.
+    pub fn from_public_key(public_key: &[u8]) -> Result<Self, String> {
+        if public_key.len() != 32 {
+            return Err("Public key must be 32 bytes".to_string());
+        }
+        
+        // Validate it's a valid Ed25519 public key
+        VerifyingKey::from_bytes(
+            public_key.try_into().expect("Length checked")
+        ).map_err(|e| format!("Invalid Ed25519 public key: {}", e))?;
+        
+        Ok(Keypair {
+            key_type: KeyType::Ed25519,
+            public: public_key.to_vec(),
+            secret: vec![0u8; 32], // Placeholder - cannot sign with this keypair
+        })
+    }
 
     /// Deserialize from bytes
     pub fn deserialize(bytes: &[u8]) -> Result<Self, String> {

@@ -12,9 +12,60 @@ use crate::core_identity::master_key::MasterKey;
 use crate::core_identity::device_id::DeviceId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use rand::Rng;
 
 /// Device key version number
 pub type KeyVersion = u64;
+
+/// Challenge for device proof-of-possession
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceChallenge {
+    /// Random nonce (32 bytes)
+    pub nonce: Vec<u8>,
+    /// Timestamp when challenge was created
+    pub timestamp: u64,
+    /// Device ID this challenge is for
+    pub device_id: DeviceId,
+}
+
+impl DeviceChallenge {
+    /// Generate a new challenge for a device
+    pub fn generate(device_id: DeviceId) -> Self {
+        let mut rng = rand::rng();
+        let mut nonce = vec![0u8; 32];
+        rng.fill(&mut nonce[..]);
+        
+        DeviceChallenge {
+            nonce,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("Time went backwards")
+                .as_secs(),
+            device_id,
+        }
+    }
+    
+    /// Get the message to be signed for proof-of-possession
+    pub fn to_message(&self) -> Vec<u8> {
+        let mut msg = Vec::new();
+        msg.extend_from_slice(b"DEVICE_PROOF_OF_POSSESSION_V1:");
+        msg.extend_from_slice(&self.nonce);
+        msg.extend_from_slice(&self.timestamp.to_le_bytes());
+        msg.extend_from_slice(self.device_id.as_bytes());
+        msg
+    }
+}
+
+/// Proof of possession response from device
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProofOfPossession {
+    /// The challenge that was signed
+    pub challenge: DeviceChallenge,
+    /// Device's signature over the challenge
+    pub signature: Vec<u8>,
+    /// Device public key that signed the challenge
+    pub device_public_key: Vec<u8>,
+}
 
 /// Device keypair with rotation support
 #[derive(Clone, Serialize, Deserialize)]
@@ -76,6 +127,10 @@ impl DeviceKeyBinding {
 
 impl DeviceKey {
     /// Generate a new device key authorized by master key
+    /// 
+    /// ⚠️ DEPRECATED: Use `register_with_proof_of_possession` instead for security.
+    /// This method does not verify device ownership and should only be used in tests.
+    #[deprecated(since = "0.2.0", note = "Use register_with_proof_of_possession for production")]
     pub fn generate(master_key: &MasterKey) -> Self {
         let device_id = DeviceId::generate();
         let active_key = Keypair::generate(KeyType::Ed25519);
@@ -95,6 +150,85 @@ impl DeviceKey {
             archived_keys: HashMap::new(),
             master_binding,
             signature_counter: 0,
+        }
+    }
+    
+    /// Register a new device with proof-of-possession (SECURE)
+    /// 
+    /// This is a 3-step protocol:
+    /// 1. Device generates keypair locally (private key never leaves device)
+    /// 2. Master generates challenge for device's public key
+    /// 3. Device signs challenge and master validates proof before creating binding
+    /// 
+    /// Returns DeviceKey if proof is valid, error otherwise.
+    pub fn register_with_proof_of_possession(
+        master_key: &MasterKey,
+        proof: &ProofOfPossession,
+    ) -> Result<Self, String> {
+        // Validate proof of possession
+        Self::validate_proof_of_possession(proof)?;
+        
+        // Check challenge age (reject if > 5 minutes old)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
+        const MAX_CHALLENGE_AGE_SECS: u64 = 300; // 5 minutes
+        if now - proof.challenge.timestamp > MAX_CHALLENGE_AGE_SECS {
+            return Err("Challenge expired (> 5 minutes old)".to_string());
+        }
+        
+        // Proof validated - create device key with master binding
+        let device_id = proof.challenge.device_id.clone();
+        let current_version = 1;
+        
+        // Reconstruct keypair from public key (device will have private key)
+        // Note: We only store the public key here - private key remains on device
+        let active_key = Keypair::from_public_key(&proof.device_public_key)?;
+        
+        // Create master binding
+        let mut msg = Vec::new();
+        msg.extend_from_slice(device_id.as_bytes());
+        msg.extend_from_slice(&(current_version as u64).to_le_bytes());
+        msg.extend_from_slice(&proof.device_public_key);
+        let master_binding = master_key.sign(&msg);
+        
+        Ok(DeviceKey {
+            device_id,
+            current_version,
+            active_key,
+            archived_keys: HashMap::new(),
+            master_binding,
+            signature_counter: 0,
+        })
+    }
+    
+    /// Validate a proof-of-possession
+    pub fn validate_proof_of_possession(proof: &ProofOfPossession) -> Result<(), String> {
+        // Verify device signed the challenge correctly
+        let challenge_msg = proof.challenge.to_message();
+        
+        if !Keypair::verify(&proof.device_public_key, &challenge_msg, &proof.signature) {
+            return Err("Invalid proof-of-possession signature".to_string());
+        }
+        
+        Ok(())
+    }
+    
+    /// Create proof-of-possession for a challenge (device-side)
+    /// 
+    /// Device receives challenge, signs it with private key, and returns proof.
+    pub fn create_proof_of_possession(
+        challenge: DeviceChallenge,
+        device_keypair: &Keypair,
+    ) -> ProofOfPossession {
+        let challenge_msg = challenge.to_message();
+        let signature = device_keypair.sign(&challenge_msg);
+        
+        ProofOfPossession {
+            challenge,
+            signature,
+            device_public_key: device_keypair.public_key().to_vec(),
         }
     }
 
@@ -325,5 +459,171 @@ mod tests {
         // Wrong master key fails
         let mk2 = MasterKey::generate();
         assert!(!binding.verify(mk2.public_key()));
+    }
+    
+    // ===== NEW PROOF-OF-POSSESSION TESTS =====
+    
+    #[test]
+    fn test_proof_of_possession_valid() {
+        let mk = MasterKey::generate();
+        
+        // Device generates keypair locally
+        let device_keypair = Keypair::generate(KeyType::Ed25519);
+        let device_id = DeviceId::generate();
+        
+        // Step 1: Master generates challenge
+        let challenge = DeviceChallenge::generate(device_id.clone());
+        
+        // Step 2: Device creates proof
+        let proof = DeviceKey::create_proof_of_possession(
+            challenge,
+            &device_keypair,
+        );
+        
+        // Step 3: Master validates proof and registers device
+        let result = DeviceKey::register_with_proof_of_possession(&mk, &proof);
+        assert!(result.is_ok(), "Valid proof should be accepted");
+        
+        let device_key = result.unwrap();
+        assert_eq!(device_key.device_id(), &device_id);
+        assert_eq!(device_key.public_key(), device_keypair.public_key());
+    }
+    
+    #[test]
+    fn test_proof_of_possession_wrong_device_key() {
+        // This test demonstrates that proof-of-possession works correctly:
+        // An attacker can create a valid proof for THEIR key, but not for victim's key
+        
+        let mk = MasterKey::generate();
+        
+        // Legitimate device generates keypair
+        let legitimate_keypair = Keypair::generate(KeyType::Ed25519);
+        let device_id = DeviceId::generate();
+        
+        // Attacker generates different keypair
+        let attacker_keypair = Keypair::generate(KeyType::Ed25519);
+        
+        // Master generates challenge for device_id
+        let challenge = DeviceChallenge::generate(device_id.clone());
+        
+        // Attacker creates proof with THEIR keypair
+        let attacker_proof = DeviceKey::create_proof_of_possession(
+            challenge.clone(),
+            &attacker_keypair,
+        );
+        
+        // The proof IS valid (attacker proved they own their key)
+        let validation = DeviceKey::validate_proof_of_possession(&attacker_proof);
+        assert!(validation.is_ok(), "Attacker's proof is cryptographically valid");
+        
+        // BUT when registered, it binds the ATTACKER'S public key, not victim's
+        let registered = DeviceKey::register_with_proof_of_possession(&mk, &attacker_proof).unwrap();
+        assert_eq!(
+            registered.public_key(),
+            attacker_keypair.public_key(),
+            "Device is bound to attacker's key, not victim's"
+        );
+        
+        // Attacker CANNOT create a valid proof for the legitimate device's key
+        // without having its private key
+        let mut forged_proof = attacker_proof.clone();
+        forged_proof.device_public_key = legitimate_keypair.public_key().to_vec();
+        
+        let validation2 = DeviceKey::validate_proof_of_possession(&forged_proof);
+        assert!(validation2.is_err(), "Forged public key should fail validation");
+    }
+    
+    #[test]
+    fn test_proof_of_possession_forged_signature() {
+        let mk = MasterKey::generate();
+        let device_id = DeviceId::generate();
+        let challenge = DeviceChallenge::generate(device_id);
+        
+        // Create proof with forged signature
+        let device_keypair = Keypair::generate(KeyType::Ed25519);
+        let mut proof = DeviceKey::create_proof_of_possession(
+            challenge,
+            &device_keypair,
+        );
+        
+        // Corrupt the signature
+        proof.signature[0] ^= 0xFF;
+        
+        let result = DeviceKey::validate_proof_of_possession(&proof);
+        assert!(result.is_err(), "Forged signature should be rejected");
+        assert!(result.unwrap_err().contains("Invalid proof-of-possession"));
+    }
+    
+    #[test]
+    fn test_proof_of_possession_expired_challenge() {
+        let mk = MasterKey::generate();
+        let device_keypair = Keypair::generate(KeyType::Ed25519);
+        let device_id = DeviceId::generate();
+        
+        // Create old challenge (> 5 minutes ago)
+        let mut challenge = DeviceChallenge::generate(device_id);
+        challenge.timestamp -= 600; // 10 minutes ago
+        
+        let proof = DeviceKey::create_proof_of_possession(
+            challenge,
+            &device_keypair,
+        );
+        
+        let result = DeviceKey::register_with_proof_of_possession(&mk, &proof);
+        assert!(result.is_err(), "Expired challenge should be rejected");
+        assert!(result.unwrap_err().contains("expired"));
+    }
+    
+    #[test]
+    fn test_proof_of_possession_cannot_forge_for_others_key() {
+        // Core security property: Cannot prove possession of a key you don't own
+        
+        let mk = MasterKey::generate();
+        let device_id = DeviceId::generate();
+        
+        // Legitimate device keypair (attacker doesn't have this private key)
+        let victim_keypair = Keypair::generate(KeyType::Ed25519);
+        
+        // Attacker has their own keypair
+        let attacker_keypair = Keypair::generate(KeyType::Ed25519);
+        
+        // Master generates challenge
+        let challenge = DeviceChallenge::generate(device_id.clone());
+        
+        // Attacker tries to create proof claiming they own victim's key
+        // They sign with THEIR key but claim it's the victim's public key
+        let mut forged_proof = DeviceKey::create_proof_of_possession(
+            challenge,
+            &attacker_keypair,
+        );
+        
+        // Replace public key with victim's key
+        forged_proof.device_public_key = victim_keypair.public_key().to_vec();
+        
+        // Validation MUST fail (signature won't match public key)
+        let result = DeviceKey::validate_proof_of_possession(&forged_proof);
+        assert!(
+            result.is_err(),
+            "Cannot prove possession of someone else's key"
+        );
+        
+        // The ONLY way to prove possession is to actually have the private key
+        let valid_proof = DeviceKey::create_proof_of_possession(
+            DeviceChallenge::generate(device_id),
+            &victim_keypair,
+        );
+        assert!(DeviceKey::validate_proof_of_possession(&valid_proof).is_ok());
+    }
+    
+    #[test]
+    fn test_challenge_message_format() {
+        let device_id = DeviceId::generate();
+        let challenge = DeviceChallenge::generate(device_id.clone());
+        
+        let msg = challenge.to_message();
+        
+        // Verify message includes all required components
+        assert!(msg.starts_with(b"DEVICE_PROOF_OF_POSSESSION_V1:"));
+        assert!(msg.len() > 32 + 8 + 16); // nonce + timestamp + device_id
     }
 }
