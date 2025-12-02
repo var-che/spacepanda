@@ -34,13 +34,13 @@ pub mod errors;
 // Implemented modules
 pub mod persistence;
 pub mod tree;
+pub mod encryption;
 
 // Placeholder modules (to be implemented incrementally)
 // pub mod group;
 // pub mod welcome;
 // pub mod proposals;
 // pub mod commit;
-// pub mod encryption;
 // pub mod transport;
 // pub mod api;
 
@@ -53,6 +53,10 @@ pub use persistence::{
     EncryptedGroupBlob, GroupSecrets, PersistedGroupState,
 };
 pub use tree::{MlsTree, TreeNode, NodeIndex, LeafIndex};
+pub use encryption::{
+    encrypt_message, decrypt_message,
+    KeySchedule, EncryptedMessage, SenderData, HpkeContext,
+};
 
 /// Default ciphersuite for SpacePanda MLS
 ///
