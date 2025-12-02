@@ -36,6 +36,11 @@ pub mod events;
 // Trait boundaries for OpenMLS integration
 pub mod traits;
 
+// Provider implementations
+pub mod providers;
+pub mod storage;
+pub mod integration;
+
 // Implemented modules
 pub mod persistence;
 pub mod tree;

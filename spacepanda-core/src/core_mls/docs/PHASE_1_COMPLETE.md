@@ -7,6 +7,7 @@ Successfully implemented the trait-based architecture for OpenMLS integration wi
 ## Files Created
 
 ### Trait Definitions
+
 - **`src/core_mls/traits/mod.rs`** - Trait module with re-exports
 - **`src/core_mls/traits/storage.rs`** - `StorageProvider` trait for MLS state persistence
 - **`src/core_mls/traits/crypto.rs`** - `CryptoProvider` trait for cryptographic operations
@@ -16,9 +17,11 @@ Successfully implemented the trait-based architecture for OpenMLS integration wi
 - **`src/core_mls/traits/commit_validator.rs`** - `CommitValidator` trait for commit validation
 
 ### Event System
+
 - **`src/core_mls/events.rs`** - MLS event types for subsystem notifications
 
 ### Updated Files
+
 - **`src/core_mls/mod.rs`** - Added traits and events modules
 - **`src/core_mls/errors.rs`** - Added trait-specific error variants (Storage, NotFound, PermissionDenied, InvalidInput, Other)
 - **`Cargo.toml`** - Added async-trait dependency
@@ -34,12 +37,14 @@ Successfully implemented the trait-based architecture for OpenMLS integration wi
 ## Key Features
 
 ### StorageProvider
+
 - Atomic snapshot persistence
 - Group lifecycle management (save/load/delete)
 - Binary blob storage for key packages
 - Optional group listing for recovery
 
 ### CryptoProvider
+
 - Random number generation
 - Ed25519 signatures (sign/verify)
 - HPKE seal/open operations
@@ -47,6 +52,7 @@ Successfully implemented the trait-based architecture for OpenMLS integration wi
 - Hash function (SHA-256 default)
 
 ### IdentityBridge
+
 - Local member ID resolution
 - Credential bundle export
 - Remote credential validation
@@ -54,17 +60,20 @@ Successfully implemented the trait-based architecture for OpenMLS integration wi
 - Public key retrieval
 
 ### DhtBridge
+
 - Publish messages to DHT
 - Subscribe to group messages
 - Unsubscribe from groups
 - Optional direct peer messaging
 
 ### MessageSerializer
+
 - Serialize outbound messages to wire format
 - Deserialize inbound messages from wire
 - Protocol version tracking
 
 ### CommitValidator
+
 - Commit validation before application
 - Epoch transition validation
 - Sender authorization checks
@@ -73,6 +82,7 @@ Successfully implemented the trait-based architecture for OpenMLS integration wi
 ## Events System
 
 Comprehensive event types for inter-subsystem communication:
+
 - `MemberAdded`, `MemberRemoved`, `MemberUpdated`
 - `EpochChanged`
 - `MessageReceived`
@@ -81,6 +91,7 @@ Comprehensive event types for inter-subsystem communication:
 - `Error`
 
 Events include:
+
 - `group_id()` accessor
 - `epoch()` accessor (where applicable)
 - `is_error()` check
@@ -112,6 +123,7 @@ Ready to implement:
 ## Architecture Benefits
 
 This trait layer enables:
+
 - ✅ Testing with mock implementations
 - ✅ Swapping between OpenMLS and custom engines
 - ✅ Clear separation of concerns
