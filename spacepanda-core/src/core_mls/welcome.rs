@@ -187,14 +187,14 @@ impl Welcome {
     ///
     /// # Arguments
     /// * `member_index` - The recipient's leaf index in the tree
-    /// * `member_public_key` - The recipient's public key (for decryption)
+    /// * `member_secret_key` - The recipient's X25519 secret key (for HPKE decryption)
     ///
     /// # Returns
     /// Tuple of (WelcomeGroupSecrets, MlsTree) for initializing local state
     pub fn process(
         &self,
         member_index: u32,
-        member_public_key: &[u8],
+        member_secret_key: &[u8],
     ) -> MlsResult<(WelcomeGroupSecrets, MlsTree)> {
         // Find encrypted secrets for this member
         let encrypted = self
@@ -213,7 +213,7 @@ impl Welcome {
         aad.extend_from_slice(&self.epoch.to_be_bytes());
 
         let secrets_bytes = HpkeContext::open(
-            member_public_key,
+            member_secret_key,
             &encrypted.encrypted_payload,
             &aad,
         )?;
@@ -328,6 +328,20 @@ impl WelcomeBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use x25519_dalek::{PublicKey, StaticSecret};
+    use sha2::{Sha256, Digest};
+
+    fn test_keypair(name: &str) -> (Vec<u8>, Vec<u8>) {
+        let mut hasher = Sha256::new();
+        hasher.update(name.as_bytes());
+        let hash = hasher.finalize();
+        
+        let sk_bytes: [u8; 32] = hash.into();
+        let sk = StaticSecret::from(sk_bytes);
+        let pk = PublicKey::from(&sk);
+        
+        (pk.as_bytes().to_vec(), sk.as_bytes().to_vec())
+    }
 
     fn test_group_id() -> GroupId {
         GroupId::random()
@@ -418,7 +432,7 @@ mod tests {
         let metadata = test_metadata();
 
         // New member (charlie) joining at leaf index 2
-        let charlie_pk = b"charlie_public_key".to_vec();
+        let (charlie_pk, charlie_sk) = test_keypair("charlie");
         let new_members = vec![(2, charlie_pk.clone())];
 
         let welcome = Welcome::create(
@@ -437,7 +451,7 @@ mod tests {
         assert_eq!(welcome.encrypted_secrets[0].new_member_index, 2);
 
         // Process as charlie
-        let (decoded_secrets, decoded_tree) = welcome.process(2, &charlie_pk).unwrap();
+        let (decoded_secrets, decoded_tree) = welcome.process(2, &charlie_sk).unwrap();
 
         assert_eq!(decoded_secrets.epoch, epoch);
         assert_eq!(decoded_secrets.application_secret, secrets.application_secret);
@@ -452,7 +466,7 @@ mod tests {
         let tree = test_tree();
         let metadata = test_metadata();
 
-        let charlie_pk = b"charlie_public_key".to_vec();
+        let (charlie_pk, charlie_sk) = test_keypair("charlie");
         let new_members = vec![(2, charlie_pk.clone())];
 
         let welcome = Welcome::create(
@@ -466,7 +480,7 @@ mod tests {
         .unwrap();
 
         // Try to process as wrong member index
-        let result = welcome.process(99, &charlie_pk);
+        let result = welcome.process(99, &charlie_sk);
         assert!(result.is_err());
     }
 
@@ -478,7 +492,7 @@ mod tests {
         let tree = test_tree();
         let metadata = test_metadata();
 
-        let charlie_pk = b"charlie_public_key".to_vec();
+        let (charlie_pk, _charlie_sk) = test_keypair("charlie");
         let new_members = vec![(2, charlie_pk.clone())];
 
         let welcome = Welcome::create(
@@ -492,8 +506,8 @@ mod tests {
         .unwrap();
 
         // Try to decrypt with wrong key
-        let wrong_pk = b"wrong_key";
-        let result = welcome.process(2, wrong_pk);
+        let (_wrong_pk, wrong_sk) = test_keypair("wrong");
+        let result = welcome.process(2, &wrong_sk);
         assert!(result.is_err());
     }
 
@@ -507,7 +521,7 @@ mod tests {
         let tree = test_tree();
         let metadata = test_metadata();
 
-        let charlie_pk = b"charlie_public_key".to_vec();
+        let (charlie_pk, charlie_sk) = test_keypair("charlie");
         let new_members = vec![(2, charlie_pk.clone())];
 
         let welcome = Welcome::create(
@@ -520,7 +534,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = welcome.process(2, &charlie_pk);
+        let result = welcome.process(2, &charlie_sk);
         assert!(matches!(result, Err(MlsError::EpochMismatch { .. })));
     }
 
@@ -532,7 +546,7 @@ mod tests {
         let tree = test_tree();
         let metadata = test_metadata();
 
-        let charlie_pk = b"charlie_public_key".to_vec();
+        let (charlie_pk, _charlie_sk) = test_keypair("charlie");
         let new_members = vec![(2, charlie_pk.clone())];
 
         let welcome = Welcome::create(
@@ -561,8 +575,8 @@ mod tests {
         let tree = test_tree();
         let metadata = test_metadata();
 
-        let charlie_pk = b"charlie_public_key".to_vec();
-        let dave_pk = b"dave_public_key".to_vec();
+        let (charlie_pk, charlie_sk) = test_keypair("charlie");
+        let (dave_pk, dave_sk) = test_keypair("dave");
         let new_members = vec![
             (2, charlie_pk.clone()),
             (3, dave_pk.clone()),
@@ -581,11 +595,11 @@ mod tests {
         assert_eq!(welcome.encrypted_secrets.len(), 2);
 
         // Charlie can process
-        let (charlie_secrets, _) = welcome.process(2, &charlie_pk).unwrap();
+        let (charlie_secrets, _) = welcome.process(2, &charlie_sk).unwrap();
         assert_eq!(charlie_secrets.epoch, epoch);
 
         // Dave can process
-        let (dave_secrets, _) = welcome.process(3, &dave_pk).unwrap();
+        let (dave_secrets, _) = welcome.process(3, &dave_sk).unwrap();
         assert_eq!(dave_secrets.epoch, epoch);
     }
 
@@ -596,7 +610,7 @@ mod tests {
         let tree = test_tree();
         let metadata = test_metadata();
 
-        let charlie_pk = b"charlie_public_key".to_vec();
+        let (charlie_pk, charlie_sk) = test_keypair("charlie");
 
         let welcome = WelcomeBuilder::new(group_id.clone(), 1)
             .secrets(secrets)
@@ -611,7 +625,7 @@ mod tests {
         assert_eq!(welcome.encrypted_secrets.len(), 1);
 
         // Process the welcome
-        let (decoded_secrets, _) = welcome.process(2, &charlie_pk).unwrap();
+        let (decoded_secrets, _) = welcome.process(2, &charlie_sk).unwrap();
         assert_eq!(decoded_secrets.epoch, 1);
     }
 

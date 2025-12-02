@@ -85,12 +85,17 @@ impl MlsGroup {
     }
 
     /// Join a group via Welcome message
+    ///
+    /// # Arguments
+    /// * `welcome` - The Welcome message
+    /// * `member_index` - This member's leaf index
+    /// * `member_secret_key` - This member's X25519 secret key for HPKE decryption
     pub fn from_welcome(
         welcome: &Welcome,
         member_index: LeafIndex,
-        member_public_key: &[u8],
+        member_secret_key: &[u8],
     ) -> MlsResult<Self> {
-        let (secrets, tree) = welcome.process(member_index, member_public_key)?;
+        let (secrets, tree) = welcome.process(member_index, member_secret_key)?;
 
         let key_schedule = KeySchedule::new(secrets.epoch, secrets.application_secret);
 
@@ -388,6 +393,25 @@ mod tests {
         GroupId::random()
     }
 
+    /// Generate a valid 32-byte X25519 secret key for testing
+    fn test_secret_key(name: &str) -> Vec<u8> {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(name.as_bytes());
+        hasher.finalize().to_vec()
+    }
+
+    /// Generate matching public/secret keypair for testing
+    fn test_keypair(name: &str) -> (Vec<u8>, Vec<u8>) {
+        use x25519_dalek::{PublicKey, StaticSecret};
+        let secret = test_secret_key(name);
+        let mut sk_bytes = [0u8; 32];
+        sk_bytes.copy_from_slice(&secret);
+        let static_secret = StaticSecret::from(sk_bytes);
+        let public_key = PublicKey::from(&static_secret);
+        (public_key.as_bytes().to_vec(), secret)
+    }
+
     #[test]
     fn test_group_creation() {
         let group_id = test_group_id();
@@ -518,9 +542,10 @@ mod tests {
 
     #[test]
     fn test_commit_add_member() {
+        let (alice_pk, _) = test_keypair("alice");
         let mut group = MlsGroup::new(
             test_group_id(),
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             MlsConfig::default(),
@@ -528,10 +553,11 @@ mod tests {
         .unwrap();
 
         // Add proposal
+        let (bob_pk, _) = test_keypair("bob");
         let proposal = Proposal::new_add(
             0,
             0,
-            b"bob_pk".to_vec(),
+            bob_pk,
             b"bob".to_vec(),
         );
         group.add_proposal(proposal).unwrap();
@@ -547,9 +573,10 @@ mod tests {
 
     #[test]
     fn test_commit_remove_member() {
+        let (alice_pk, _) = test_keypair("alice");
         let mut group = MlsGroup::new(
             test_group_id(),
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             MlsConfig::default(),
@@ -557,10 +584,11 @@ mod tests {
         .unwrap();
 
         // Add bob first
+        let (bob_pk, _) = test_keypair("bob");
         let add_proposal = Proposal::new_add(
             0,
             0,
-            b"bob_pk".to_vec(),
+            bob_pk,
             b"bob".to_vec(),
         );
         group.add_proposal(add_proposal).unwrap();
@@ -619,9 +647,10 @@ mod tests {
 
     #[test]
     fn test_epoch_advancement() {
+        let (alice_pk, _) = test_keypair("alice");
         let mut group = MlsGroup::new(
             test_group_id(),
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             MlsConfig::default(),
@@ -631,7 +660,8 @@ mod tests {
         assert_eq!(group.current_epoch(), 0);
 
         // Commit advances epoch
-        let proposal = Proposal::new_add(0, 0, b"bob_pk".to_vec(), b"bob".to_vec());
+        let (bob_pk, _) = test_keypair("bob");
+        let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         group.add_proposal(proposal).unwrap();
         group.commit(None).unwrap();
 
@@ -641,9 +671,10 @@ mod tests {
     #[test]
     fn test_from_welcome() {
         // Create group
+        let (alice_pk, _) = test_keypair("alice");
         let mut creator = MlsGroup::new(
             test_group_id(),
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             MlsConfig::default(),
@@ -651,20 +682,21 @@ mod tests {
         .unwrap();
 
         // Add bob
+        let (bob_pk, bob_sk) = test_keypair("bob");
         let proposal = Proposal::new_add(
             0,
             0,
-            b"bob_pk".to_vec(),
+            bob_pk,
             b"bob".to_vec(),
         );
         creator.add_proposal(proposal).unwrap();
         let (_, welcomes) = creator.commit(None).unwrap();
 
-        // Bob joins via welcome
+        // Bob joins via welcome (using his secret key for HPKE decryption)
         let bob_group = MlsGroup::from_welcome(
             &welcomes[0],
             1, // Bob is at leaf index 1
-            b"bob_pk",
+            &bob_sk,
         )
         .unwrap();
 

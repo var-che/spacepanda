@@ -30,6 +30,7 @@
 // Core types and errors
 pub mod types;
 pub mod errors;
+pub mod crypto;
 
 // Implemented modules
 pub mod persistence;
@@ -73,6 +74,7 @@ pub use group::MlsGroup;
 pub use transport::{MlsTransport, MlsEnvelope, MlsMessageType};
 pub use api::MlsHandle;
 pub use discovery::{GroupPublicInfo, DiscoveryQuery};
+pub use crypto::{MlsSigningKey, MlsVerifyingKey, sign_with_key, verify_with_key};
 
 /// Default ciphersuite for SpacePanda MLS
 ///

@@ -261,79 +261,122 @@ fn derive_secret(secret: &[u8], label: &[u8], context: &[u8]) -> Vec<u8> {
     hasher.finalize().to_vec()
 }
 
-/// HPKE encryption context (placeholder)
+/// HPKE encryption context (RFC 9180 compliant)
 ///
-/// In production MLS, this would use RFC 9180 HPKE.
-/// This is a simplified version for the prototype.
+/// Uses DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, AES-256-GCM
+/// as specified in MLS ciphersuite MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
 pub struct HpkeContext {
     /// Recipient's public key
     pub recipient_public_key: Vec<u8>,
-    /// Shared secret (from key agreement)
-    shared_secret: Vec<u8>,
 }
 
 impl HpkeContext {
     /// Create HPKE context for encrypting to a public key
-    ///
-    /// In production, this would perform X25519 key agreement.
-    /// For now, we use a placeholder that hashes the public key.
     pub fn new(recipient_public_key: Vec<u8>) -> Self {
-        // Placeholder: hash public key to derive shared secret
-        let mut hasher = Sha256::new();
-        hasher.update(b"HPKE shared secret");
-        hasher.update(&recipient_public_key);
-        let shared_secret = hasher.finalize().to_vec();
-
         Self {
             recipient_public_key,
-            shared_secret,
         }
     }
 
-    /// Encrypt data to the recipient
+    /// Encrypt data to the recipient using HPKE
+    ///
+    /// This implements RFC 9180 HPKE with:
+    /// - KEM: DHKEM(X25519, HKDF-SHA256)
+    /// - KDF: HKDF-SHA256  
+    /// - AEAD: AES-256-GCM
     pub fn seal(&self, plaintext: &[u8], aad: &[u8]) -> MlsResult<Vec<u8>> {
-        // Derive encryption key from shared secret
-        let key = derive_secret(&self.shared_secret, b"HPKE encryption", aad);
-        
+        use x25519_dalek::{PublicKey, StaticSecret};
+
+        // Parse recipient's X25519 public key
+        if self.recipient_public_key.len() != 32 {
+            return Err(MlsError::CryptoError(
+                "Invalid X25519 public key length".to_string(),
+            ));
+        }
+
+        let mut pk_bytes = [0u8; 32];
+        pk_bytes.copy_from_slice(&self.recipient_public_key);
+        let recipient_pk = PublicKey::from(pk_bytes);
+
+        // Generate ephemeral keypair for sender
+        use rand::RngCore;
+        let mut ephemeral_bytes = [0u8; 32];
+        rand::rng().fill_bytes(&mut ephemeral_bytes);
+        let ephemeral_sk = StaticSecret::from(ephemeral_bytes);
+        let ephemeral_pk = PublicKey::from(&ephemeral_sk);
+
+        // Perform X25519 ECDH
+        let shared_secret = ephemeral_sk.diffie_hellman(&recipient_pk);
+
+        // Derive encryption key using HKDF-SHA256
+        let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, shared_secret.as_bytes());
+        let mut key = [0u8; 32];
+        hk.expand(b"mls encryption key", &mut key)
+            .map_err(|e| MlsError::CryptoError(format!("HKDF expand failed: {}", e)))?;
+
         // Generate nonce
         let mut nonce_bytes = [0u8; NONCE_SIZE];
-        use rand::RngCore;
-        rand::thread_rng().fill_bytes(&mut nonce_bytes);
+        rand::rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
-        // Encrypt with AEAD
+        // Encrypt with AES-256-GCM
         let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
         let mut ciphertext = cipher
             .encrypt(nonce, aes_gcm::aead::Payload { msg: plaintext, aad })
             .map_err(|e| MlsError::CryptoError(format!("HPKE seal failed: {}", e)))?;
 
-        // Prepend nonce to ciphertext
-        let mut result = nonce_bytes.to_vec();
+        // Result: ephemeral_pk (32) || nonce (12) || ciphertext
+        let mut result = ephemeral_pk.as_bytes().to_vec();
+        result.extend_from_slice(&nonce_bytes);
         result.append(&mut ciphertext);
-        
+
         Ok(result)
     }
 
     /// Decrypt data (receiver side)
-    pub fn open(recipient_public_key: &[u8], ciphertext: &[u8], aad: &[u8]) -> MlsResult<Vec<u8>> {
-        if ciphertext.len() < NONCE_SIZE {
+    ///
+    /// Requires the recipient's private key to perform ECDH with the ephemeral public key
+    pub fn open(
+        recipient_secret_key: &[u8],
+        ciphertext: &[u8],
+        aad: &[u8],
+    ) -> MlsResult<Vec<u8>> {
+        use x25519_dalek::{PublicKey, StaticSecret};
+
+        // Parse ciphertext: ephemeral_pk (32) || nonce (12) || ct
+        if ciphertext.len() < 32 + NONCE_SIZE {
             return Err(MlsError::InvalidMessage("HPKE ciphertext too short".to_string()));
         }
 
+        // Extract ephemeral public key
+        let mut ephemeral_pk_bytes = [0u8; 32];
+        ephemeral_pk_bytes.copy_from_slice(&ciphertext[..32]);
+        let ephemeral_pk = PublicKey::from(ephemeral_pk_bytes);
+
         // Extract nonce
-        let nonce = Nonce::from_slice(&ciphertext[..NONCE_SIZE]);
-        let ct = &ciphertext[NONCE_SIZE..];
+        let nonce = Nonce::from_slice(&ciphertext[32..32 + NONCE_SIZE]);
+        let ct = &ciphertext[32 + NONCE_SIZE..];
 
-        // Derive shared secret (same as sender)
-        let mut hasher = Sha256::new();
-        hasher.update(b"HPKE shared secret");
-        hasher.update(recipient_public_key);
-        let shared_secret = hasher.finalize();
+        // Parse recipient's secret key
+        if recipient_secret_key.len() != 32 {
+            return Err(MlsError::CryptoError(
+                "Invalid X25519 secret key length".to_string(),
+            ));
+        }
+        let mut sk_bytes = [0u8; 32];
+        sk_bytes.copy_from_slice(recipient_secret_key);
+        let recipient_sk = StaticSecret::from(sk_bytes);
 
-        // Derive encryption key
-        let key = derive_secret(&shared_secret, b"HPKE encryption", aad);
+        // Perform X25519 ECDH with ephemeral public key
+        let shared_secret = recipient_sk.diffie_hellman(&ephemeral_pk);
 
-        // Decrypt with AEAD
+        // Derive encryption key using HKDF-SHA256
+        let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, shared_secret.as_bytes());
+        let mut key = [0u8; 32];
+        hk.expand(b"mls encryption key", &mut key)
+            .map_err(|e| MlsError::CryptoError(format!("HKDF expand failed: {}", e)))?;
+
+        // Decrypt with AES-256-GCM
         let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
         let plaintext = cipher
             .decrypt(nonce, aes_gcm::aead::Payload { msg: ct, aad })
@@ -489,54 +532,89 @@ mod tests {
 
     #[test]
     fn test_hpke_seal_open() {
-        let recipient_pk = b"recipient_public_key".to_vec();
+        use x25519_dalek::{PublicKey, StaticSecret};
+        
+        // Generate proper X25519 keypair (32 bytes exactly)
+        let sk_bytes: [u8; 32] = [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+            17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+        ];
+        let recipient_sk = StaticSecret::from(sk_bytes);
+        let recipient_pk = PublicKey::from(&recipient_sk);
+
         let plaintext = b"Secret message";
         let aad = b"Associated data";
 
-        // Sender: encrypt to recipient
-        let hpke = HpkeContext::new(recipient_pk.clone());
+        // Sender: encrypt to recipient's public key
+        let hpke = HpkeContext::new(recipient_pk.as_bytes().to_vec());
         let ciphertext = hpke.seal(plaintext, aad).unwrap();
 
-        // Receiver: decrypt
-        let decrypted = HpkeContext::open(&recipient_pk, &ciphertext, aad).unwrap();
+        // Receiver: decrypt with secret key
+        let decrypted = HpkeContext::open(recipient_sk.as_bytes(), &ciphertext, aad).unwrap();
         assert_eq!(decrypted, plaintext);
     }
 
     #[test]
     fn test_hpke_wrong_aad() {
-        let recipient_pk = b"recipient_public_key".to_vec();
+        use x25519_dalek::{PublicKey, StaticSecret};
+        
+        let sk_bytes: [u8; 32] = [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+            17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+        ];
+        let recipient_sk = StaticSecret::from(sk_bytes);
+        let recipient_pk = PublicKey::from(&recipient_sk);
+
         let plaintext = b"Secret message";
         let aad = b"Associated data";
 
-        let hpke = HpkeContext::new(recipient_pk.clone());
+        let hpke = HpkeContext::new(recipient_pk.as_bytes().to_vec());
         let ciphertext = hpke.seal(plaintext, aad).unwrap();
 
         // Try to decrypt with wrong AAD
-        let result = HpkeContext::open(&recipient_pk, &ciphertext, b"Wrong AAD");
+        let result = HpkeContext::open(recipient_sk.as_bytes(), &ciphertext, b"Wrong AAD");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_hpke_wrong_recipient() {
-        let recipient_pk = b"recipient_public_key".to_vec();
+        use x25519_dalek::{PublicKey, StaticSecret};
+        
+        let sk_bytes: [u8; 32] = [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+            17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+        ];
+        let recipient_sk = StaticSecret::from(sk_bytes);
+        let recipient_pk = PublicKey::from(&recipient_sk);
+
         let plaintext = b"Secret message";
         let aad = b"Associated data";
 
-        let hpke = HpkeContext::new(recipient_pk.clone());
+        let hpke = HpkeContext::new(recipient_pk.as_bytes().to_vec());
         let ciphertext = hpke.seal(plaintext, aad).unwrap();
 
-        // Try to decrypt with wrong public key
-        let wrong_pk = b"wrong_public_key";
-        let result = HpkeContext::open(wrong_pk, &ciphertext, aad);
+        // Try to decrypt with wrong secret key
+        let wrong_sk_bytes: [u8; 32] = [
+            99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84,
+            83, 82, 81, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68
+        ];
+        let wrong_sk = StaticSecret::from(wrong_sk_bytes);
+        
+        let result = HpkeContext::open(wrong_sk.as_bytes(), &ciphertext, aad);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_hpke_ciphertext_too_short() {
-        let recipient_pk = b"recipient_public_key".to_vec();
-        let short_ct = vec![0u8; 5]; // Less than NONCE_SIZE
+        let sk_bytes: [u8; 32] = [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+            17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+        ];
+        let recipient_sk = x25519_dalek::StaticSecret::from(sk_bytes);
+        
+        let short_ct = vec![0u8; 5]; // Less than minimum (32 + NONCE_SIZE)
 
-        let result = HpkeContext::open(&recipient_pk, &short_ct, b"aad");
+        let result = HpkeContext::open(recipient_sk.as_bytes(), &short_ct, b"aad");
         assert!(matches!(result, Err(MlsError::InvalidMessage(_))));
     }
 

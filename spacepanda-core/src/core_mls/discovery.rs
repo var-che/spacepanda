@@ -231,18 +231,23 @@ mod tests {
         .unwrap()
     }
 
+    fn test_signing_key() -> crate::core_mls::crypto::MlsSigningKey {
+        // Use deterministic key for tests
+        let seed = [42u8; 32];
+        crate::core_mls::crypto::MlsSigningKey::from_bytes(&seed)
+    }
+
     fn sign_fn(data: &[u8]) -> Vec<u8> {
-        // Simplified: hash as signature
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        hasher.finalize().to_vec()
+        // Real Ed25519 signature
+        let key = test_signing_key();
+        key.sign(data)
     }
 
     fn verify_fn(data: &[u8], sig: &[u8]) -> bool {
-        // Simplified: recompute hash
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        &hasher.finalize()[..] == sig
+        // Real Ed25519 verification
+        let key = test_signing_key();
+        let verifying_key = key.verifying_key();
+        verifying_key.verify(data, sig).unwrap_or(false)
     }
 
     #[test]

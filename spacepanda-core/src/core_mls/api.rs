@@ -77,17 +77,23 @@ impl MlsHandle {
         })
     }
 
-    /// Join a group via Welcome message
+    /// Join an existing group via Welcome message
+    ///
+    /// # Arguments
+    /// * `welcome` - MlsEnvelope containing the Welcome message
+    /// * `member_index` - This member's leaf index
+    /// * `member_secret_key` - This member's X25519 secret key for HPKE decryption
+    /// * `config` - MLS configuration
     pub fn join_group(
-        welcome_envelope: &MlsEnvelope,
+        welcome: &MlsEnvelope,
         member_index: u32,
-        member_public_key: &[u8],
+        member_secret_key: &[u8],
         config: MlsConfig,
     ) -> MlsResult<Self> {
         let transport = MlsTransport::from_welcome(
-            welcome_envelope,
+            welcome,
             member_index,
-            member_public_key,
+            member_secret_key,
         )?;
 
         Ok(Self {
@@ -314,11 +320,31 @@ mod tests {
         MlsConfig::default()
     }
 
+    /// Generate a valid 32-byte X25519 secret key for testing
+    fn test_secret_key(name: &str) -> Vec<u8> {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(name.as_bytes());
+        hasher.finalize().to_vec()
+    }
+
+    /// Generate matching public/secret keypair for testing
+    fn test_keypair(name: &str) -> (Vec<u8>, Vec<u8>) {
+        use x25519_dalek::{PublicKey, StaticSecret};
+        let secret = test_secret_key(name);
+        let mut sk_bytes = [0u8; 32];
+        sk_bytes.copy_from_slice(&secret);
+        let static_secret = StaticSecret::from(sk_bytes);
+        let public_key = PublicKey::from(&static_secret);
+        (public_key.as_bytes().to_vec(), secret)
+    }
+
     #[test]
     fn test_create_group() {
+        let (alice_pk, _) = test_keypair("alice");
         let handle = MlsHandle::create_group(
             Some("test-group".to_string()),
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             test_config(),
@@ -333,24 +359,27 @@ mod tests {
 
     #[test]
     fn test_propose_add() {
+        let (alice_pk, _) = test_keypair("alice");
         let handle = MlsHandle::create_group(
             None,
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             test_config(),
         )
         .unwrap();
 
-        let envelope = handle.propose_add(b"bob_pk".to_vec(), b"bob".to_vec()).unwrap();
+        let (bob_pk, _) = test_keypair("bob");
+        let envelope = handle.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         assert_eq!(envelope.message_type, MlsMessageType::Proposal);
     }
 
     #[test]
     fn test_propose_remove() {
+        let (alice_pk, _) = test_keypair("alice");
         let handle = MlsHandle::create_group(
             None,
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             test_config(),
@@ -358,7 +387,8 @@ mod tests {
         .unwrap();
 
         // Add bob first
-        handle.propose_add(b"bob_pk".to_vec(), b"bob".to_vec()).unwrap();
+        let (bob_pk, _) = test_keypair("bob");
+        handle.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         handle.commit().unwrap();
 
         // Remove bob
@@ -383,16 +413,18 @@ mod tests {
 
     #[test]
     fn test_commit() {
+        let (alice_pk, _) = test_keypair("alice");
         let handle = MlsHandle::create_group(
             None,
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             test_config(),
         )
         .unwrap();
 
-        handle.propose_add(b"bob_pk".to_vec(), b"bob".to_vec()).unwrap();
+        let (bob_pk, _) = test_keypair("bob");
+        handle.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         let (commit_envelope, welcome_envelopes) = handle.commit().unwrap();
 
         assert_eq!(commit_envelope.message_type, MlsMessageType::Commit);
@@ -402,9 +434,10 @@ mod tests {
 
     #[test]
     fn test_send_receive_message() {
+        let (alice_pk, _) = test_keypair("alice");
         let handle = MlsHandle::create_group(
             None,
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             test_config(),
@@ -421,9 +454,10 @@ mod tests {
     #[test]
     fn test_join_group() {
         // Alice creates group
+        let (alice_pk, _) = test_keypair("alice");
         let alice = MlsHandle::create_group(
             Some("alice-group".to_string()),
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             test_config(),
@@ -431,11 +465,12 @@ mod tests {
         .unwrap();
 
         // Alice adds bob
-        alice.propose_add(b"bob_pk".to_vec(), b"bob".to_vec()).unwrap();
+        let (bob_pk, bob_sk) = test_keypair("bob");
+        alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         let (_, welcomes) = alice.commit().unwrap();
 
         // Bob joins
-        let bob = MlsHandle::join_group(&welcomes[0], 1, b"bob_pk", test_config()).unwrap();
+        let bob = MlsHandle::join_group(&welcomes[0], 1, &bob_sk, test_config()).unwrap();
 
         assert_eq!(bob.group_id().unwrap(), alice.group_id().unwrap());
         assert_eq!(bob.epoch().unwrap(), alice.epoch().unwrap());
@@ -446,9 +481,10 @@ mod tests {
     #[test]
     fn test_full_workflow() {
         // Alice creates group
+        let (alice_pk, _) = test_keypair("alice");
         let alice = MlsHandle::create_group(
             Some("team".to_string()),
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             test_config(),
@@ -458,7 +494,8 @@ mod tests {
         assert_eq!(alice.member_count().unwrap(), 1);
 
         // Alice proposes adding Bob
-        let proposal_envelope = alice.propose_add(b"bob_pk".to_vec(), b"bob".to_vec()).unwrap();
+        let (bob_pk, bob_sk) = test_keypair("bob");
+        let proposal_envelope = alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         assert_eq!(proposal_envelope.message_type, MlsMessageType::Proposal);
 
         // Alice commits
@@ -467,7 +504,7 @@ mod tests {
         assert_eq!(alice.epoch().unwrap(), 1);
 
         // Bob joins
-        let bob = MlsHandle::join_group(&welcome_envelopes[0], 1, b"bob_pk", test_config()).unwrap();
+        let bob = MlsHandle::join_group(&welcome_envelopes[0], 1, &bob_sk, test_config()).unwrap();
         assert_eq!(bob.member_count().unwrap(), 2);
 
         // Alice sends message
@@ -485,19 +522,23 @@ mod tests {
 
     #[test]
     fn test_propose_add_batch() {
+        let (alice_pk, _) = test_keypair("alice");
         let handle = MlsHandle::create_group(
             None,
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             test_config(),
         )
         .unwrap();
 
+        let (bob_pk, _) = test_keypair("bob");
+        let (charlie_pk, _) = test_keypair("charlie");
+        let (dave_pk, _) = test_keypair("dave");
         let members = vec![
-            (b"bob_pk".to_vec(), b"bob".to_vec()),
-            (b"charlie_pk".to_vec(), b"charlie".to_vec()),
-            (b"dave_pk".to_vec(), b"dave".to_vec()),
+            (bob_pk, b"bob".to_vec()),
+            (charlie_pk, b"charlie".to_vec()),
+            (dave_pk, b"dave".to_vec()),
         ];
 
         let envelopes = handle.propose_add_batch(members).unwrap();
@@ -509,9 +550,10 @@ mod tests {
 
     #[test]
     fn test_propose_remove_batch() {
+        let (alice_pk, _) = test_keypair("alice");
         let handle = MlsHandle::create_group(
             None,
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             test_config(),
@@ -519,8 +561,10 @@ mod tests {
         .unwrap();
 
         // Add members
-        handle.propose_add(b"bob_pk".to_vec(), b"bob".to_vec()).unwrap();
-        handle.propose_add(b"charlie_pk".to_vec(), b"charlie".to_vec()).unwrap();
+        let (bob_pk, _) = test_keypair("bob");
+        let (charlie_pk, _) = test_keypair("charlie");
+        handle.propose_add(bob_pk, b"bob".to_vec()).unwrap();
+        handle.propose_add(charlie_pk, b"charlie".to_vec()).unwrap();
         handle.commit().unwrap();
         assert_eq!(handle.member_count().unwrap(), 3);
 
@@ -534,9 +578,10 @@ mod tests {
 
     #[test]
     fn test_has_member() {
+        let (alice_pk, _) = test_keypair("alice");
         let handle = MlsHandle::create_group(
             None,
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             test_config(),
@@ -546,7 +591,8 @@ mod tests {
         assert!(handle.has_member(0).unwrap()); // Alice
         assert!(!handle.has_member(1).unwrap()); // Bob not added yet
 
-        handle.propose_add(b"bob_pk".to_vec(), b"bob".to_vec()).unwrap();
+        let (bob_pk, _) = test_keypair("bob");
+        handle.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         handle.commit().unwrap();
 
         assert!(handle.has_member(1).unwrap()); // Bob now added
@@ -571,9 +617,10 @@ mod tests {
 
     #[test]
     fn test_clone_handle() {
+        let (alice_pk, _) = test_keypair("alice");
         let handle1 = MlsHandle::create_group(
             Some("shared".to_string()),
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             test_config(),
@@ -587,7 +634,8 @@ mod tests {
         assert_eq!(handle1.epoch().unwrap(), handle2.epoch().unwrap());
 
         // Modifications via handle1 visible in handle2
-        handle1.propose_add(b"bob_pk".to_vec(), b"bob".to_vec()).unwrap();
+        let (bob_pk, _) = test_keypair("bob");
+        handle1.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         handle1.commit().unwrap();
 
         assert_eq!(handle2.epoch().unwrap(), 1);
@@ -596,9 +644,10 @@ mod tests {
 
     #[test]
     fn test_receive_proposal_from_another_member() {
+        let (alice_pk, _) = test_keypair("alice");
         let alice = MlsHandle::create_group(
             None,
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             test_config(),
@@ -606,10 +655,11 @@ mod tests {
         .unwrap();
 
         // Simulate bob sending proposal
+        let (charlie_pk, _) = test_keypair("charlie");
         let proposal = Proposal::new_add(
             0, // Alice's index
             0, // Epoch 0
-            b"charlie_pk".to_vec(),
+            charlie_pk,
             b"charlie".to_vec(),
         );
         let envelope = MlsEnvelope::wrap_proposal(&proposal, alice.group_id().unwrap()).unwrap();

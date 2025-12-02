@@ -66,10 +66,30 @@ mod tests {
     use super::*;
     use crate::core_mls::api::MlsHandle;
 
+    /// Generate a valid 32-byte X25519 secret key for testing
+    fn test_secret_key(name: &str) -> Vec<u8> {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(name.as_bytes());
+        hasher.finalize().to_vec()
+    }
+
+    /// Generate matching public/secret keypair for testing
+    fn test_keypair(name: &str) -> (Vec<u8>, Vec<u8>) {
+        use x25519_dalek::{PublicKey, StaticSecret};
+        let secret = test_secret_key(name);
+        let mut sk_bytes = [0u8; 32];
+        sk_bytes.copy_from_slice(&secret);
+        let static_secret = StaticSecret::from(sk_bytes);
+        let public_key = PublicKey::from(&static_secret);
+        (public_key.as_bytes().to_vec(), secret)
+    }
+
     fn test_handle() -> MlsHandle {
+        let (alice_pk, alice_sk) = test_keypair("alice");
         MlsHandle::create_group(
             Some("security-test".to_string()),
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             MlsConfig::default(),
@@ -144,10 +164,11 @@ mod tests {
         let mut handle1 = test_handle();
         
         // Add second member
-        handle1.propose_add(b"bob_pk".to_vec(), b"bob".to_vec()).unwrap();
+        let (bob_pk, bob_sk) = test_keypair("bob");
+        handle1.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         let (_, welcomes) = handle1.commit().unwrap();
         
-        let handle2 = MlsHandle::join_group(&welcomes[0], 1, b"bob_pk", MlsConfig::default()).unwrap();
+        let handle2 = MlsHandle::join_group(&welcomes[0], 1, &bob_sk, MlsConfig::default()).unwrap();
 
         // Alice sends message
         let envelope = handle1.send_message(b"Hello").unwrap();
@@ -196,10 +217,11 @@ mod tests {
         let mut alice = test_handle();
         
         // Alice adds Bob
-        alice.propose_add(b"bob_pk".to_vec(), b"bob".to_vec()).unwrap();
+        let (bob_pk, bob_sk) = test_keypair("bob");
+        alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         let (_, welcomes) = alice.commit().unwrap();
         
-        let bob = MlsHandle::join_group(&welcomes[0], 1, b"bob_pk", MlsConfig::default()).unwrap();
+        let bob = MlsHandle::join_group(&welcomes[0], 1, &bob_sk, MlsConfig::default()).unwrap();
 
         // Bob tries to remove Alice (index 0) - should work in this simplified model
         // In production, this would require authorization checks
@@ -270,7 +292,8 @@ mod tests {
         let old_envelope = handle.send_message(b"old").unwrap();
 
         // Advance epoch
-        handle.propose_add(b"bob_pk".to_vec(), b"bob".to_vec()).unwrap();
+        let (bob_pk, _) = test_keypair("bob");
+        handle.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         handle.commit().unwrap();
 
         assert_eq!(handle.epoch().unwrap(), 1);

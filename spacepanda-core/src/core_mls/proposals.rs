@@ -255,21 +255,25 @@ impl ProposalQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core_mls::crypto::{MlsSigningKey, sign_with_key, verify_with_key};
+
+    fn test_signing_key() -> MlsSigningKey {
+        // Use deterministic key for tests
+        let seed = [42u8; 32];
+        MlsSigningKey::from_bytes(&seed)
+    }
 
     fn dummy_sign(data: &[u8]) -> MlsResult<Vec<u8>> {
-        // Simple hash as signature for testing
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        Ok(hasher.finalize().to_vec())
+        // Real Ed25519 signature
+        let key = test_signing_key();
+        sign_with_key(data, &key)
     }
 
     fn dummy_verify(data: &[u8], sig: &[u8]) -> MlsResult<bool> {
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        let expected = hasher.finalize();
-        Ok(expected.as_slice() == sig)
+        // Real Ed25519 verification
+        let key = test_signing_key();
+        let verifying_key = key.verifying_key();
+        verify_with_key(data, sig, &verifying_key)
     }
 
     #[test]

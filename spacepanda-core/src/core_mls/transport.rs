@@ -259,14 +259,19 @@ impl MlsTransport {
         self.group.open_message(&encrypted)
     }
 
-    /// Process Welcome and initialize group
+    /// Process Welcome message to join a group
+    ///
+    /// # Arguments
+    /// * `envelope` - MlsEnvelope containing the Welcome message
+    /// * `member_index` - This member's leaf index in the group
+    /// * `member_secret_key` - This member's X25519 secret key for HPKE decryption
     pub fn from_welcome(
         envelope: &MlsEnvelope,
         member_index: u32,
-        member_public_key: &[u8],
+        member_secret_key: &[u8],
     ) -> MlsResult<Self> {
         let welcome = envelope.unwrap_welcome()?;
-        let group = MlsGroup::from_welcome(&welcome, member_index, member_public_key)?;
+        let group = MlsGroup::from_welcome(&welcome, member_index, member_secret_key)?;
         Ok(Self { group })
     }
 
@@ -287,10 +292,30 @@ mod tests {
     use crate::core_mls::proposals::Proposal;
     use crate::core_mls::types::{GroupId, MlsConfig};
 
+    /// Generate a valid 32-byte X25519 secret key for testing
+    fn test_secret_key(name: &str) -> Vec<u8> {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(name.as_bytes());
+        hasher.finalize().to_vec()
+    }
+
+    /// Generate matching public/secret keypair for testing
+    fn test_keypair(name: &str) -> (Vec<u8>, Vec<u8>) {
+        use x25519_dalek::{PublicKey, StaticSecret};
+        let secret = test_secret_key(name);
+        let mut sk_bytes = [0u8; 32];
+        sk_bytes.copy_from_slice(&secret);
+        let static_secret = StaticSecret::from(sk_bytes);
+        let public_key = PublicKey::from(&static_secret);
+        (public_key.as_bytes().to_vec(), secret)
+    }
+
     fn test_group() -> MlsGroup {
+        let (alice_pk, _) = test_keypair("alice");
         MlsGroup::new(
             GroupId::random(),
-            b"alice_pk".to_vec(),
+            alice_pk,
             b"alice".to_vec(),
             vec![1, 2, 3, 4],
             MlsConfig::default(),
@@ -301,7 +326,8 @@ mod tests {
     #[test]
     fn test_envelope_welcome_roundtrip() {
         let group = test_group();
-        let proposal = Proposal::new_add(0, 0, b"bob_pk".to_vec(), b"bob".to_vec());
+        let (bob_pk, _bob_sk) = test_keypair("bob");
+        let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         
         let mut transport = MlsTransport::new(group);
         transport.group.add_proposal(proposal).unwrap();
@@ -318,7 +344,8 @@ mod tests {
     #[test]
     fn test_envelope_proposal_roundtrip() {
         let group_id = GroupId::random();
-        let proposal = Proposal::new_add(0, 0, b"bob_pk".to_vec(), b"bob".to_vec());
+        let (bob_pk, _) = test_keypair("bob");
+        let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
 
         let envelope = MlsEnvelope::wrap_proposal(&proposal, group_id.clone()).unwrap();
         assert_eq!(envelope.message_type, MlsMessageType::Proposal);
@@ -331,7 +358,8 @@ mod tests {
     #[test]
     fn test_envelope_commit_roundtrip() {
         let mut group = test_group();
-        let proposal = Proposal::new_add(0, 0, b"bob_pk".to_vec(), b"bob".to_vec());
+        let (bob_pk, _) = test_keypair("bob");
+        let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         group.add_proposal(proposal).unwrap();
         let (commit, _) = group.commit(None).unwrap();
 
@@ -361,7 +389,8 @@ mod tests {
     #[test]
     fn test_envelope_json_serialization() {
         let group_id = GroupId::random();
-        let proposal = Proposal::new_add(0, 0, b"bob_pk".to_vec(), b"bob".to_vec());
+        let (bob_pk, _) = test_keypair("bob");
+        let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         let envelope = MlsEnvelope::wrap_proposal(&proposal, group_id).unwrap();
 
         let json = envelope.to_json().unwrap();
@@ -373,7 +402,8 @@ mod tests {
     #[test]
     fn test_envelope_bytes_serialization() {
         let group_id = GroupId::random();
-        let proposal = Proposal::new_add(0, 0, b"bob_pk".to_vec(), b"bob".to_vec());
+        let (bob_pk, _) = test_keypair("bob");
+        let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         let envelope = MlsEnvelope::wrap_proposal(&proposal, group_id).unwrap();
 
         let bytes = envelope.to_bytes().unwrap();
@@ -385,7 +415,8 @@ mod tests {
     #[test]
     fn test_envelope_wrong_type_unwrap() {
         let group_id = GroupId::random();
-        let proposal = Proposal::new_add(0, 0, b"bob_pk".to_vec(), b"bob".to_vec());
+        let (bob_pk, _) = test_keypair("bob");
+        let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         let envelope = MlsEnvelope::wrap_proposal(&proposal, group_id).unwrap();
 
         // Try to unwrap as commit
@@ -398,7 +429,8 @@ mod tests {
         let group = test_group();
         let mut transport = MlsTransport::new(group);
 
-        let proposal = Proposal::new_add(0, 0, b"bob_pk".to_vec(), b"bob".to_vec());
+        let (bob_pk, _) = test_keypair("bob");
+        let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         let envelope = transport.send_proposal(proposal).unwrap();
 
         // Simulate receiving on another member
@@ -415,7 +447,8 @@ mod tests {
         let mut transport = MlsTransport::new(group);
 
         // Add proposal
-        let proposal = Proposal::new_add(0, 0, b"bob_pk".to_vec(), b"bob".to_vec());
+        let (bob_pk, _) = test_keypair("bob");
+        let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         transport.send_proposal(proposal).unwrap();
 
         // Commit
@@ -443,14 +476,15 @@ mod tests {
     fn test_transport_from_welcome() {
         // Creator sends welcome
         let mut creator = test_group();
-        let proposal = Proposal::new_add(0, 0, b"bob_pk".to_vec(), b"bob".to_vec());
+        let (bob_pk, bob_sk) = test_keypair("bob");
+        let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         creator.add_proposal(proposal).unwrap();
         let (_, welcomes) = creator.commit(None).unwrap();
         let welcome_envelope = MlsEnvelope::wrap_welcome(&welcomes[0]).unwrap();
 
         // Bob joins via welcome
         let bob_transport =
-            MlsTransport::from_welcome(&welcome_envelope, 1, b"bob_pk").unwrap();
+            MlsTransport::from_welcome(&welcome_envelope, 1, &bob_sk).unwrap();
 
         assert_eq!(bob_transport.group_id(), &creator.group_id);
         assert_eq!(bob_transport.epoch(), creator.current_epoch());
@@ -463,7 +497,8 @@ mod tests {
         let mut alice = MlsTransport::new(alice_group);
 
         // Alice proposes to add Bob
-        let proposal = Proposal::new_add(0, 0, b"bob_pk".to_vec(), b"bob".to_vec());
+        let (bob_pk, bob_sk) = test_keypair("bob");
+        let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         let _prop_envelope = alice.send_proposal(proposal).unwrap();
 
         // Alice commits
@@ -471,7 +506,7 @@ mod tests {
 
         // Bob joins
         let mut bob =
-            MlsTransport::from_welcome(&welcome_envelopes[0], 1, b"bob_pk").unwrap();
+            MlsTransport::from_welcome(&welcome_envelopes[0], 1, &bob_sk).unwrap();
 
         assert_eq!(alice.group_id(), bob.group_id());
         assert_eq!(alice.epoch(), bob.epoch());
