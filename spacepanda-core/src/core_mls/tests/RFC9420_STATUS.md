@@ -119,6 +119,6 @@ cargo test --lib rfc9420_conformance_tests 2>&1 | grep "error\[E"
 
 ---
 
-_Last Updated: 2024-12-02_
-_Status: 37/104 tests implemented, 0/37 compiling_
+_Last Updated: Recently
+\_Status: 37/104 tests implemented, 0/37 compiling_
 _Blocked by: 62 compilation errors (type mismatches)_
