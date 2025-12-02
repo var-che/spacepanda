@@ -1,9 +1,226 @@
 # MLS Readiness Checklist
 
-**Status**: 🟢 PRODUCTION READY - All P0 + P1 issues complete!  
-**Last Updated**: 2025-12-02  
+**Status**: 🟡 AUDIT FINDINGS - Action Required  
+**Last Updated**: 2025-12-02 (Post-External Audit)  
 **Progress**: 7/7 P0 complete (100%), 3/3 P1 complete (100%), 2/2 P2 complete (100%)  
-**Target**: ✅ All critical and production-readiness items addressed
+**Audit Status**: ⚠️ 2 critical gaps identified - See EXTERNAL_AUDIT_RESPONSE.md  
+**Target**: MLS integration start date 2025-12-16 (after addressing audit findings)
+
+---
+
+## 🔍 External Audit Summary (2025-12-02)
+
+**Verdict**: Not quite ready for MLS - **1-2 weeks of focused work needed**
+
+**Critical Gaps Identified**:
+
+1. ⚠️ **Keystore AEAD + HMAC** - Currently plain bincode, needs authenticated encryption (P0)
+2. ⚠️ **CRDT Signature Enforcement** - Infrastructure exists but not universally applied (P0)
+
+**Good News** ✅:
+
+- Rate limiting, circuit breakers, metrics/tracing all complete (implemented after audit snapshot)
+- Device proof-of-possession exists and tested (6 tests passing)
+- All DHT panics are test-only (not production code)
+- Strong foundation in place for MLS
+
+**Action Plan**: See [EXTERNAL_AUDIT_RESPONSE.md](./EXTERNAL_AUDIT_RESPONSE.md) for detailed response and 2-week implementation plan.
+
+---
+
+## 🚨 Post-Audit Action Items (Before MLS Integration)
+
+### Critical (P0 - Blocking) - Must Complete Before MLS
+
+#### 1. Keystore AEAD + HMAC (3-4 days) ⚠️ **IN PROGRESS**
+
+**Problem**: Keystore currently uses plain bincode serialization without integrity protection or encryption at rest.
+
+**Solution**:
+
+```rust
+// Encrypted file format:
+// [MAGIC:8][VERSION:1][SALT:16][NONCE:12][CIPHERTEXT+TAG]
+
+// Export flow:
+1. Derive key: Argon2id(passphrase, random_salt) -> 32-byte key
+2. Serialize: bincode::serialize(&keystore)
+3. Encrypt: XChaCha20-Poly1305(key, random_nonce, plaintext) -> ciphertext+tag
+4. Save: MAGIC || VERSION || SALT || NONCE || CIPHERTEXT+TAG
+
+// Import flow:
+1. Parse header (magic, version, salt, nonce)
+2. Derive key from passphrase (same salt)
+3. Decrypt+verify: XChaCha20-Poly1305.decrypt() -> Result<plaintext, AuthError>
+4. Deserialize if tag valid, reject if corrupted/tampered
+```
+
+**Dependencies**: ✅ Already in Cargo.toml
+
+- `chacha20poly1305 = "0.10"`
+- `argon2 = "0.5"`
+
+**Files to modify**:
+
+- `spacepanda-core/src/core_identity/keystore/file_keystore.rs`
+
+**Tests to add**:
+
+- Un-ignore `test_5_2_corrupted_bytes_rejected`
+- `test_corrupted_aead_tag_import_fails`
+- `test_wrong_passphrase_import_fails`
+- `test_truncated_keystore_detected`
+
+**Status**: ⏳ Next task  
+**Effort**: 3-4 days  
+**Target completion**: 2025-12-06
+
+---
+
+#### 2. Universal CRDT Signature Enforcement (2-3 days) ⚠️ **TODO**
+
+**Problem**: Signature verification infrastructure exists but not enforced in all CRDT apply() methods.
+
+**Current State**:
+
+- ✅ `OperationMetadata::verify_signature()` exists
+- ✅ Tests exist for signature verification
+- ❌ Not called in all CRDT apply() paths
+
+**Solution**: Add signature verification to each CRDT type's apply() method:
+
+```rust
+pub fn apply(&mut self, delta: &Operation, metadata: &OperationMetadata) -> Result<(), StoreError> {
+    // ENFORCE: Verify signature if required
+    if self.require_signatures {
+        metadata.verify_signature(
+            &self.channel_id,
+            delta,
+            &self.authorized_keys,
+            true  // required=true
+        )?;
+    }
+
+    // Existing apply logic...
+}
+```
+
+**Files to modify**:
+
+- `spacepanda-core/src/core_store/crdt/lww_register.rs`
+- `spacepanda-core/src/core_store/crdt/ormap.rs`
+- `spacepanda-core/src/core_store/crdt/register.rs`
+- `spacepanda-core/src/core_store/crdt/vector_clock.rs`
+
+**Tests to add**:
+
+- `test_lww_register_forged_signature_rejected`
+- `test_ormap_forged_signature_rejected`
+- `test_mvregister_forged_signature_rejected`
+- `test_vector_clock_forged_signature_rejected`
+
+**Status**: ⏳ After keystore AEAD  
+**Effort**: 2-3 days  
+**Target completion**: 2025-12-09
+
+---
+
+#### 3. Production Unwrap() Audit (1-2 days) ⚠️ **TODO**
+
+**Problem**: Multiple `.unwrap()` and `.expect()` calls in library code (non-test) that can panic on unexpected input.
+
+**Action**:
+
+1. Scan all `.unwrap()` / `.expect()` in `src/**/*.rs` (excluding tests/)
+2. Replace with proper error propagation: `.map_err(|e| format!("..."))?`
+3. Add test cases for error conditions
+
+**Search command**:
+
+```bash
+rg '\.unwrap\(\)|\.expect\(' --type rust spacepanda-core/src \
+   | grep -v '#\[cfg(test)\]' | grep -v 'tests/'
+```
+
+**Pattern**:
+
+```rust
+// Bad:
+let value = some_function().unwrap();
+
+// Good:
+let value = some_function()
+    .map_err(|e| format!("Failed to X: {}", e))?;
+```
+
+**Priority files**:
+
+- `core_dht/*.rs`
+- `core_router/*.rs`
+- `core_store/*.rs`
+- `core_identity/*.rs`
+
+**Status**: ⏳ After CRDT enforcement  
+**Effort**: 1-2 days  
+**Target completion**: 2025-12-11
+
+---
+
+### High Priority (P1) - Recommended Before MLS
+
+#### 4. Additional Handshake Edge Case Tests (1 day) ⏳ **TODO**
+
+**Current**: Basic handshake replay and timeout tests exist  
+**Needed**: Edge case coverage for MLS group operations
+
+**Tests to add**:
+
+- `test_partial_handshake_first_message_only` - Incomplete handshake cleanup
+- `test_handshake_replay_second_message` - Mid-handshake replay
+- `test_concurrent_handshakes_same_peer` - Race condition handling
+
+**File**: `spacepanda-core/src/core_router/session_manager.rs`
+
+**Status**: ⏳ Optional (can do during MLS phase)  
+**Effort**: 1 day
+
+---
+
+## MLS Integration Roadmap (After Action Items Complete)
+
+**Start Date**: 2025-12-16 (after P0 items complete)  
+**Duration**: 14-18 days
+
+### Phase 1: Foundation (4-5 days)
+
+- [ ] Create `core_mls` module structure
+- [ ] Implement `MlsManager::new()` with basic group creation
+- [ ] Add OpenMLS integration (already in Cargo.toml ✅)
+- [ ] Write `test_group_creation_roundtrip`
+
+### Phase 2: Welcome & Proposals (3-4 days)
+
+- [ ] Implement Welcome message handling with device ownership verification
+- [ ] Implement Add/Remove/Update proposals
+- [ ] Wire proposals to identity layer (DeviceKey signatures)
+- [ ] Tests: `test_welcome_parse_tamper`, `test_proposal_signature_required`
+
+### Phase 3: Integration (4-5 days)
+
+- [ ] Connect MLS to RPC protocol for message transport
+- [ ] Implement transcript storage with HMAC
+- [ ] Add CRDT delta signing via MLS device keys
+- [ ] Integration test: `test_mls_crdt_signed_delta_convergence`
+
+### Phase 4: Security Hardening (3-4 days)
+
+- [ ] Add replay protection for MLS messages
+- [ ] Byzantine tests: forged Add, tampered Welcome, replay attacks
+- [ ] Crash recovery: snapshot + replay tests
+- [ ] Test: `test_mls_store_snapshot_recovery`
+
+**Total MLS Integration Effort**: 14-18 days  
+**Estimated Completion**: 2026-01-06
 
 ---
 
