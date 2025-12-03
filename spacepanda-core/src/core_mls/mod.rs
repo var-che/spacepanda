@@ -70,6 +70,9 @@ pub mod discovery;
 #[path = "tests/security_tests.rs"]
 mod security_tests;
 #[cfg(test)]
+#[path = "tests/alpha_security_tests.rs"]
+mod alpha_security_tests;
+#[cfg(test)]
 #[path = "tests/integration_tests.rs"]
 mod integration_tests;
 #[cfg(test)]
