@@ -9,6 +9,7 @@ use crate::core_mls::{
     state::GroupSnapshot,
     types::{GroupId, GroupMetadata, MlsConfig},
 };
+use openmls::prelude::KeyPackageBundle;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -49,13 +50,15 @@ impl OpenMlsHandleAdapter {
     /// * `welcome_bytes` - Serialized Welcome message
     /// * `ratchet_tree` - Optional ratchet tree bytes (if not in Welcome)
     /// * `config` - MLS configuration
+    /// * `key_package_bundle` - Optional KeyPackageBundle with private keys for decryption
     pub async fn join_from_welcome(
         welcome_bytes: &[u8],
         ratchet_tree: Option<Vec<u8>>,
         config: MlsConfig,
+        key_package_bundle: Option<KeyPackageBundle>,
     ) -> MlsResult<Self> {
         let engine =
-            OpenMlsEngine::join_from_welcome(welcome_bytes, ratchet_tree, config.clone()).await?;
+            OpenMlsEngine::join_from_welcome(welcome_bytes, ratchet_tree, config.clone(), key_package_bundle).await?;
 
         Ok(Self { engine: Arc::new(RwLock::new(engine)), config })
     }

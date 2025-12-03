@@ -136,16 +136,41 @@ impl OpenMlsEngine {
         Ok(engine)
     }
 
+    /// Create engine from an existing MlsGroup with custom provider
+    ///
+    /// This is useful for test scenarios where you want to reuse a provider
+    /// that has specific crypto material already stored.
+    pub(crate) fn from_group_with_provider(
+        group: MlsGroup,
+        provider: Arc<OpenMlsRustCrypto>,
+        config: MlsConfig,
+        signature_keys: SignatureKeyPair,
+        credential: CredentialWithKey,
+    ) -> Self {
+        Self {
+            group: Arc::new(RwLock::new(group)),
+            provider,
+            config,
+            signature_keys,
+            credential,
+            event_broadcaster: EventBroadcaster::default(),
+            member_join_times: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
     /// Join a group via Welcome message
     ///
     /// # Arguments
     /// * `welcome_bytes` - Serialized Welcome message
     /// * `ratchet_tree` - Optional ratchet tree for optimization
     /// * `config` - Group configuration
+    /// * `key_package_bundle` - Optional KeyPackageBundle with private keys for this member
+    ///   If provided, uses existing crypto material. If None, generates new keys.
     pub async fn join_from_welcome(
         welcome_bytes: &[u8],
         ratchet_tree: Option<Vec<u8>>,
         config: MlsConfig,
+        key_package_bundle: Option<KeyPackageBundle>,
     ) -> MlsResult<Self> {
         // Create crypto provider
         let provider = Arc::new(OpenMlsRustCrypto::default());
@@ -163,23 +188,50 @@ impl OpenMlsEngine {
         // Define ciphersuite (will be extracted from Welcome)
         let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 
-        // Generate signature keys for this member
-        let signature_keys =
-            SignatureKeyPair::new(ciphersuite.signature_algorithm()).map_err(|e| {
+        // Use provided KeyPackageBundle or generate new keys
+        let (signature_keys, credential_bundle) = if let Some(ref bundle) = key_package_bundle {
+            // Extract information from the existing key package bundle
+            let key_package = bundle.key_package();
+            let leaf_node = key_package.leaf_node();
+            let signature_key = leaf_node.signature_key().clone();
+            
+            // Note: We still need to generate SignatureKeyPair for the engine,
+            // but the actual decryption will use the bundle's init_private_key
+            // which OpenMLS will automatically find from the Welcome message
+            let sig_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm()).map_err(|e| {
                 MlsError::CryptoError(format!("Failed to generate signature keys: {:?}", e))
             })?;
+            
+            sig_keys.store(provider.storage()).map_err(|e| {
+                MlsError::CryptoError(format!("Failed to store signature keys: {:?}", e))
+            })?;
 
-        // Store signature keys
-        signature_keys.store(provider.storage()).map_err(|e| {
-            MlsError::CryptoError(format!("Failed to store signature keys: {:?}", e))
-        })?;
+            let cred = CredentialWithKey {
+                credential: leaf_node.credential().clone(),
+                signature_key,
+            };
+            
+            (sig_keys, cred)
+        } else {
+            // Generate new signature keys
+            let signature_keys =
+                SignatureKeyPair::new(ciphersuite.signature_algorithm()).map_err(|e| {
+                    MlsError::CryptoError(format!("Failed to generate signature keys: {:?}", e))
+                })?;
 
-        // Create credential (identity will come from Welcome)
-        // Create temporary credential (will be replaced by Welcome)
-        let basic_credential = BasicCredential::new(vec![]);
-        let credential_bundle = CredentialWithKey {
-            credential: basic_credential.into(),
-            signature_key: signature_keys.public().into(),
+            // Store signature keys
+            signature_keys.store(provider.storage()).map_err(|e| {
+                MlsError::CryptoError(format!("Failed to store signature keys: {:?}", e))
+            })?;
+
+            // Create temporary credential (will be replaced by Welcome)
+            let basic_credential = BasicCredential::new(vec![]);
+            let credential_bundle = CredentialWithKey {
+                credential: basic_credential.into(),
+                signature_key: signature_keys.public().into(),
+            };
+            
+            (signature_keys, credential_bundle)
         };
 
         // Parse optional ratchet tree
@@ -520,6 +572,18 @@ impl OpenMlsEngine {
         );
 
         Ok(snapshot)
+    }
+
+    /// Export only the ratchet tree for sharing with new members
+    ///
+    /// This is needed when joining from a Welcome message that doesn't include
+    /// the ratchet tree inline.
+    pub async fn export_ratchet_tree_bytes(&self) -> MlsResult<Vec<u8>> {
+        let group = self.group.read().await;
+        let ratchet_tree = group.export_ratchet_tree();
+        ratchet_tree.tls_serialize_detached().map_err(|e| {
+            MlsError::Internal(format!("Failed to serialize ratchet tree: {:?}", e))
+        })
     }
 
     /// Helper to extract members without holding the lock

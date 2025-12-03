@@ -93,6 +93,9 @@ mod security_tests;
 #[cfg(test)]
 #[path = "tests/tdd_tests.rs"]
 mod tdd_tests;
+#[cfg(test)]
+#[path = "tests/realistic_scenarios.rs"]
+mod realistic_scenarios;
 
 // Placeholder modules (to be implemented incrementally)
 

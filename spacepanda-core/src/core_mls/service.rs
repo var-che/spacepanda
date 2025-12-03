@@ -127,6 +127,7 @@ impl MlsService {
             welcome_bytes,
             ratchet_tree,
             self.config.clone(),
+            None, // No KeyPackageBundle - generates new keys
         )
         .await?;
 
