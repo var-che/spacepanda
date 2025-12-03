@@ -2,9 +2,9 @@
 //!
 //! Validates commits before applying them to group state.
 
-use async_trait::async_trait;
-use crate::core_mls::errors::MlsResult;
 use super::transport::WireMessage;
+use crate::core_mls::errors::MlsResult;
+use async_trait::async_trait;
 
 /// Commit validation trait
 ///
@@ -60,12 +60,16 @@ pub trait CommitValidator: Send + Sync {
     ///
     /// # Returns
     /// `Ok(())` if authorized
-    async fn validate_sender_authorization(&self, sender_id: &[u8], group_members: &[Vec<u8>]) -> MlsResult<()> {
+    async fn validate_sender_authorization(
+        &self,
+        sender_id: &[u8],
+        group_members: &[Vec<u8>],
+    ) -> MlsResult<()> {
         if group_members.iter().any(|m| m == sender_id) {
             Ok(())
         } else {
             Err(crate::core_mls::errors::MlsError::PermissionDenied(
-                "Sender not a group member".to_string()
+                "Sender not a group member".to_string(),
             ))
         }
     }

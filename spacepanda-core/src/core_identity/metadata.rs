@@ -4,7 +4,7 @@
 
 use crate::core_identity::device_id::DeviceId;
 use crate::core_identity::user_id::UserId;
-use crate::core_store::crdt::{LWWRegister, ORMap, AddId, VectorClock, Crdt};
+use crate::core_store::crdt::{AddId, Crdt, LWWRegister, ORMap, VectorClock};
 use crate::core_store::model::types::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -69,20 +69,20 @@ impl DeviceMetadata {
 impl Crdt for DeviceMetadata {
     type Operation = ();
     type Value = DeviceMetadata;
-    
+
     fn apply(&mut self, _op: Self::Operation) -> crate::core_store::store::errors::StoreResult<()> {
         Ok(())
     }
-    
+
     fn merge(&mut self, other: &Self) -> crate::core_store::store::errors::StoreResult<()> {
         self.merge(other);
         Ok(())
     }
-    
+
     fn value(&self) -> Self::Value {
         self.clone()
     }
-    
+
     fn vector_clock(&self) -> &VectorClock {
         // Return the most recent vector clock from our fields
         self.device_name.vector_clock()
@@ -195,7 +195,7 @@ mod tests {
     fn test_metadata_merge() {
         let pubkey = vec![1, 2, 3, 4, 5];
         let user_id = UserId::from_public_key(&pubkey);
-        
+
         let mut meta1 = UserMetadata::new(user_id.clone());
         let mut meta2 = UserMetadata::new(user_id);
 

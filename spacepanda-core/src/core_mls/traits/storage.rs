@@ -2,8 +2,8 @@
 //!
 //! Defines the interface for persisting MLS group state and related data.
 
+use crate::core_mls::errors::MlsResult;
 use async_trait::async_trait;
-use crate::core_mls::errors::{MlsError, MlsResult};
 
 /// Group identifier
 pub type GroupId = Vec<u8>;

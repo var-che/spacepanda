@@ -9,6 +9,7 @@ This document describes the CI/CD security infrastructure implemented for SpaceP
 ### 1. GitHub Actions Workflow (`.github/workflows/security-ci.yml`)
 
 A comprehensive security-focused CI/CD pipeline that runs on:
+
 - **Push** to main, core_mls, develop branches
 - **Pull requests** targeting those branches
 - **Daily schedule** at 00:00 UTC (for advisory database updates)
@@ -16,6 +17,7 @@ A comprehensive security-focused CI/CD pipeline that runs on:
 ### 2. Security Tools Integration
 
 #### cargo-audit
+
 - **Purpose**: Scans dependencies for known security vulnerabilities
 - **Database**: RustSec Advisory Database (https://github.com/RustSec/advisory-db)
 - **Configuration**: Denies builds with known vulnerabilities
@@ -23,6 +25,7 @@ A comprehensive security-focused CI/CD pipeline that runs on:
 - **Run locally**: `cargo audit`
 
 #### cargo-deny
+
 - **Purpose**: License compliance, banned crates, duplicate dependencies
 - **Configuration File**: `deny.toml` (root directory)
 - **Current Status**: ⚠️ **WARNINGS** (1 duplicate: windows-sys 0.60.2 vs 0.61.2)
@@ -33,6 +36,7 @@ A comprehensive security-focused CI/CD pipeline that runs on:
 - **Run locally**: `cargo deny check`
 
 #### clippy
+
 - **Purpose**: Linting and code quality checks
 - **Configuration**: `-D warnings` (deny all warnings)
 - **Current Status**: ❌ **FAILING** (multiple unused imports and cfg issues)
@@ -45,6 +49,7 @@ A comprehensive security-focused CI/CD pipeline that runs on:
 ### 3. Additional CI Jobs
 
 The workflow includes:
+
 - **Format Check**: Ensures code follows rustfmt standards
 - **Test Suite**: Runs on stable and beta Rust
 - **Code Coverage**: Generates coverage reports with tarpaulin
@@ -54,7 +59,9 @@ The workflow includes:
 ## License Policy (deny.toml)
 
 ### Allowed Licenses
+
 SpacePanda allows the following permissive licenses:
+
 - Apache-2.0 (project license)
 - MIT
 - BSD-2-Clause, BSD-3-Clause
@@ -63,6 +70,7 @@ SpacePanda allows the following permissive licenses:
 - Zlib
 
 ### Denied Patterns
+
 - Strong copyleft: GPL-3.0, AGPL-3.0, GPL-2.0
 - Weak copyleft: LGPL-3.0, LGPL-2.0
 - Unknown registries
@@ -70,20 +78,25 @@ SpacePanda allows the following permissive licenses:
 - Wildcard version requirements (`*`)
 
 ### Special Exceptions
+
 - **ring**: Allows ISC, MIT, OpenSSL licenses (custom license bundle)
 
 ## Current Issues and Next Steps
 
 ### High Priority: Fix Clippy Warnings
+
 **Status**: ❌ BLOCKING CI/CD
 
 The following issues must be resolved before the CI pipeline can pass:
+
 1. **Unused imports** (~25 occurrences)
+
    - Location: Multiple files (dht_node.rs, dht_overlay.rs, engine modules)
    - Impact: Build will fail with `-D warnings`
    - Fix: Remove unused imports or add `#[allow(unused_imports)]` where needed
 
 2. **Unexpected cfg conditions**
+
    - `never_enabled` and `never_enabled_test`
    - Impact: Build warnings treated as errors
    - Fix: Use `check-cfg` or remove invalid cfg attributes
@@ -93,6 +106,7 @@ The following issues must be resolved before the CI pipeline can pass:
    - Fix: Use explicit imports instead of glob re-exports
 
 ### Medium Priority: Resolve Dependency Duplicates
+
 **Status**: ⚠️ WARNING
 
 - **windows-sys**: Two versions (0.60.2, 0.61.2)
@@ -101,9 +115,11 @@ The following issues must be resolved before the CI pipeline can pass:
   - Fix: Update dependencies to converge on single version
 
 ### Low Priority: Update Unused License Allowances
+
 **Status**: ℹ️ INFO ONLY
 
 The following licenses are allowed but not currently used:
+
 - `0BSD`
 - `Unicode-DFS-2016`
 - `Zlib`
@@ -113,6 +129,7 @@ The following licenses are allowed but not currently used:
 ## Running Security Checks Locally
 
 ### Quick Check (All Tools)
+
 ```bash
 # From workspace root
 cd /home/vlada/Documents/projects/spacepanda
@@ -147,7 +164,9 @@ nix develop --command cargo deny check bans
 ## Workflow Features
 
 ### Caching Strategy
+
 The workflow uses GitHub Actions cache for:
+
 - Cargo registry (`~/.cargo/registry`)
 - Cargo git dependencies (`~/.cargo/git`)
 - Build artifacts (`target/`)
@@ -155,12 +174,15 @@ The workflow uses GitHub Actions cache for:
 This reduces build times from ~30 minutes to ~5 minutes on subsequent runs.
 
 ### Failure Handling
+
 - **cargo-audit**: Uploads audit report artifact on failure
 - **Security tests**: Runs with `--nocapture` for detailed output
 - **All jobs**: Fail fast to provide quick feedback
 
 ### Daily Scheduled Runs
+
 The workflow runs daily at midnight UTC to:
+
 - Fetch latest advisory database
 - Detect newly disclosed vulnerabilities
 - Ensure long-running branches stay secure
@@ -168,7 +190,9 @@ The workflow runs daily at midnight UTC to:
 ## Integration with Development Workflow
 
 ### Pre-commit Recommendations
+
 Add to `.git/hooks/pre-commit`:
+
 ```bash
 #!/bin/bash
 cargo fmt -- --check
@@ -177,7 +201,9 @@ cargo test --lib
 ```
 
 ### Pre-push Recommendations
+
 Add to `.git/hooks/pre-push`:
+
 ```bash
 #!/bin/bash
 cargo audit

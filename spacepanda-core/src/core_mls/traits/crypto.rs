@@ -4,8 +4,8 @@
 //! In production, this wraps OpenMLS crypto providers.
 //! In tests, this can use deterministic mock implementations.
 
-use async_trait::async_trait;
 use crate::core_mls::errors::MlsResult;
+use async_trait::async_trait;
 
 /// Cryptographic operations provider for MLS
 ///
@@ -56,7 +56,12 @@ pub trait CryptoProvider: Send + Sync {
     ///
     /// # Returns
     /// Encrypted ciphertext
-    async fn hpke_seal(&self, recipient_pub: &[u8], info: &[u8], plaintext: &[u8]) -> MlsResult<Vec<u8>>;
+    async fn hpke_seal(
+        &self,
+        recipient_pub: &[u8],
+        info: &[u8],
+        plaintext: &[u8],
+    ) -> MlsResult<Vec<u8>>;
 
     /// HPKE decrypt (recipient decapsulates)
     ///
@@ -68,7 +73,13 @@ pub trait CryptoProvider: Send + Sync {
     ///
     /// # Returns
     /// Decrypted plaintext
-    async fn hpke_open(&self, recipient_priv: &[u8], sender_enc: &[u8], info: &[u8], ciphertext: &[u8]) -> MlsResult<Vec<u8>>;
+    async fn hpke_open(
+        &self,
+        recipient_priv: &[u8],
+        sender_enc: &[u8],
+        info: &[u8],
+        ciphertext: &[u8],
+    ) -> MlsResult<Vec<u8>>;
 
     /// KDF (HKDF extract/expand) helper
     ///
@@ -90,7 +101,7 @@ pub trait CryptoProvider: Send + Sync {
     /// Hash digest
     async fn hash(&self, data: &[u8]) -> MlsResult<Vec<u8>> {
         // Default implementation - can be overridden
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         Ok(Sha256::digest(data).to_vec())
     }
 }

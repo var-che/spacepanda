@@ -16,7 +16,7 @@ impl GroupId {
     pub fn random() -> Self {
         use rand::Rng;
         let mut bytes = vec![0u8; 32];
-        rand::thread_rng().fill(&mut bytes[..]);
+        rand::rng().fill(&mut bytes[..]);
         Self(bytes)
     }
 
@@ -160,11 +160,7 @@ mod tests {
 
     #[test]
     fn test_member_info() {
-        let member = MemberInfo {
-            identity: vec![1, 2, 3],
-            leaf_index: 0,
-            joined_at: 1234567890,
-        };
+        let member = MemberInfo { identity: vec![1, 2, 3], leaf_index: 0, joined_at: 1234567890 };
 
         let json = serde_json::to_string(&member).unwrap();
         let deserialized: MemberInfo = serde_json::from_str(&json).unwrap();

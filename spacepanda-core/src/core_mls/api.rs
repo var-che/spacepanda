@@ -61,7 +61,7 @@ impl MlsHandle {
         config: MlsConfig,
     ) -> MlsResult<Self> {
         let group_id = GroupId::random();
-        
+
         let mut group = MlsGroup::new(
             group_id.clone(),
             creator_public_key,
@@ -77,10 +77,7 @@ impl MlsHandle {
 
         let transport = MlsTransport::new(group);
 
-        Ok(Self {
-            transport: Arc::new(RwLock::new(transport)),
-            config,
-        })
+        Ok(Self { transport: Arc::new(RwLock::new(transport)), config })
     }
 
     /// Join an existing group via Welcome message
@@ -96,83 +93,67 @@ impl MlsHandle {
         member_secret_key: &[u8],
         config: MlsConfig,
     ) -> MlsResult<Self> {
-        let transport = MlsTransport::from_welcome(
-            welcome,
-            member_index,
-            member_secret_key,
-        )?;
+        let transport = MlsTransport::from_welcome(welcome, member_index, member_secret_key)?;
 
-        Ok(Self {
-            transport: Arc::new(RwLock::new(transport)),
-            config,
-        })
+        Ok(Self { transport: Arc::new(RwLock::new(transport)), config })
     }
 
     /// Propose adding a new member
-    pub fn propose_add(
-        &self,
-        public_key: Vec<u8>,
-        identity: Vec<u8>,
-    ) -> MlsResult<MlsEnvelope> {
-        let mut transport = self.transport.write()
+    pub fn propose_add(&self, public_key: Vec<u8>, identity: Vec<u8>) -> MlsResult<MlsEnvelope> {
+        let mut transport = self
+            .transport
+            .write()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         let group = transport.group();
-        let proposal = Proposal::new_add(
-            group.self_index,
-            group.epoch,
-            public_key,
-            identity,
-        );
+        let proposal = Proposal::new_add(group.self_index, group.epoch, public_key, identity);
 
         transport.send_proposal(proposal)
     }
 
     /// Propose removing a member
     pub fn propose_remove(&self, removed_index: u32) -> MlsResult<MlsEnvelope> {
-        let mut transport = self.transport.write()
+        let mut transport = self
+            .transport
+            .write()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         let group = transport.group();
-        let proposal = Proposal::new_remove(
-            group.self_index,
-            group.epoch,
-            removed_index,
-        );
+        let proposal = Proposal::new_remove(group.self_index, group.epoch, removed_index);
 
         transport.send_proposal(proposal)
     }
 
     /// Propose updating own key material
     pub fn propose_update(&self, new_public_key: Vec<u8>) -> MlsResult<MlsEnvelope> {
-        let mut transport = self.transport.write()
+        let mut transport = self
+            .transport
+            .write()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         let group = transport.group();
-        
+
         // Validate: new key must be different from current key
         if let Some(node) = group.tree.get_node(MlsTree::leaf_to_node_index(group.self_index)) {
             if let Some(ref current_key) = node.public_key {
                 if current_key == &new_public_key {
                     return Err(MlsError::InvalidProposal(
-                        "Update must use a new public key (cannot reuse current key)".to_string()
+                        "Update must use a new public key (cannot reuse current key)".to_string(),
                     ));
                 }
             }
         }
-        
-        let proposal = Proposal::new_update(
-            group.self_index,
-            group.epoch,
-            new_public_key,
-        );
+
+        let proposal = Proposal::new_update(group.self_index, group.epoch, new_public_key);
 
         transport.send_proposal(proposal)
     }
 
     /// Receive and process a proposal from another member
     pub fn receive_proposal(&self, envelope: &MlsEnvelope) -> MlsResult<u32> {
-        let mut transport = self.transport.write()
+        let mut transport = self
+            .transport
+            .write()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         transport.receive_proposal(envelope)
@@ -180,7 +161,9 @@ impl MlsHandle {
 
     /// Commit all pending proposals
     pub fn commit(&self) -> MlsResult<(MlsEnvelope, Vec<MlsEnvelope>)> {
-        let mut transport = self.transport.write()
+        let mut transport = self
+            .transport
+            .write()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         transport.send_commit()
@@ -188,7 +171,9 @@ impl MlsHandle {
 
     /// Receive and apply a commit from another member
     pub fn receive_commit(&self, envelope: &MlsEnvelope) -> MlsResult<()> {
-        let mut transport = self.transport.write()
+        let mut transport = self
+            .transport
+            .write()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         transport.receive_commit(envelope)
@@ -196,7 +181,9 @@ impl MlsHandle {
 
     /// Send an application message
     pub fn send_message(&self, plaintext: &[u8]) -> MlsResult<MlsEnvelope> {
-        let mut transport = self.transport.write()
+        let mut transport = self
+            .transport
+            .write()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         transport.send_application(plaintext)
@@ -204,7 +191,9 @@ impl MlsHandle {
 
     /// Receive and decrypt an application message
     pub fn receive_message(&self, envelope: &MlsEnvelope) -> MlsResult<Vec<u8>> {
-        let mut transport = self.transport.write()
+        let mut transport = self
+            .transport
+            .write()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         transport.receive_application(envelope)
@@ -212,7 +201,9 @@ impl MlsHandle {
 
     /// Get group ID
     pub fn group_id(&self) -> MlsResult<GroupId> {
-        let transport = self.transport.read()
+        let transport = self
+            .transport
+            .read()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         Ok(transport.group_id().clone())
@@ -220,7 +211,9 @@ impl MlsHandle {
 
     /// Get current epoch
     pub fn epoch(&self) -> MlsResult<u64> {
-        let transport = self.transport.read()
+        let transport = self
+            .transport
+            .read()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         Ok(transport.epoch())
@@ -233,7 +226,9 @@ impl MlsHandle {
 
     /// Get member count
     pub fn member_count(&self) -> MlsResult<usize> {
-        let transport = self.transport.read()
+        let transport = self
+            .transport
+            .read()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         Ok(transport.group().member_count())
@@ -241,7 +236,9 @@ impl MlsHandle {
 
     /// Get group metadata
     pub fn metadata(&self) -> MlsResult<GroupMetadata> {
-        let transport = self.transport.read()
+        let transport = self
+            .transport
+            .read()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         Ok(transport.group().metadata.clone())
@@ -249,7 +246,9 @@ impl MlsHandle {
 
     /// Get self (this member's) leaf index
     pub fn self_index(&self) -> MlsResult<u32> {
-        let transport = self.transport.read()
+        let transport = self
+            .transport
+            .read()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         Ok(transport.group().self_index)
@@ -262,10 +261,7 @@ impl MlsHandle {
 
     /// Clone the handle (shares underlying transport)
     pub fn clone_handle(&self) -> Self {
-        Self {
-            transport: Arc::clone(&self.transport),
-            config: self.config.clone(),
-        }
+        Self { transport: Arc::clone(&self.transport), config: self.config.clone() }
     }
 }
 
@@ -287,10 +283,7 @@ impl MlsHandle {
     }
 
     /// Propose removing multiple members at once
-    pub fn propose_remove_batch(
-        &self,
-        indices: Vec<u32>,
-    ) -> MlsResult<Vec<MlsEnvelope>> {
+    pub fn propose_remove_batch(&self, indices: Vec<u32>) -> MlsResult<Vec<MlsEnvelope>> {
         let mut envelopes = Vec::new();
 
         for index in indices {
@@ -306,7 +299,9 @@ impl MlsHandle {
 impl MlsHandle {
     /// Get all group members
     pub fn members(&self) -> MlsResult<Vec<super::types::MemberInfo>> {
-        let transport = self.transport.read()
+        let transport = self
+            .transport
+            .read()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         Ok(transport.group().metadata.members.clone())
@@ -326,7 +321,9 @@ impl MlsHandle {
 
     /// Set group name (requires commit to take effect)
     pub fn set_group_name(&self, name: String) -> MlsResult<()> {
-        let mut transport = self.transport.write()
+        let mut transport = self
+            .transport
+            .write()
             .map_err(|e| MlsError::InvalidState(format!("Lock poisoned: {}", e)))?;
 
         transport.group_mut().metadata.name = Some(name);
@@ -701,13 +698,16 @@ mod tests {
         use std::sync::Arc;
         use std::thread;
 
-        let handle = Arc::new(MlsHandle::create_group(
-            None,
-            b"alice_pk".to_vec(),
-            b"alice".to_vec(),
-            vec![1, 2, 3, 4],
-            test_config(),
-        ).unwrap());
+        let handle = Arc::new(
+            MlsHandle::create_group(
+                None,
+                b"alice_pk".to_vec(),
+                b"alice".to_vec(),
+                vec![1, 2, 3, 4],
+                test_config(),
+            )
+            .unwrap(),
+        );
 
         let handle1 = Arc::clone(&handle);
         let handle2 = Arc::clone(&handle);

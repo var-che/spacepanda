@@ -14,16 +14,16 @@
 //! - Clear separation of concerns
 //! - Future flexibility
 
-pub mod storage;
+pub mod commit_validator;
 pub mod crypto;
 pub mod identity;
-pub mod transport;
 pub mod serializer;
-pub mod commit_validator;
+pub mod storage;
+pub mod transport;
 
-pub use storage::StorageProvider;
+pub use commit_validator::CommitValidator;
 pub use crypto::CryptoProvider;
 pub use identity::IdentityBridge;
-pub use transport::DhtBridge;
 pub use serializer::MessageSerializer;
-pub use commit_validator::CommitValidator;
+pub use storage::StorageProvider;
+pub use transport::DhtBridge;

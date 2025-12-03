@@ -2,8 +2,8 @@
 //!
 //! Bridges the application identity system with MLS credentials.
 
-use async_trait::async_trait;
 use crate::core_mls::errors::MlsResult;
+use async_trait::async_trait;
 
 /// Member identifier (typically public key fingerprint or user ID)
 pub type MemberId = Vec<u8>;

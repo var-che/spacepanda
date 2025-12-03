@@ -1,6 +1,6 @@
 /*
     core_store - Persistent, replicated, secure state layer
-    
+
     The authoritative state layer for the decentralized E2EE chat platform.
     Handles:
     - Data models (spaces, channels, messages, roles)
@@ -20,9 +20,6 @@ pub mod sync;
 pub mod tests;
 
 // Re-export commonly used types
-pub use crdt::{Crdt, VectorClock, LWWRegister};
-pub use model::{
-    Timestamp, SpaceId, ChannelId, MessageId, UserId,
-    ChannelType, PermissionLevel,
-};
+pub use crdt::{Crdt, LWWRegister, VectorClock};
+pub use model::{ChannelId, ChannelType, MessageId, PermissionLevel, SpaceId, Timestamp, UserId};
 pub use store::{StoreError, StoreResult};

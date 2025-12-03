@@ -68,20 +68,12 @@ pub enum ProposalContent {
 
 impl Proposal {
     /// Create a new Add proposal
-    pub fn new_add(
-        sender: u32,
-        epoch: u64,
-        public_key: Vec<u8>,
-        identity: Vec<u8>,
-    ) -> Self {
+    pub fn new_add(sender: u32, epoch: u64, public_key: Vec<u8>, identity: Vec<u8>) -> Self {
         Self {
             proposal_type: ProposalType::Add,
             sender,
             epoch,
-            content: ProposalContent::Add {
-                public_key,
-                identity,
-            },
+            content: ProposalContent::Add { public_key, identity },
             signature: Vec::new(), // Set after signing
         }
     }
@@ -162,8 +154,9 @@ impl Proposal {
 
     /// Deserialize from bytes
     pub fn from_bytes(bytes: &[u8]) -> MlsResult<Self> {
-        bincode::deserialize(bytes)
-            .map_err(|e| MlsError::PersistenceError(format!("Failed to deserialize proposal: {}", e)))
+        bincode::deserialize(bytes).map_err(|e| {
+            MlsError::PersistenceError(format!("Failed to deserialize proposal: {}", e))
+        })
     }
 }
 
@@ -186,16 +179,14 @@ pub struct ProposalQueue {
 impl ProposalQueue {
     /// Create new empty queue
     pub fn new() -> Self {
-        Self {
-            proposals: Vec::new(),
-        }
+        Self { proposals: Vec::new() }
     }
 
     /// Add a proposal to the queue
     pub fn add(&mut self, proposal: Proposal) -> MlsResult<u32> {
         // Verify proposal signature before adding
         // (verification function would be passed by caller)
-        
+
         let index = self.proposals.len() as u32;
         self.proposals.push(proposal);
         Ok(index)
@@ -237,25 +228,19 @@ impl ProposalQueue {
 
     /// Filter proposals by type
     pub fn by_type(&self, proposal_type: ProposalType) -> Vec<&Proposal> {
-        self.proposals
-            .iter()
-            .filter(|p| p.proposal_type == proposal_type)
-            .collect()
+        self.proposals.iter().filter(|p| p.proposal_type == proposal_type).collect()
     }
 
     /// Filter proposals by sender
     pub fn by_sender(&self, sender: u32) -> Vec<&Proposal> {
-        self.proposals
-            .iter()
-            .filter(|p| p.sender == sender)
-            .collect()
+        self.proposals.iter().filter(|p| p.sender == sender).collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core_mls::crypto::{MlsSigningKey, sign_with_key, verify_with_key};
+    use crate::core_mls::crypto::{sign_with_key, verify_with_key, MlsSigningKey};
 
     fn test_signing_key() -> MlsSigningKey {
         // Use deterministic key for tests
@@ -278,12 +263,7 @@ mod tests {
 
     #[test]
     fn test_add_proposal_creation() {
-        let proposal = Proposal::new_add(
-            0,
-            1,
-            b"public_key".to_vec(),
-            b"alice".to_vec(),
-        );
+        let proposal = Proposal::new_add(0, 1, b"public_key".to_vec(), b"alice".to_vec());
 
         assert_eq!(proposal.proposal_type, ProposalType::Add);
         assert_eq!(proposal.sender, 0);
@@ -308,7 +288,7 @@ mod tests {
         assert_eq!(proposal.proposal_type, ProposalType::Remove);
         assert_eq!(proposal.sender, 0);
         assert_eq!(proposal.epoch, 1);
-        
+
         if let ProposalContent::Remove { removed } = proposal.content {
             assert_eq!(removed, 5);
         } else {
@@ -326,12 +306,7 @@ mod tests {
 
     #[test]
     fn test_proposal_sign_and_verify() {
-        let mut proposal = Proposal::new_add(
-            0,
-            1,
-            b"public_key".to_vec(),
-            b"alice".to_vec(),
-        );
+        let mut proposal = Proposal::new_add(0, 1, b"public_key".to_vec(), b"alice".to_vec());
 
         // Sign
         proposal.sign(dummy_sign).unwrap();
@@ -343,12 +318,7 @@ mod tests {
 
     #[test]
     fn test_proposal_verify_invalid_signature() {
-        let mut proposal = Proposal::new_add(
-            0,
-            1,
-            b"public_key".to_vec(),
-            b"alice".to_vec(),
-        );
+        let mut proposal = Proposal::new_add(0, 1, b"public_key".to_vec(), b"alice".to_vec());
 
         proposal.sign(dummy_sign).unwrap();
 
@@ -361,12 +331,7 @@ mod tests {
 
     #[test]
     fn test_proposal_serialization() {
-        let mut proposal = Proposal::new_add(
-            0,
-            1,
-            b"public_key".to_vec(),
-            b"alice".to_vec(),
-        );
+        let mut proposal = Proposal::new_add(0, 1, b"public_key".to_vec(), b"alice".to_vec());
         proposal.sign(dummy_sign).unwrap();
 
         let bytes = proposal.to_bytes().unwrap();
@@ -380,13 +345,8 @@ mod tests {
     #[test]
     fn test_proposal_queue_add() {
         let mut queue = ProposalQueue::new();
-        
-        let proposal = Proposal::new_add(
-            0,
-            1,
-            b"public_key".to_vec(),
-            b"alice".to_vec(),
-        );
+
+        let proposal = Proposal::new_add(0, 1, b"public_key".to_vec(), b"alice".to_vec());
 
         let index = queue.add(proposal).unwrap();
         assert_eq!(index, 0);
@@ -396,16 +356,11 @@ mod tests {
     #[test]
     fn test_proposal_queue_get() {
         let mut queue = ProposalQueue::new();
-        
-        let proposal = Proposal::new_add(
-            0,
-            1,
-            b"public_key".to_vec(),
-            b"alice".to_vec(),
-        );
+
+        let proposal = Proposal::new_add(0, 1, b"public_key".to_vec(), b"alice".to_vec());
 
         queue.add(proposal.clone()).unwrap();
-        
+
         let retrieved = queue.get(0).unwrap();
         assert_eq!(retrieved.sender, 0);
     }
@@ -413,13 +368,8 @@ mod tests {
     #[test]
     fn test_proposal_queue_remove() {
         let mut queue = ProposalQueue::new();
-        
-        let proposal1 = Proposal::new_add(
-            0,
-            1,
-            b"key1".to_vec(),
-            b"alice".to_vec(),
-        );
+
+        let proposal1 = Proposal::new_add(0, 1, b"key1".to_vec(), b"alice".to_vec());
         let proposal2 = Proposal::new_update(1, 1, b"key2".to_vec());
 
         queue.add(proposal1).unwrap();
@@ -435,7 +385,7 @@ mod tests {
     #[test]
     fn test_proposal_queue_clear() {
         let mut queue = ProposalQueue::new();
-        
+
         queue.add(Proposal::new_add(0, 1, b"k1".to_vec(), b"a".to_vec())).unwrap();
         queue.add(Proposal::new_update(1, 1, b"k2".to_vec())).unwrap();
 
@@ -449,7 +399,7 @@ mod tests {
     #[test]
     fn test_proposal_queue_filter_by_type() {
         let mut queue = ProposalQueue::new();
-        
+
         queue.add(Proposal::new_add(0, 1, b"k1".to_vec(), b"a".to_vec())).unwrap();
         queue.add(Proposal::new_update(1, 1, b"k2".to_vec())).unwrap();
         queue.add(Proposal::new_add(2, 1, b"k3".to_vec(), b"b".to_vec())).unwrap();
@@ -468,7 +418,7 @@ mod tests {
     #[test]
     fn test_proposal_queue_filter_by_sender() {
         let mut queue = ProposalQueue::new();
-        
+
         queue.add(Proposal::new_add(0, 1, b"k1".to_vec(), b"a".to_vec())).unwrap();
         queue.add(Proposal::new_update(1, 1, b"k2".to_vec())).unwrap();
         queue.add(Proposal::new_add(0, 1, b"k3".to_vec(), b"b".to_vec())).unwrap();

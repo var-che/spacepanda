@@ -152,7 +152,8 @@ mod tests {
         let mut msg = envelope.unwrap_application().unwrap();
         msg.ciphertext = fuzz_bytes(&msg.ciphertext, 1);
 
-        let tampered_envelope = MlsEnvelope::wrap_application(&msg, handle.group_id().unwrap()).unwrap();
+        let tampered_envelope =
+            MlsEnvelope::wrap_application(&msg, handle.group_id().unwrap()).unwrap();
 
         // Should fail to decrypt
         let result = handle.receive_message(&tampered_envelope);
@@ -162,13 +163,14 @@ mod tests {
     #[test]
     fn test_sender_data_mismatch_detection() {
         let mut handle1 = test_handle();
-        
+
         // Add second member
         let (bob_pk, bob_sk) = test_keypair("bob");
         handle1.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         let (_, welcomes) = handle1.commit().unwrap();
-        
-        let handle2 = MlsHandle::join_group(&welcomes[0], 1, &bob_sk, MlsConfig::default()).unwrap();
+
+        let handle2 =
+            MlsHandle::join_group(&welcomes[0], 1, &bob_sk, MlsConfig::default()).unwrap();
 
         // Alice sends message
         let envelope = handle1.send_message(b"Hello").unwrap();
@@ -177,7 +179,8 @@ mod tests {
         // Tamper with encrypted sender data
         msg.encrypted_sender_data = fuzz_bytes(&msg.encrypted_sender_data, 5);
 
-        let tampered_envelope = MlsEnvelope::wrap_application(&msg, handle1.group_id().unwrap()).unwrap();
+        let tampered_envelope =
+            MlsEnvelope::wrap_application(&msg, handle1.group_id().unwrap()).unwrap();
 
         // Bob should reject (sender data won't match)
         let result = handle2.receive_message(&tampered_envelope);
@@ -206,7 +209,7 @@ mod tests {
     #[test]
     fn test_commit_without_proposals_rejected() {
         let handle = test_handle();
-        
+
         // Try to commit without proposals
         let result = handle.commit();
         assert!(result.is_err());
@@ -215,18 +218,18 @@ mod tests {
     #[test]
     fn test_unauthorized_member_removal() {
         let mut alice = test_handle();
-        
+
         // Alice adds Bob
         let (bob_pk, bob_sk) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         let (_, welcomes) = alice.commit().unwrap();
-        
+
         let bob = MlsHandle::join_group(&welcomes[0], 1, &bob_sk, MlsConfig::default()).unwrap();
 
         // Bob tries to remove Alice (index 0) - should work in this simplified model
         // In production, this would require authorization checks
         let proposal = bob.propose_remove(0).unwrap();
-        
+
         // This test demonstrates the need for authorization in production
         assert!(proposal.sender.is_some());
     }
@@ -345,7 +348,7 @@ mod tests {
 
         // Create proposal for handle1's group
         let proposal = Proposal::new_add(0, 0, b"pk".to_vec(), b"id".to_vec());
-        
+
         // But wrap it with handle2's group ID
         let envelope = MlsEnvelope::wrap_proposal(&proposal, handle2.group_id().unwrap()).unwrap();
 

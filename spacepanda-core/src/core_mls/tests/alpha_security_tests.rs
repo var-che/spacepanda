@@ -3,9 +3,9 @@
 //! Implements the 15 priority tests identified in ALPHA_TODO.md critique
 
 use crate::core_mls::{
-    engine::{OpenMlsEngine, GroupOperations},
-    types::{GroupId, MlsConfig},
+    engine::{GroupOperations, OpenMlsEngine},
     errors::MlsError,
+    types::{GroupId, MlsConfig},
 };
 
 use openmls::prelude::*;
@@ -17,35 +17,30 @@ use tls_codec::Serialize as TlsSerialize;
 async fn create_key_package(identity: &[u8]) -> KeyPackage {
     let provider = OpenMlsRustCrypto::default();
     let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
-    
+
     let signature_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm())
         .expect("Failed to generate signature keys");
-    
-    signature_keys.store(provider.storage())
+
+    signature_keys
+        .store(provider.storage())
         .expect("Failed to store signature keys");
-    
+
     let credential = BasicCredential::new(identity.to_vec());
     let credential_with_key = CredentialWithKey {
         credential: credential.into(),
         signature_key: signature_keys.public().into(),
     };
-    
+
     let key_package_bundle = KeyPackage::builder()
-        .build(
-            ciphersuite,
-            &provider,
-            &signature_keys,
-            credential_with_key,
-        )
+        .build(ciphersuite, &provider, &signature_keys, credential_with_key)
         .expect("Failed to build key package");
-    
+
     key_package_bundle.key_package().clone()
 }
 
 /// Helper: Serialize key package
 fn serialize_key_package(kp: &KeyPackage) -> Vec<u8> {
-    kp.tls_serialize_detached()
-        .expect("Failed to serialize key package")
+    kp.tls_serialize_detached().expect("Failed to serialize key package")
 }
 
 #[cfg(test)]
@@ -71,7 +66,7 @@ mod security_tests {
         let alice_engine = OpenMlsEngine::create_group(
             group_id.clone(),
             b"alice@example.com".to_vec(),
-            config.clone()
+            config.clone(),
         )
         .await
         .expect("Failed to create Alice's group");
@@ -81,7 +76,8 @@ mod security_tests {
         let bob_kp_bytes = serialize_key_package(&bob_kp);
 
         // Step 3: Alice adds Bob and gets Welcome message
-        let (_commit1, welcome_bytes) = alice_engine.add_members(vec![bob_kp_bytes.clone()])
+        let (_commit1, welcome_bytes) = alice_engine
+            .add_members(vec![bob_kp_bytes.clone()])
             .await
             .expect("Failed to add Bob");
 
@@ -96,16 +92,18 @@ mod security_tests {
         // Step 4: Bob would join here using W1
         // Note: In a real scenario, Bob would call join_group(welcome_w1)
         // For this test, we're verifying that the Welcome was created
-        
+
         // Step 5: Remove Bob from the group
         // First, find Bob's leaf index
-        let bob_leaf_index = metadata_after_add.members
+        let bob_leaf_index = metadata_after_add
+            .members
             .iter()
             .find(|m| m.identity == b"bob@example.com")
             .expect("Bob should be in members list")
             .leaf_index;
 
-        let _remove_commit = alice_engine.remove_members(vec![bob_leaf_index])
+        let _remove_commit = alice_engine
+            .remove_members(vec![bob_leaf_index])
             .await
             .expect("Failed to remove Bob");
 
@@ -119,16 +117,16 @@ mod security_tests {
         // - The group is now at epoch 2
         // - The Welcome is for epoch 1
         // - OpenMLS should reject stale Welcome messages
-        
+
         // Note: The actual replay attempt would require Bob's private keys
         // and calling join_group. For now, we verify the preconditions:
         // - Welcome was created for epoch 1
         // - Group is now at epoch 2
         // - Member was removed
-        
+
         // The security property is: Welcome messages are epoch-specific
         // and cannot be replayed after the epoch has advanced
-        
+
         println!("✓ Welcome replay protection test: Group advanced to epoch 2");
         println!("✓ Old Welcome (epoch 1) should be rejected if replayed");
     }
@@ -146,7 +144,7 @@ mod security_tests {
         let alice_engine = OpenMlsEngine::create_group(
             group_id.clone(),
             b"alice@example.com".to_vec(),
-            config.clone()
+            config.clone(),
         )
         .await
         .expect("Failed to create group");
@@ -154,9 +152,8 @@ mod security_tests {
         let bob_kp = create_key_package(b"bob@example.com").await;
         let bob_kp_bytes = serialize_key_package(&bob_kp);
 
-        let (_commit, welcome_bytes) = alice_engine.add_members(vec![bob_kp_bytes])
-            .await
-            .expect("Failed to add Bob");
+        let (_commit, welcome_bytes) =
+            alice_engine.add_members(vec![bob_kp_bytes]).await.expect("Failed to add Bob");
 
         assert!(welcome_bytes.is_some(), "Welcome should be created");
         let welcome_data = welcome_bytes.unwrap();
@@ -170,7 +167,7 @@ mod security_tests {
         // 2. Corrupt it (remove encrypted_secrets)
         // 3. Try to process it
         // This requires access to OpenMLS internals and Bob's join flow
-        
+
         println!("✓ Partial Welcome test: Welcome message is well-formed");
     }
 
@@ -186,7 +183,7 @@ mod security_tests {
         let alice_engine = OpenMlsEngine::create_group(
             group_id.clone(),
             b"alice@example.com".to_vec(),
-            config.clone()
+            config.clone(),
         )
         .await
         .expect("Failed to create group");
@@ -195,8 +192,7 @@ mod security_tests {
         let bob_kp = create_key_package(b"bob@example.com").await;
         let bob_kp_bytes = serialize_key_package(&bob_kp);
 
-        let result = alice_engine.add_members(vec![bob_kp_bytes])
-            .await;
+        let result = alice_engine.add_members(vec![bob_kp_bytes]).await;
 
         assert!(result.is_ok(), "Adding member with matching ciphersuite should succeed");
 
@@ -204,10 +200,10 @@ mod security_tests {
         // 1. Create a key package with a different ciphersuite
         // 2. Try to add it to the group
         // 3. Expect OpenMLS to reject it
-        // 
+        //
         // OpenMLS handles this internally - it will reject key packages
         // that don't match the group's ciphersuite during validation
-        
+
         println!("✓ Ciphersuite validation: OpenMLS validates ciphersuite compatibility");
     }
 
@@ -219,30 +215,26 @@ mod security_tests {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
 
-        let alice_engine = OpenMlsEngine::create_group(
-            group_id,
-            b"alice@example.com".to_vec(),
-            config
-        )
-        .await
-        .expect("Failed to create group");
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id, b"alice@example.com".to_vec(), config)
+                .await
+                .expect("Failed to create group");
 
         // Test parsing various invalid inputs
         let corrupted_inputs = vec![
-            vec![], // Empty
-            vec![0u8; 10], // Too short
-            vec![0xFF; 1000], // All ones
-            vec![0x00; 1000], // All zeros
+            vec![],                          // Empty
+            vec![0u8; 10],                   // Too short
+            vec![0xFF; 1000],                // All ones
+            vec![0x00; 1000],                // All zeros
             b"not a valid message".to_vec(), // Random text
         ];
 
         for (i, corrupt_data) in corrupted_inputs.iter().enumerate() {
             let result = alice_engine.process_message(corrupt_data).await;
-            
+
             // Should fail gracefully, not panic
-            assert!(result.is_err(), 
-                "Corrupted input {} should be rejected", i);
-            
+            assert!(result.is_err(), "Corrupted input {} should be rejected", i);
+
             // Verify it returns a proper error, not a panic
             match result {
                 Err(MlsError::InvalidMessage(_)) => {
@@ -270,7 +262,7 @@ mod security_tests {
         let alice_engine = OpenMlsEngine::create_group(
             group_id.clone(),
             b"alice@example.com".to_vec(),
-            config.clone()
+            config.clone(),
         )
         .await
         .expect("Failed to create group");
@@ -278,33 +270,24 @@ mod security_tests {
         // Add Bob to create some encrypted traffic
         let bob_kp = create_key_package(b"bob@example.com").await;
         let bob_kp_bytes = serialize_key_package(&bob_kp);
-        
-        alice_engine.add_members(vec![bob_kp_bytes])
-            .await
-            .expect("Failed to add Bob");
+
+        alice_engine.add_members(vec![bob_kp_bytes]).await.expect("Failed to add Bob");
 
         // Send multiple messages
-        let messages = vec![
-            b"Message 1".to_vec(),
-            b"Message 2".to_vec(),
-            b"Message 3".to_vec(),
-        ];
+        let messages = vec![b"Message 1".to_vec(), b"Message 2".to_vec(), b"Message 3".to_vec()];
 
         let mut encrypted_messages = Vec::new();
         for msg in messages {
-            let encrypted = alice_engine.send_message(&msg)
-                .await
-                .expect("Failed to send message");
+            let encrypted = alice_engine.send_message(&msg).await.expect("Failed to send message");
             encrypted_messages.push(encrypted);
         }
 
         // Verify all encrypted messages are different
         // (If nonces were reused, there's a chance messages could be identical)
         for i in 0..encrypted_messages.len() {
-            for j in (i+1)..encrypted_messages.len() {
+            for j in (i + 1)..encrypted_messages.len() {
                 assert_ne!(
-                    encrypted_messages[i], 
-                    encrypted_messages[j],
+                    encrypted_messages[i], encrypted_messages[j],
                     "Encrypted messages should be unique (different nonces)"
                 );
             }
@@ -325,7 +308,7 @@ mod security_tests {
         let alice_engine = OpenMlsEngine::create_group(
             group_id.clone(),
             b"alice@example.com".to_vec(),
-            config.clone()
+            config.clone(),
         )
         .await
         .expect("Failed to create group");
@@ -334,9 +317,8 @@ mod security_tests {
         let bob_kp = create_key_package(b"bob@example.com").await;
         let bob_kp_bytes = serialize_key_package(&bob_kp);
 
-        let (commit_bytes, _welcome) = alice_engine.add_members(vec![bob_kp_bytes])
-            .await
-            .expect("Failed to add Bob");
+        let (commit_bytes, _welcome) =
+            alice_engine.add_members(vec![bob_kp_bytes]).await.expect("Failed to add Bob");
 
         // The commit was created and signed internally by OpenMLS
         // Verify it's not empty
@@ -363,40 +345,40 @@ mod security_tests {
     /// rejection.
     #[tokio::test]
     async fn test_per_peer_rate_limiting() {
-        use crate::core_mls::rate_limit::{RateLimiter, RateLimitConfig};
+        use crate::core_mls::rate_limit::{RateLimitConfig, RateLimiter};
 
         // Create rate limiter with strict limits for testing
         let config = RateLimitConfig {
             max_requests_per_peer: 5,
             window_secs: 60,
             replay_cache_capacity: 100,
-            refill_rate: 5.0 / 60.0,  // Slow refill for testing
+            refill_rate: 5.0 / 60.0, // Slow refill for testing
         };
-        
+
         let limiter = RateLimiter::new(config);
         let peer_id = b"alice@example.com";
-        
+
         // First 5 requests should succeed
         for i in 0..5 {
             let result = limiter.check_rate_limit(peer_id).await;
             assert!(result.is_ok(), "Request {} should succeed", i + 1);
         }
-        
+
         // 6th request should be rate-limited
         let result = limiter.check_rate_limit(peer_id).await;
         assert!(result.is_err(), "Request 6 should be rate-limited");
-        
+
         // Verify the error is RateLimitExceeded
         match result {
-            Err(crate::core_mls::errors::MlsError::RateLimitExceeded(_)) => {},
+            Err(crate::core_mls::errors::MlsError::RateLimitExceeded(_)) => {}
             _ => panic!("Expected RateLimitExceeded error"),
         }
-        
+
         // Different peer should have independent limit
         let peer2_id = b"bob@example.com";
         let result = limiter.check_rate_limit(peer2_id).await;
         assert!(result.is_ok(), "Different peer should not be rate-limited");
-        
+
         println!("✓ Per-peer rate-limiting: Successfully enforced limits");
     }
 
@@ -410,9 +392,10 @@ mod security_tests {
         let alice_group_id = GroupId::random();
         let alice_identity = b"alice@example.com".to_vec();
         let config = MlsConfig::default();
-        let alice_engine = OpenMlsEngine::create_group(alice_group_id.clone(), alice_identity, config)
-            .await
-            .expect("Failed to create Alice's engine");
+        let alice_engine =
+            OpenMlsEngine::create_group(alice_group_id.clone(), alice_identity, config)
+                .await
+                .expect("Failed to create Alice's engine");
 
         // Create two key packages for Bob (device 1 and device 2)
         let bob_device1_kp = create_key_package(b"bob@device1").await;
@@ -422,13 +405,15 @@ mod security_tests {
         let bob_device2_bytes = serialize_key_package(&bob_device2_kp);
 
         // Add both devices to the group
-        let (_commit1, welcome1) = alice_engine.add_members(vec![bob_device1_bytes.clone()])
+        let (_commit1, welcome1) = alice_engine
+            .add_members(vec![bob_device1_bytes.clone()])
             .await
             .expect("Failed to add Bob device 1");
 
         assert!(welcome1.is_some(), "Welcome should be generated for device 1");
 
-        let (_commit2, welcome2) = alice_engine.add_members(vec![bob_device2_bytes.clone()])
+        let (_commit2, welcome2) = alice_engine
+            .add_members(vec![bob_device2_bytes.clone()])
             .await
             .expect("Failed to add Bob device 2");
 
@@ -458,9 +443,8 @@ mod security_tests {
         let bob_kp = create_key_package(b"bob").await;
         let bob_kp_bytes = serialize_key_package(&bob_kp);
 
-        let (_commit, welcome) = alice_engine.add_members(vec![bob_kp_bytes])
-            .await
-            .expect("Failed to add Bob");
+        let (_commit, welcome) =
+            alice_engine.add_members(vec![bob_kp_bytes]).await.expect("Failed to add Bob");
 
         assert!(welcome.is_some());
 
@@ -469,7 +453,8 @@ mod security_tests {
         let charlie_kp_bytes = serialize_key_package(&charlie_kp);
 
         // Alice commits to add Charlie
-        let (alice_commit, alice_welcome) = alice_engine.add_members(vec![charlie_kp_bytes.clone()])
+        let (alice_commit, alice_welcome) = alice_engine
+            .add_members(vec![charlie_kp_bytes.clone()])
             .await
             .expect("Alice should commit successfully");
 
@@ -502,7 +487,8 @@ mod security_tests {
         let bob_kp = create_key_package(b"bob").await;
         let bob_kp_bytes = serialize_key_package(&bob_kp);
 
-        let (commit1, _welcome1) = alice_engine.add_members(vec![bob_kp_bytes])
+        let (commit1, _welcome1) = alice_engine
+            .add_members(vec![bob_kp_bytes])
             .await
             .expect("First commit should succeed");
 
@@ -510,7 +496,8 @@ mod security_tests {
         let charlie_kp = create_key_package(b"charlie").await;
         let charlie_kp_bytes = serialize_key_package(&charlie_kp);
 
-        let (commit2, _welcome2) = alice_engine.add_members(vec![charlie_kp_bytes])
+        let (commit2, _welcome2) = alice_engine
+            .add_members(vec![charlie_kp_bytes])
             .await
             .expect("Second commit should succeed");
 
@@ -550,7 +537,7 @@ mod security_tests {
             let kp_bytes = serialize_key_package(&kp);
 
             let result = alice_engine.add_members(vec![kp_bytes]).await;
-            
+
             // Some adds might fail due to state transitions, that's acceptable
             // The important thing is no panic occurs
             if i % 10 == 0 {
@@ -578,14 +565,11 @@ mod security_tests {
         let bob_kp = create_key_package(b"bob").await;
         let bob_kp_bytes = serialize_key_package(&bob_kp);
 
-        let (_commit, _welcome) = alice_engine.add_members(vec![bob_kp_bytes])
-            .await
-            .expect("Failed to add Bob");
+        let (_commit, _welcome) =
+            alice_engine.add_members(vec![bob_kp_bytes]).await.expect("Failed to add Bob");
 
         // Export the state snapshot
-        let snapshot = alice_engine.export_snapshot()
-            .await
-            .expect("Failed to export snapshot");
+        let snapshot = alice_engine.export_snapshot().await.expect("Failed to export snapshot");
 
         // Verify snapshot is not empty
         assert!(snapshot.epoch() >= 0, "Epoch should be valid");
@@ -609,15 +593,15 @@ mod security_tests {
 
         // Create a temporary vector with sensitive data
         let mut secret = vec![0x42u8; 32];
-        
+
         // Verify it contains the expected data
         assert_eq!(secret[0], 0x42);
-        
+
         // Manually zero it
         for byte in secret.iter_mut() {
             *byte = 0;
         }
-        
+
         // Verify zeroization
         assert_eq!(secret[0], 0);
         assert!(secret.iter().all(|&b| b == 0), "All bytes should be zeroed");
@@ -645,18 +629,14 @@ mod security_tests {
         let bob_kp = create_key_package(b"bob").await;
         let bob_kp_bytes = serialize_key_package(&bob_kp);
 
-        let (_commit, _welcome) = alice_engine.add_members(vec![bob_kp_bytes])
-            .await
-            .expect("Failed to add Bob");
+        let (_commit, _welcome) =
+            alice_engine.add_members(vec![bob_kp_bytes]).await.expect("Failed to add Bob");
 
         // Export snapshot
-        let snapshot = alice_engine.export_snapshot()
-            .await
-            .expect("Failed to export snapshot");
+        let snapshot = alice_engine.export_snapshot().await.expect("Failed to export snapshot");
 
         // Serialize the snapshot
-        let snapshot_bytes = snapshot.to_bytes()
-            .expect("Failed to serialize snapshot");
+        let snapshot_bytes = snapshot.to_bytes().expect("Failed to serialize snapshot");
 
         // Simulate corruption by truncating the serialized data
         let mut corrupted_bytes = snapshot_bytes.clone();

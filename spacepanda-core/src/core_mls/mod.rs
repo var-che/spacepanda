@@ -28,18 +28,18 @@
 //! - Proof-of-possession: devices prove key ownership
 
 // Core types and errors
-pub mod types;
-pub mod errors;
 pub mod crypto;
+pub mod errors;
 pub mod events;
+pub mod types;
 
 // Trait boundaries for OpenMLS integration
 pub mod traits;
 
 // Provider implementations
+pub mod integration;
 pub mod providers;
 pub mod storage;
-pub mod integration;
 
 // OpenMLS engine wrapper (Phase 3)
 pub mod engine;
@@ -57,75 +57,70 @@ pub mod rate_limit;
 pub mod handle;
 
 // Implemented modules
-pub mod persistence;
-pub mod tree;
-pub mod encryption;
-pub mod welcome;
-pub mod proposals;
-pub mod commit;
-pub mod group;
-pub mod transport;
 pub mod api;
+pub mod commit;
 pub mod discovery;
+pub mod encryption;
+pub mod group;
+pub mod persistence;
+pub mod proposals;
+pub mod transport;
+pub mod tree;
+pub mod welcome;
 
 // Testing modules
-#[cfg(test)]
-#[path = "tests/security_tests.rs"]
-mod security_tests;
 #[cfg(test)]
 #[path = "tests/alpha_security_tests.rs"]
 mod alpha_security_tests;
 #[cfg(test)]
+#[path = "tests/core_mls_test_suite.rs"]
+mod core_mls_test_suite;
+#[cfg(test)]
 #[path = "tests/integration_tests.rs"]
 mod integration_tests;
 #[cfg(test)]
-#[path = "tests/tdd_tests.rs"]
-mod tdd_tests;
-#[cfg(test)]
-#[path = "tests/core_mls_test_suite.rs"]
-mod core_mls_test_suite;
+#[path = "tests/phase4_integration.rs"]
+mod phase4_integration;
 #[cfg(test)]
 #[path = "tests/rfc9420_conformance_tests.rs"]
 mod rfc9420_conformance_tests;
 #[cfg(test)]
-#[path = "tests/phase4_integration.rs"]
-mod phase4_integration;
+#[path = "tests/security_tests.rs"]
+mod security_tests;
+#[cfg(test)]
+#[path = "tests/tdd_tests.rs"]
+mod tdd_tests;
 
 // Placeholder modules (to be implemented incrementally)
 
 // Re-exports
-pub use types::{GroupId, MlsConfig, GroupMetadata};
+pub use commit::{Commit, CommitResult, CommitValidator, UpdatePath};
+pub use encryption::{
+    decrypt_message, encrypt_message, EncryptedMessage, HpkeContext, KeySchedule, SenderData,
+};
 pub use errors::{MlsError, MlsResult};
+pub use group::MlsGroup;
 pub use persistence::{
-    encrypt_group_state, decrypt_group_state,
-    save_group_to_file, load_group_from_file,
+    decrypt_group_state, encrypt_group_state, load_group_from_file, save_group_to_file,
     EncryptedGroupBlob, GroupSecrets, PersistedGroupState,
 };
-pub use tree::{MlsTree, TreeNode, NodeIndex, LeafIndex};
-pub use encryption::{
-    encrypt_message, decrypt_message,
-    KeySchedule, EncryptedMessage, SenderData, HpkeContext,
-};
-pub use welcome::{Welcome, WelcomeBuilder, WelcomeGroupSecrets, TreeSnapshot};
-pub use proposals::{
-    Proposal, ProposalType, ProposalContent, ProposalRef, ProposalQueue,
-};
-pub use commit::{Commit, UpdatePath, CommitResult, CommitValidator};
-pub use group::MlsGroup;
-pub use transport::{MlsTransport, MlsEnvelope, MlsMessageType};
+pub use proposals::{Proposal, ProposalContent, ProposalQueue, ProposalRef, ProposalType};
+pub use transport::{MlsEnvelope, MlsMessageType, MlsTransport};
+pub use tree::{LeafIndex, MlsTree, NodeIndex, TreeNode};
+pub use types::{GroupId, GroupMetadata, MlsConfig};
+pub use welcome::{TreeSnapshot, Welcome, WelcomeBuilder, WelcomeGroupSecrets};
 
 // Primary MLS handle (OpenMLS-based)
 pub use handle::MlsHandle;
 
 // Discovery and crypto
-pub use discovery::{GroupPublicInfo, DiscoveryQuery};
-pub use crypto::{MlsSigningKey, MlsVerifyingKey, sign_with_key, verify_with_key};
+pub use crypto::{sign_with_key, verify_with_key, MlsSigningKey, MlsVerifyingKey};
+pub use discovery::{DiscoveryQuery, GroupPublicInfo};
 
 // OpenMLS engine exports
 pub use engine::{
-    OpenMlsEngine, MessageAdapter, WireFormat, GroupOperations,
-    OpenMlsHandleAdapter,
-    group_ops::ProcessedMessage,
+    group_ops::ProcessedMessage, GroupOperations, MessageAdapter, OpenMlsEngine,
+    OpenMlsHandleAdapter, WireFormat,
 };
 
 // Note: api::MlsHandle (legacy) is deprecated and not re-exported to avoid ambiguity.
@@ -138,7 +133,7 @@ pub use engine::{
 /// - AES-128-GCM for AEAD
 /// - SHA-256 for hashing
 /// - Ed25519 for signatures
-pub const DEFAULT_CIPHERSUITE: openmls::prelude::Ciphersuite = 
+pub const DEFAULT_CIPHERSUITE: openmls::prelude::Ciphersuite =
     openmls::prelude::Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 
 #[cfg(test)]

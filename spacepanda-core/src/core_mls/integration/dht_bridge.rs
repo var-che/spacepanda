@@ -2,12 +2,15 @@
 //!
 //! Bridges core_dht with MLS transport requirements.
 
-use crate::core_mls::errors::{MlsError, MlsResult};
-use crate::core_mls::traits::transport::{DhtBridge, GroupId, MessageType, WireMessage};
+use crate::core_mls::errors::MlsResult;
+use crate::core_mls::traits::transport::{DhtBridge, GroupId, WireMessage};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
+
+#[cfg(test)]
+use crate::core_mls::traits::transport::MessageType;
 
 /// DHT bridge implementation
 ///
@@ -21,9 +24,7 @@ pub struct DhtBridgeImpl {
 impl DhtBridgeImpl {
     /// Create a new DHT bridge
     pub fn new() -> Self {
-        Self {
-            subscriptions: Arc::new(RwLock::new(HashMap::new())),
-        }
+        Self { subscriptions: Arc::new(RwLock::new(HashMap::new())) }
     }
 }
 
@@ -38,7 +39,7 @@ impl DhtBridge for DhtBridgeImpl {
     async fn publish(&self, group_id: &GroupId, wire: WireMessage) -> MlsResult<()> {
         // Get all subscribers for this group
         let subscriptions = self.subscriptions.read().await;
-        
+
         if let Some(senders) = subscriptions.get(group_id) {
             // Send to all subscribers
             for sender in senders {
@@ -50,14 +51,14 @@ impl DhtBridge for DhtBridgeImpl {
         Ok(())
     }
 
-    async fn subscribe(&self, group_id: &GroupId) -> MlsResult<tokio::sync::mpsc::Receiver<WireMessage>> {
+    async fn subscribe(
+        &self,
+        group_id: &GroupId,
+    ) -> MlsResult<tokio::sync::mpsc::Receiver<WireMessage>> {
         let (tx, rx) = mpsc::channel(100);
 
         let mut subscriptions = self.subscriptions.write().await;
-        subscriptions
-            .entry(group_id.to_vec())
-            .or_insert_with(Vec::new)
-            .push(tx);
+        subscriptions.entry(group_id.to_vec()).or_insert_with(Vec::new).push(tx);
 
         Ok(rx)
     }

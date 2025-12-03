@@ -1,13 +1,13 @@
 /*
     apply_local.rs - Apply local user actions to CRDT state
-    
+
     This module handles operations initiated by the local user:
     - Sending a message
     - Editing channel metadata
     - Adding/removing members
     - Assigning roles
     - etc.
-    
+
     Flow:
     1. User action comes from UI/API
     2. Generate CRDT operation with local node_id and timestamp
@@ -16,11 +16,9 @@
     5. Broadcast to peers (via router) and DHT
 */
 
-use crate::core_store::crdt::{
-    VectorClock, OperationMetadata, AddId,
-};
-use crate::core_store::model::{Channel, Space, MessageId, UserId, Timestamp};
-use crate::core_store::store::errors::{StoreResult, StoreError};
+use crate::core_store::crdt::{AddId, OperationMetadata, VectorClock};
+use crate::core_store::model::{Channel, MessageId, Space, Timestamp, UserId};
+use crate::core_store::store::errors::{StoreError, StoreResult};
 use serde::{Deserialize, Serialize};
 
 /// Local operations that a user can perform
@@ -29,80 +27,52 @@ pub enum LocalOperation {
     /// Send a message
     SendMessage {
         channel_id: String,
-        content: Vec<u8>,  // MLS-encrypted content
+        content: Vec<u8>, // MLS-encrypted content
         reply_to: Option<MessageId>,
     },
-    
+
     /// Edit a message
-    EditMessage {
-        message_id: MessageId,
-        new_content: Vec<u8>,
-    },
-    
+    EditMessage { message_id: MessageId, new_content: Vec<u8> },
+
     /// Delete a message
-    DeleteMessage {
-        message_id: MessageId,
-    },
-    
+    DeleteMessage { message_id: MessageId },
+
     /// Update channel name
-    UpdateChannelName {
-        channel_id: String,
-        new_name: String,
-    },
-    
+    UpdateChannelName { channel_id: String, new_name: String },
+
     /// Update channel topic
-    UpdateChannelTopic {
-        channel_id: String,
-        new_topic: String,
-    },
-    
+    UpdateChannelTopic { channel_id: String, new_topic: String },
+
     /// Add member to channel
-    AddChannelMember {
-        channel_id: String,
-        user_id: UserId,
-    },
-    
+    AddChannelMember { channel_id: String, user_id: UserId },
+
     /// Remove member from channel
-    RemoveChannelMember {
-        channel_id: String,
-        user_id: UserId,
-    },
-    
+    RemoveChannelMember { channel_id: String, user_id: UserId },
+
     /// Update space name
-    UpdateSpaceName {
-        space_id: String,
-        new_name: String,
-    },
-    
+    UpdateSpaceName { space_id: String, new_name: String },
+
     /// Assign role to user
-    AssignRole {
-        space_id: String,
-        user_id: UserId,
-        role_name: String,
-    },
+    AssignRole { space_id: String, user_id: UserId, role_name: String },
 }
 
 /// Context for applying local operations
 pub struct LocalContext {
     /// Local node identifier
     pub node_id: String,
-    
+
     /// Local user ID
     pub user_id: UserId,
-    
+
     /// Vector clock for this node
     pub vector_clock: VectorClock,
 }
 
 impl LocalContext {
     pub fn new(node_id: String, user_id: UserId) -> Self {
-        LocalContext {
-            node_id,
-            user_id,
-            vector_clock: VectorClock::new(),
-        }
+        LocalContext { node_id, user_id, vector_clock: VectorClock::new() }
     }
-    
+
     /// Increment vector clock and return operation metadata
     pub fn next_metadata(&mut self) -> OperationMetadata {
         self.vector_clock.increment(&self.node_id);
@@ -132,7 +102,7 @@ pub fn apply_local_to_channel(
             );
             Ok(())
         }
-        
+
         LocalOperation::UpdateChannelTopic { new_topic, .. } => {
             let metadata = ctx.next_metadata();
             channel.topic.set(
@@ -143,23 +113,21 @@ pub fn apply_local_to_channel(
             );
             Ok(())
         }
-        
+
         LocalOperation::AddChannelMember { user_id, .. } => {
             let metadata = ctx.next_metadata();
             let add_id = AddId::new(user_id.0.clone(), metadata.timestamp);
             channel.members.add(user_id, add_id, metadata.vector_clock);
             Ok(())
         }
-        
+
         LocalOperation::RemoveChannelMember { user_id, .. } => {
             let metadata = ctx.next_metadata();
             channel.members.remove(&user_id, metadata.vector_clock);
             Ok(())
         }
-        
-        _ => Err(StoreError::InvalidOperation(
-            "Operation not applicable to channel".to_string()
-        )),
+
+        _ => Err(StoreError::InvalidOperation("Operation not applicable to channel".to_string())),
     }
 }
 
@@ -180,7 +148,7 @@ pub fn apply_local_to_space(
             );
             Ok(())
         }
-        
+
         LocalOperation::AssignRole { user_id, role_name, .. } => {
             let metadata = ctx.next_metadata();
             let mut role_register = crate::core_store::crdt::LWWRegister::new();
@@ -190,32 +158,30 @@ pub fn apply_local_to_space(
                 metadata.node_id.clone(),
                 metadata.vector_clock.clone(),
             );
-            
+
             let add_id = AddId::new(user_id.0.clone(), metadata.timestamp);
             space.member_roles.put(user_id, role_register, add_id, metadata.vector_clock);
             Ok(())
         }
-        
-        _ => Err(StoreError::InvalidOperation(
-            "Operation not applicable to space".to_string()
-        )),
+
+        _ => Err(StoreError::InvalidOperation("Operation not applicable to space".to_string())),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core_store::model::{ChannelId, SpaceId, ChannelType};
-    
+    use crate::core_store::model::{ChannelId, ChannelType, SpaceId};
+
     #[test]
     fn test_apply_local_channel_name() {
         use std::thread;
         use std::time::Duration;
-        
+
         let channel_id = ChannelId::generate();
         let creator = UserId::generate();
         let now = Timestamp::now();
-        
+
         let mut channel = Channel::new(
             channel_id,
             "Old Name".to_string(),
@@ -224,29 +190,29 @@ mod tests {
             now,
             "node1".to_string(),
         );
-        
+
         // Small delay to ensure new timestamp is later
         thread::sleep(Duration::from_millis(2));
-        
+
         let mut ctx = LocalContext::new("node1".to_string(), creator);
-        
+
         let op = LocalOperation::UpdateChannelName {
             channel_id: "test".to_string(),
             new_name: "New Name".to_string(),
         };
-        
+
         apply_local_to_channel(&mut channel, op, &mut ctx).unwrap();
-        
+
         assert_eq!(channel.get_name(), Some(&"New Name".to_string()));
     }
-    
+
     #[test]
     fn test_apply_local_add_member() {
         let channel_id = ChannelId::generate();
         let creator = UserId::generate();
         let new_member = UserId::generate();
         let now = Timestamp::now();
-        
+
         let mut channel = Channel::new(
             channel_id,
             "Test".to_string(),
@@ -255,16 +221,16 @@ mod tests {
             now,
             "node1".to_string(),
         );
-        
+
         let mut ctx = LocalContext::new("node1".to_string(), creator);
-        
+
         let op = LocalOperation::AddChannelMember {
             channel_id: "test".to_string(),
             user_id: new_member.clone(),
         };
-        
+
         apply_local_to_channel(&mut channel, op, &mut ctx).unwrap();
-        
+
         assert!(channel.has_member(&new_member));
     }
 }

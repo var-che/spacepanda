@@ -61,8 +61,8 @@ impl MlsEnvelope {
 
     /// Create envelope for Welcome message
     pub fn wrap_welcome(welcome: &Welcome) -> MlsResult<Self> {
-        let payload = bincode::serialize(welcome)
-            .map_err(|e| MlsError::Serialization(e.to_string()))?;
+        let payload =
+            bincode::serialize(welcome).map_err(|e| MlsError::Serialization(e.to_string()))?;
 
         Ok(Self {
             version: Self::VERSION,
@@ -75,8 +75,8 @@ impl MlsEnvelope {
 
     /// Create envelope for Proposal
     pub fn wrap_proposal(proposal: &Proposal, group_id: GroupId) -> MlsResult<Self> {
-        let payload = bincode::serialize(proposal)
-            .map_err(|e| MlsError::Serialization(e.to_string()))?;
+        let payload =
+            bincode::serialize(proposal).map_err(|e| MlsError::Serialization(e.to_string()))?;
 
         Ok(Self {
             version: Self::VERSION,
@@ -89,8 +89,8 @@ impl MlsEnvelope {
 
     /// Create envelope for Commit
     pub fn wrap_commit(commit: &Commit) -> MlsResult<Self> {
-        let payload = bincode::serialize(commit)
-            .map_err(|e| MlsError::Serialization(e.to_string()))?;
+        let payload =
+            bincode::serialize(commit).map_err(|e| MlsError::Serialization(e.to_string()))?;
 
         Ok(Self {
             version: Self::VERSION,
@@ -103,8 +103,8 @@ impl MlsEnvelope {
 
     /// Create envelope for Application message
     pub fn wrap_application(msg: &EncryptedMessage, group_id: GroupId) -> MlsResult<Self> {
-        let payload = bincode::serialize(msg)
-            .map_err(|e| MlsError::Serialization(e.to_string()))?;
+        let payload =
+            bincode::serialize(msg).map_err(|e| MlsError::Serialization(e.to_string()))?;
 
         Ok(Self {
             version: Self::VERSION,
@@ -124,8 +124,7 @@ impl MlsEnvelope {
             )));
         }
 
-        bincode::deserialize(&self.payload)
-            .map_err(|e| MlsError::Serialization(e.to_string()))
+        bincode::deserialize(&self.payload).map_err(|e| MlsError::Serialization(e.to_string()))
     }
 
     /// Unwrap Proposal
@@ -137,8 +136,7 @@ impl MlsEnvelope {
             )));
         }
 
-        bincode::deserialize(&self.payload)
-            .map_err(|e| MlsError::Serialization(e.to_string()))
+        bincode::deserialize(&self.payload).map_err(|e| MlsError::Serialization(e.to_string()))
     }
 
     /// Unwrap Commit
@@ -150,8 +148,7 @@ impl MlsEnvelope {
             )));
         }
 
-        bincode::deserialize(&self.payload)
-            .map_err(|e| MlsError::Serialization(e.to_string()))
+        bincode::deserialize(&self.payload).map_err(|e| MlsError::Serialization(e.to_string()))
     }
 
     /// Unwrap Application message
@@ -163,32 +160,27 @@ impl MlsEnvelope {
             )));
         }
 
-        bincode::deserialize(&self.payload)
-            .map_err(|e| MlsError::Serialization(e.to_string()))
+        bincode::deserialize(&self.payload).map_err(|e| MlsError::Serialization(e.to_string()))
     }
 
     /// Serialize to JSON for Router
     pub fn to_json(&self) -> MlsResult<String> {
-        serde_json::to_string(self)
-            .map_err(|e| MlsError::Serialization(e.to_string()))
+        serde_json::to_string(self).map_err(|e| MlsError::Serialization(e.to_string()))
     }
 
     /// Deserialize from JSON
     pub fn from_json(json: &str) -> MlsResult<Self> {
-        serde_json::from_str(json)
-            .map_err(|e| MlsError::Serialization(e.to_string()))
+        serde_json::from_str(json).map_err(|e| MlsError::Serialization(e.to_string()))
     }
 
     /// Serialize to bytes (more compact)
     pub fn to_bytes(&self) -> MlsResult<Vec<u8>> {
-        bincode::serialize(self)
-            .map_err(|e| MlsError::Serialization(e.to_string()))
+        bincode::serialize(self).map_err(|e| MlsError::Serialization(e.to_string()))
     }
 
     /// Deserialize from bytes
     pub fn from_bytes(bytes: &[u8]) -> MlsResult<Self> {
-        bincode::deserialize(bytes)
-            .map_err(|e| MlsError::Serialization(e.to_string()))
+        bincode::deserialize(bytes).map_err(|e| MlsError::Serialization(e.to_string()))
     }
 }
 
@@ -237,10 +229,8 @@ impl MlsTransport {
         let commit_envelope = MlsEnvelope::wrap_commit(&commit)?;
 
         // Wrap welcomes
-        let welcome_envelopes: MlsResult<Vec<_>> = welcomes
-            .iter()
-            .map(MlsEnvelope::wrap_welcome)
-            .collect();
+        let welcome_envelopes: MlsResult<Vec<_>> =
+            welcomes.iter().map(MlsEnvelope::wrap_welcome).collect();
 
         Ok((commit_envelope, welcome_envelopes?))
     }
@@ -333,7 +323,7 @@ mod tests {
         let group = test_group();
         let (bob_pk, _bob_sk) = test_keypair("bob");
         let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
-        
+
         let mut transport = MlsTransport::new(group);
         transport.group.add_proposal(proposal).unwrap();
         let (_, welcomes) = transport.group.commit(None).unwrap();
@@ -382,8 +372,7 @@ mod tests {
         let plaintext = b"Hello, MLS!";
         let encrypted = group.seal_message(plaintext).unwrap();
 
-        let envelope =
-            MlsEnvelope::wrap_application(&encrypted, group.group_id.clone()).unwrap();
+        let envelope = MlsEnvelope::wrap_application(&encrypted, group.group_id.clone()).unwrap();
         assert_eq!(envelope.message_type, MlsMessageType::Application);
         assert_eq!(envelope.sender, Some(0));
 
@@ -488,8 +477,7 @@ mod tests {
         let welcome_envelope = MlsEnvelope::wrap_welcome(&welcomes[0]).unwrap();
 
         // Bob joins via welcome
-        let bob_transport =
-            MlsTransport::from_welcome(&welcome_envelope, 1, &bob_sk).unwrap();
+        let bob_transport = MlsTransport::from_welcome(&welcome_envelope, 1, &bob_sk).unwrap();
 
         assert_eq!(bob_transport.group_id(), &creator.group_id);
         assert_eq!(bob_transport.epoch(), creator.current_epoch());
@@ -510,8 +498,7 @@ mod tests {
         let (_commit_envelope, welcome_envelopes) = alice.send_commit().unwrap();
 
         // Bob joins
-        let mut bob =
-            MlsTransport::from_welcome(&welcome_envelopes[0], 1, &bob_sk).unwrap();
+        let mut bob = MlsTransport::from_welcome(&welcome_envelopes[0], 1, &bob_sk).unwrap();
 
         assert_eq!(alice.group_id(), bob.group_id());
         assert_eq!(alice.epoch(), bob.epoch());

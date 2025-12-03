@@ -25,8 +25,8 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 
+use super::message::{DhtMessage, FindValueResult, PeerInfo};
 use super::{DhtKey, DhtValue, RoutingTable};
-use super::message::{DhtMessage, PeerInfo, FindValueResult};
 use crate::core_router::RouterHandle;
 
 /// DHT client for outbound RPC calls
@@ -59,25 +59,26 @@ impl DhtClient {
             request_id_counter: Arc::new(Mutex::new(0)),
         }
     }
-    
+
     /// Get next request ID
     async fn next_request_id(&self) -> u64 {
         let mut counter = self.request_id_counter.lock().await;
         *counter += 1;
         *counter
     }
-    
+
     /// Send PING request
     pub async fn ping(&self, peer_id: DhtKey) -> Result<(), String> {
         let _msg = DhtMessage::new_ping(self.local_id);
-        
+
         // For now, ping just checks if we can reach the peer
         // In production, this would use proper RPC protocol
         let result = timeout(
             self.rpc_timeout,
-            async { Ok::<(), String>(()) } // Placeholder
-        ).await;
-        
+            async { Ok::<(), String>(()) }, // Placeholder
+        )
+        .await;
+
         match result {
             Ok(Ok(_)) => {
                 // Update routing table on success
@@ -96,22 +97,19 @@ impl DhtClient {
             }
         }
     }
-    
+
     /// Send FIND_NODE request
-    pub async fn find_node(&self, peer_id: DhtKey, target: DhtKey) -> Result<Vec<PeerInfo>, String> {
+    pub async fn find_node(
+        &self,
+        peer_id: DhtKey,
+        target: DhtKey,
+    ) -> Result<Vec<PeerInfo>, String> {
         let request_id = self.next_request_id().await;
-        let msg = DhtMessage::FindNode {
-            sender_id: self.local_id,
-            target,
-            request_id,
-        };
-        
+        let msg = DhtMessage::FindNode { sender_id: self.local_id, target, request_id };
+
         // Send via router and wait for response
-        let result = timeout(
-            self.rpc_timeout,
-            self.send_and_receive(peer_id, msg)
-        ).await;
-        
+        let result = timeout(self.rpc_timeout, self.send_and_receive(peer_id, msg)).await;
+
         match result {
             Ok(Ok(response)) => {
                 if let DhtMessage::FindNodeResponse { nodes, .. } = response {
@@ -133,21 +131,18 @@ impl DhtClient {
             }
         }
     }
-    
+
     /// Send FIND_VALUE request
-    pub async fn find_value(&self, peer_id: DhtKey, key: DhtKey) -> Result<FindValueResult, String> {
+    pub async fn find_value(
+        &self,
+        peer_id: DhtKey,
+        key: DhtKey,
+    ) -> Result<FindValueResult, String> {
         let request_id = self.next_request_id().await;
-        let msg = DhtMessage::FindValue {
-            sender_id: self.local_id,
-            key,
-            request_id,
-        };
-        
-        let result = timeout(
-            self.rpc_timeout,
-            self.send_and_receive(peer_id, msg)
-        ).await;
-        
+        let msg = DhtMessage::FindValue { sender_id: self.local_id, key, request_id };
+
+        let result = timeout(self.rpc_timeout, self.send_and_receive(peer_id, msg)).await;
+
         match result {
             Ok(Ok(response)) => {
                 if let DhtMessage::FindValueResponse { result, .. } = response {
@@ -168,22 +163,14 @@ impl DhtClient {
             }
         }
     }
-    
+
     /// Send STORE request
     pub async fn store(&self, peer_id: DhtKey, key: DhtKey, value: DhtValue) -> Result<(), String> {
         let request_id = self.next_request_id().await;
-        let msg = DhtMessage::Store {
-            sender_id: self.local_id,
-            key,
-            value,
-            request_id,
-        };
-        
-        let result = timeout(
-            self.rpc_timeout,
-            self.send_and_receive(peer_id, msg)
-        ).await;
-        
+        let msg = DhtMessage::Store { sender_id: self.local_id, key, value, request_id };
+
+        let result = timeout(self.rpc_timeout, self.send_and_receive(peer_id, msg)).await;
+
         match result {
             Ok(Ok(response)) => {
                 if let DhtMessage::StoreAck { success, error, .. } = response {
@@ -209,11 +196,15 @@ impl DhtClient {
             }
         }
     }
-    
+
     /// Helper: send message and receive response
     /// Note: This is a simplified implementation. In production, you'd use the RPC protocol
     /// from the router layer to handle request/response matching.
-    async fn send_and_receive(&self, _peer_id: DhtKey, _msg: DhtMessage) -> Result<DhtMessage, String> {
+    async fn send_and_receive(
+        &self,
+        _peer_id: DhtKey,
+        _msg: DhtMessage,
+    ) -> Result<DhtMessage, String> {
         // In production, we'd serialize, send via router, and wait for response
         // For now, return an error indicating this needs RPC integration
         Err("Response handling requires RPC protocol integration".to_string())
@@ -229,13 +220,8 @@ mod tests {
         let (router, _handle) = RouterHandle::new();
         let router = Arc::new(router);
         let routing_table = Arc::new(Mutex::new(RoutingTable::new(local_id, 20)));
-        
-        DhtClient::new(
-            local_id,
-            router,
-            routing_table,
-            Duration::from_secs(5),
-        )
+
+        DhtClient::new(local_id, router, routing_table, Duration::from_secs(5))
     }
 
     #[tokio::test]
@@ -247,11 +233,11 @@ mod tests {
     #[tokio::test]
     async fn test_request_id_increment() {
         let client = create_test_client();
-        
+
         let id1 = client.next_request_id().await;
         let id2 = client.next_request_id().await;
         let id3 = client.next_request_id().await;
-        
+
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
         assert_eq!(id3, 3);
@@ -261,7 +247,7 @@ mod tests {
     async fn test_ping_message_creation() {
         let local_id = DhtKey::hash(b"local");
         let msg = DhtMessage::new_ping(local_id);
-        
+
         assert!(msg.is_request());
         assert_eq!(msg.message_type(), "Ping");
         assert_eq!(msg.sender_id(), local_id);
@@ -273,15 +259,10 @@ mod tests {
         let (router, _handle) = RouterHandle::new();
         let router = Arc::new(router);
         let routing_table = Arc::new(Mutex::new(RoutingTable::new(local_id, 20)));
-        
+
         let timeout_duration = Duration::from_secs(10);
-        let client = DhtClient::new(
-            local_id,
-            router,
-            routing_table,
-            timeout_duration,
-        );
-        
+        let client = DhtClient::new(local_id, router, routing_table, timeout_duration);
+
         assert_eq!(client.rpc_timeout, timeout_duration);
     }
 }

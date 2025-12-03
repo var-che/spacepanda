@@ -2,8 +2,8 @@
 //!
 //! Defines the interface for sending/receiving MLS messages via DHT/Router.
 
-use async_trait::async_trait;
 use crate::core_mls::errors::MlsResult;
+use async_trait::async_trait;
 
 /// Group identifier
 pub type GroupId = Vec<u8>;
@@ -55,7 +55,10 @@ pub trait DhtBridge: Send + Sync {
     ///
     /// # Returns
     /// A receiver that yields `WireMessage` as they arrive
-    async fn subscribe(&self, group_id: &GroupId) -> MlsResult<tokio::sync::mpsc::Receiver<WireMessage>>;
+    async fn subscribe(
+        &self,
+        group_id: &GroupId,
+    ) -> MlsResult<tokio::sync::mpsc::Receiver<WireMessage>>;
 
     /// Unsubscribe from group messages
     ///

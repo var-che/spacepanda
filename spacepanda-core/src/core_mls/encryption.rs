@@ -78,19 +78,13 @@ impl SenderData {
 
         let leaf_index = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
         let sequence = u64::from_be_bytes([
-            bytes[4], bytes[5], bytes[6], bytes[7],
-            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11],
         ]);
         let epoch = u64::from_be_bytes([
-            bytes[12], bytes[13], bytes[14], bytes[15],
-            bytes[16], bytes[17], bytes[18], bytes[19],
+            bytes[12], bytes[13], bytes[14], bytes[15], bytes[16], bytes[17], bytes[18], bytes[19],
         ]);
 
-        Ok(Self {
-            leaf_index,
-            sequence,
-            epoch,
-        })
+        Ok(Self { leaf_index, sequence, epoch })
     }
 }
 
@@ -111,13 +105,8 @@ impl KeySchedule {
     /// Create new key schedule from application secret
     pub fn new(epoch: u64, application_secret: Vec<u8>) -> Self {
         let sender_data_secret = derive_secret(&application_secret, SENDER_DATA_LABEL, &[]);
-        
-        Self {
-            epoch,
-            application_secret,
-            sender_data_secret,
-            message_key_cache: HashMap::new(),
-        }
+
+        Self { epoch, application_secret, sender_data_secret, message_key_cache: HashMap::new() }
     }
 
     /// Derive message key for a specific sender and sequence
@@ -134,10 +123,10 @@ impl KeySchedule {
         context.extend_from_slice(&sequence.to_be_bytes());
 
         let key = derive_secret(&self.application_secret, MESSAGE_KEY_LABEL, &context);
-        
+
         // Cache for reuse (same key used for encryption and decryption)
         self.message_key_cache.insert(cache_key, key.clone());
-        
+
         key
     }
 
@@ -160,29 +149,26 @@ pub fn encrypt_message(
 ) -> MlsResult<EncryptedMessage> {
     // Derive message key
     let message_key = key_schedule.derive_message_key(sender_data.leaf_index, sender_data.sequence);
-    
+
     // Generate nonce (in production, use proper nonce generation)
     let mut nonce_bytes = [0u8; NONCE_SIZE];
     use rand::RngCore;
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    rand::rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     // Encrypt plaintext with AEAD
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&message_key));
-    
+
     // Use sender data as AAD for binding
     let sender_bytes = sender_data.to_bytes();
     let ciphertext = cipher
-        .encrypt(nonce, aes_gcm::aead::Payload {
-            msg: plaintext,
-            aad: &sender_bytes,
-        })
+        .encrypt(nonce, aes_gcm::aead::Payload { msg: plaintext, aad: &sender_bytes })
         .map_err(|e| MlsError::CryptoError(format!("AEAD encryption failed: {}", e)))?;
 
     // Encrypt sender data separately (for confidentiality)
     let sender_data_key = derive_secret(&key_schedule.sender_data_secret, b"encrypt", &nonce_bytes);
     let sender_cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&sender_data_key));
-    
+
     // Use empty AAD for sender data encryption
     let encrypted_sender_data = sender_cipher
         .encrypt(nonce, &sender_bytes[..])
@@ -215,11 +201,12 @@ pub fn decrypt_message(
     if encrypted_msg.nonce.len() != NONCE_SIZE {
         return Err(MlsError::InvalidMessage("Invalid nonce size".to_string()));
     }
-    
-    let sender_data_key = derive_secret(&key_schedule.sender_data_secret, b"encrypt", &encrypted_msg.nonce);
+
+    let sender_data_key =
+        derive_secret(&key_schedule.sender_data_secret, b"encrypt", &encrypted_msg.nonce);
     let sender_cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&sender_data_key));
     let nonce = Nonce::from_slice(&encrypted_msg.nonce);
-    
+
     let sender_bytes = sender_cipher
         .decrypt(nonce, &encrypted_msg.encrypted_sender_data[..])
         .map_err(|e| MlsError::CryptoError(format!("Sender data decryption failed: {}", e)))?;
@@ -227,23 +214,24 @@ pub fn decrypt_message(
     let sender_data = SenderData::from_bytes(&sender_bytes)?;
 
     // Verify sender data matches header
-    if sender_data.leaf_index != encrypted_msg.sender_leaf 
-        || sender_data.sequence != encrypted_msg.sequence 
-        || sender_data.epoch != encrypted_msg.epoch {
+    if sender_data.leaf_index != encrypted_msg.sender_leaf
+        || sender_data.sequence != encrypted_msg.sequence
+        || sender_data.epoch != encrypted_msg.epoch
+    {
         return Err(MlsError::VerifyFailed("Sender data mismatch".to_string()));
     }
 
     // Derive message key
     let message_key = key_schedule.derive_message_key(sender_data.leaf_index, sender_data.sequence);
-    
+
     // Decrypt ciphertext with AEAD
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&message_key));
-    
+
     let plaintext = cipher
-        .decrypt(nonce, aes_gcm::aead::Payload {
-            msg: &encrypted_msg.ciphertext,
-            aad: &sender_bytes,
-        })
+        .decrypt(
+            nonce,
+            aes_gcm::aead::Payload { msg: &encrypted_msg.ciphertext, aad: &sender_bytes },
+        )
         .map_err(|e| MlsError::CryptoError(format!("AEAD decryption failed: {}", e)))?;
 
     Ok(plaintext)
@@ -273,9 +261,7 @@ pub struct HpkeContext {
 impl HpkeContext {
     /// Create HPKE context for encrypting to a public key
     pub fn new(recipient_public_key: Vec<u8>) -> Self {
-        Self {
-            recipient_public_key,
-        }
+        Self { recipient_public_key }
     }
 
     /// Encrypt data to the recipient using HPKE
@@ -289,9 +275,7 @@ impl HpkeContext {
 
         // Parse recipient's X25519 public key
         if self.recipient_public_key.len() != 32 {
-            return Err(MlsError::CryptoError(
-                "Invalid X25519 public key length".to_string(),
-            ));
+            return Err(MlsError::CryptoError("Invalid X25519 public key length".to_string()));
         }
 
         let mut pk_bytes = [0u8; 32];
@@ -336,11 +320,7 @@ impl HpkeContext {
     /// Decrypt data (receiver side)
     ///
     /// Requires the recipient's private key to perform ECDH with the ephemeral public key
-    pub fn open(
-        recipient_secret_key: &[u8],
-        ciphertext: &[u8],
-        aad: &[u8],
-    ) -> MlsResult<Vec<u8>> {
+    pub fn open(recipient_secret_key: &[u8], ciphertext: &[u8], aad: &[u8]) -> MlsResult<Vec<u8>> {
         use x25519_dalek::{PublicKey, StaticSecret};
 
         // Parse ciphertext: ephemeral_pk (32) || nonce (12) || ct
@@ -359,9 +339,7 @@ impl HpkeContext {
 
         // Parse recipient's secret key
         if recipient_secret_key.len() != 32 {
-            return Err(MlsError::CryptoError(
-                "Invalid X25519 secret key length".to_string(),
-            ));
+            return Err(MlsError::CryptoError("Invalid X25519 secret key length".to_string()));
         }
         let mut sk_bytes = [0u8; 32];
         sk_bytes.copy_from_slice(recipient_secret_key);
@@ -392,11 +370,7 @@ mod tests {
 
     #[test]
     fn test_sender_data_roundtrip() {
-        let sender = SenderData {
-            leaf_index: 42,
-            sequence: 1234567890,
-            epoch: 5,
-        };
+        let sender = SenderData { leaf_index: 42, sequence: 1234567890, epoch: 5 };
 
         let bytes = sender.to_bytes();
         assert_eq!(bytes.len(), 20);
@@ -438,11 +412,7 @@ mod tests {
         let app_secret = vec![1u8; 32];
         let mut ks = KeySchedule::new(1, app_secret);
 
-        let sender = SenderData {
-            leaf_index: 0,
-            sequence: 0,
-            epoch: 1,
-        };
+        let sender = SenderData { leaf_index: 0, sequence: 0, epoch: 1 };
 
         let plaintext = b"Hello, MLS!";
         let encrypted = encrypt_message(&mut ks, sender.clone(), plaintext).unwrap();
@@ -463,11 +433,7 @@ mod tests {
         let app_secret = vec![1u8; 32];
         let mut ks = KeySchedule::new(1, app_secret);
 
-        let sender = SenderData {
-            leaf_index: 0,
-            sequence: 0,
-            epoch: 1,
-        };
+        let sender = SenderData { leaf_index: 0, sequence: 0, epoch: 1 };
 
         let encrypted = encrypt_message(&mut ks, sender, b"test").unwrap();
 
@@ -483,11 +449,7 @@ mod tests {
         let app_secret = vec![1u8; 32];
         let mut ks = KeySchedule::new(1, app_secret);
 
-        let sender = SenderData {
-            leaf_index: 0,
-            sequence: 0,
-            epoch: 1,
-        };
+        let sender = SenderData { leaf_index: 0, sequence: 0, epoch: 1 };
 
         let mut encrypted = encrypt_message(&mut ks, sender, b"test").unwrap();
 
@@ -503,11 +465,7 @@ mod tests {
         let app_secret = vec![1u8; 32];
         let mut ks = KeySchedule::new(1, app_secret);
 
-        let sender = SenderData {
-            leaf_index: 0,
-            sequence: 0,
-            epoch: 1,
-        };
+        let sender = SenderData { leaf_index: 0, sequence: 0, epoch: 1 };
 
         let mut encrypted = encrypt_message(&mut ks, sender, b"test").unwrap();
 
@@ -533,11 +491,11 @@ mod tests {
     #[test]
     fn test_hpke_seal_open() {
         use x25519_dalek::{PublicKey, StaticSecret};
-        
+
         // Generate proper X25519 keypair (32 bytes exactly)
         let sk_bytes: [u8; 32] = [
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
-            17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 29, 30, 31, 32,
         ];
         let recipient_sk = StaticSecret::from(sk_bytes);
         let recipient_pk = PublicKey::from(&recipient_sk);
@@ -557,10 +515,10 @@ mod tests {
     #[test]
     fn test_hpke_wrong_aad() {
         use x25519_dalek::{PublicKey, StaticSecret};
-        
+
         let sk_bytes: [u8; 32] = [
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
-            17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 29, 30, 31, 32,
         ];
         let recipient_sk = StaticSecret::from(sk_bytes);
         let recipient_pk = PublicKey::from(&recipient_sk);
@@ -579,10 +537,10 @@ mod tests {
     #[test]
     fn test_hpke_wrong_recipient() {
         use x25519_dalek::{PublicKey, StaticSecret};
-        
+
         let sk_bytes: [u8; 32] = [
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
-            17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 29, 30, 31, 32,
         ];
         let recipient_sk = StaticSecret::from(sk_bytes);
         let recipient_pk = PublicKey::from(&recipient_sk);
@@ -595,11 +553,11 @@ mod tests {
 
         // Try to decrypt with wrong secret key
         let wrong_sk_bytes: [u8; 32] = [
-            99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84,
-            83, 82, 81, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68
+            99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78,
+            77, 76, 75, 74, 73, 72, 71, 70, 69, 68,
         ];
         let wrong_sk = StaticSecret::from(wrong_sk_bytes);
-        
+
         let result = HpkeContext::open(wrong_sk.as_bytes(), &ciphertext, aad);
         assert!(result.is_err());
     }
@@ -607,11 +565,11 @@ mod tests {
     #[test]
     fn test_hpke_ciphertext_too_short() {
         let sk_bytes: [u8; 32] = [
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
-            17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 29, 30, 31, 32,
         ];
         let recipient_sk = x25519_dalek::StaticSecret::from(sk_bytes);
-        
+
         let short_ct = vec![0u8; 5]; // Less than minimum (32 + NONCE_SIZE)
 
         let result = HpkeContext::open(recipient_sk.as_bytes(), &short_ct, b"aad");

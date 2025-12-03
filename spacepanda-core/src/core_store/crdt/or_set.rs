@@ -1,10 +1,10 @@
 /*
     or_set.rs - Observed-Remove Set CRDT
-    
+
     A set that supports add and remove operations.
     Elements are tagged with unique IDs to distinguish concurrent adds.
     An element is in the set if there's an add without a corresponding remove.
-    
+
     Use cases:
     - Channel members
     - Role assignments
@@ -39,11 +39,11 @@ pub struct ORSet<T: Clone + Eq + std::hash::Hash> {
     /// Map from element to set of add IDs
     /// An element exists if it has at least one add ID
     elements: HashMap<T, HashSet<AddId>>,
-    
+
     /// Tombstones: removed (element, add_id) pairs
     /// Kept for synchronization to know what's been removed
     tombstones: HashSet<(T, AddId)>,
-    
+
     /// Vector clock for causal ordering
     vector_clock: VectorClock,
 }
@@ -52,17 +52,9 @@ pub struct ORSet<T: Clone + Eq + std::hash::Hash> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ORSetOperation<T: Clone> {
     /// Add an element with a unique ID
-    Add {
-        element: T,
-        add_id: AddId,
-        metadata: OperationMetadata,
-    },
+    Add { element: T, add_id: AddId, metadata: OperationMetadata },
     /// Remove an element (removes all its add IDs)
-    Remove {
-        element: T,
-        add_ids: HashSet<AddId>,
-        metadata: OperationMetadata,
-    },
+    Remove { element: T, add_ids: HashSet<AddId>, metadata: OperationMetadata },
 }
 
 impl<T: Clone> super::validated::HasMetadata for ORSetOperation<T> {
@@ -83,53 +75,50 @@ impl<T: Clone + Eq + std::hash::Hash> ORSet<T> {
             vector_clock: VectorClock::new(),
         }
     }
-    
+
     /// Add an element to the set
     pub fn add(&mut self, element: T, add_id: AddId, vector_clock: VectorClock) {
-        self.elements
-            .entry(element)
-            .or_insert_with(HashSet::new)
-            .insert(add_id);
+        self.elements.entry(element).or_insert_with(HashSet::new).insert(add_id);
         self.vector_clock.merge(&vector_clock);
     }
-    
+
     /// Remove an element from the set
     /// Records all current add_ids as tombstones
     pub fn remove(&mut self, element: &T, vector_clock: VectorClock) -> HashSet<AddId> {
         let add_ids = self.elements.get(element).cloned().unwrap_or_default();
-        
+
         // Remove the element
         self.elements.remove(element);
-        
+
         // Add to tombstones
         for add_id in &add_ids {
             self.tombstones.insert((element.clone(), add_id.clone()));
         }
-        
+
         self.vector_clock.merge(&vector_clock);
         add_ids
     }
-    
+
     /// Check if an element is in the set
     pub fn contains(&self, element: &T) -> bool {
         self.elements.contains_key(element)
     }
-    
+
     /// Get all elements in the set
     pub fn elements(&self) -> Vec<T> {
         self.elements.keys().cloned().collect()
     }
-    
+
     /// Get the number of elements
     pub fn len(&self) -> usize {
         self.elements.len()
     }
-    
+
     /// Check if the set is empty
     pub fn is_empty(&self) -> bool {
         self.elements.is_empty()
     }
-    
+
     /// Get add IDs for a specific element
     pub fn get_add_ids(&self, element: &T) -> Option<&HashSet<AddId>> {
         self.elements.get(element)
@@ -139,31 +128,23 @@ impl<T: Clone + Eq + std::hash::Hash> ORSet<T> {
 impl<T: Clone + Eq + std::hash::Hash + Send + Sync> Crdt for ORSet<T> {
     type Operation = ORSetOperation<T>;
     type Value = Vec<T>;
-    
+
     fn apply(&mut self, op: Self::Operation) -> StoreResult<()> {
         match op {
-            ORSetOperation::Add {
-                element,
-                add_id,
-                metadata,
-            } => {
+            ORSetOperation::Add { element, add_id, metadata } => {
                 // Don't add if this (element, add_id) is tombstoned
                 if !self.tombstones.contains(&(element.clone(), add_id.clone())) {
                     self.add(element, add_id, metadata.vector_clock);
                 }
             }
-            ORSetOperation::Remove {
-                element,
-                add_ids,
-                metadata,
-            } => {
+            ORSetOperation::Remove { element, add_ids, metadata } => {
                 // Remove the element's add_ids and record tombstones
                 if let Some(current_adds) = self.elements.get_mut(&element) {
                     for add_id in &add_ids {
                         current_adds.remove(add_id);
                         self.tombstones.insert((element.clone(), add_id.clone()));
                     }
-                    
+
                     // If no add_ids left, remove the element
                     if current_adds.is_empty() {
                         self.elements.remove(&element);
@@ -174,7 +155,7 @@ impl<T: Clone + Eq + std::hash::Hash + Send + Sync> Crdt for ORSet<T> {
         }
         Ok(())
     }
-    
+
     fn merge(&mut self, other: &Self) -> StoreResult<()> {
         // Merge elements
         for (element, other_adds) in &other.elements {
@@ -190,11 +171,11 @@ impl<T: Clone + Eq + std::hash::Hash + Send + Sync> Crdt for ORSet<T> {
                 self.elements.remove(element);
             }
         }
-        
+
         // Merge tombstones
         for tombstone in &other.tombstones {
             self.tombstones.insert(tombstone.clone());
-            
+
             // Remove from elements if tombstoned
             if let Some(adds) = self.elements.get_mut(&tombstone.0) {
                 adds.remove(&tombstone.1);
@@ -203,17 +184,17 @@ impl<T: Clone + Eq + std::hash::Hash + Send + Sync> Crdt for ORSet<T> {
                 }
             }
         }
-        
+
         // Merge vector clocks
         self.vector_clock.merge(&other.vector_clock);
-        
+
         Ok(())
     }
-    
+
     fn value(&self) -> Self::Value {
         self.elements()
     }
-    
+
     fn vector_clock(&self) -> &VectorClock {
         &self.vector_clock
     }
@@ -225,7 +206,7 @@ impl<T: Clone + Eq + std::hash::Hash + Send + Sync> TombstoneCrdt for ORSet<T> {
         // This method is for compatibility with the trait
         false
     }
-    
+
     fn gc_tombstones(&mut self, _threshold_ms: u64) -> usize {
         // Clear all tombstones (in production, would filter by age)
         let count = self.tombstones.len();
@@ -243,192 +224,188 @@ impl<T: Clone + Eq + std::hash::Hash> Default for ORSet<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_or_set_creation() {
         let set: ORSet<String> = ORSet::new();
         assert!(set.is_empty());
         assert_eq!(set.len(), 0);
     }
-    
+
     #[test]
     fn test_or_set_add() {
         let mut set: ORSet<String> = ORSet::new();
         let add_id = AddId::new("node1".to_string(), 1);
         let vc = VectorClock::new();
-        
+
         set.add("hello".to_string(), add_id, vc);
-        
+
         assert!(set.contains(&"hello".to_string()));
         assert_eq!(set.len(), 1);
     }
-    
+
     #[test]
     fn test_or_set_remove() {
         let mut set: ORSet<String> = ORSet::new();
         let add_id = AddId::new("node1".to_string(), 1);
         let vc = VectorClock::new();
-        
+
         set.add("hello".to_string(), add_id.clone(), vc.clone());
         assert!(set.contains(&"hello".to_string()));
-        
+
         set.remove(&"hello".to_string(), vc);
         assert!(!set.contains(&"hello".to_string()));
         assert_eq!(set.len(), 0);
     }
-    
+
     #[test]
     fn test_or_set_add_remove_add() {
         let mut set: ORSet<String> = ORSet::new();
         let add_id1 = AddId::new("node1".to_string(), 1);
         let add_id2 = AddId::new("node1".to_string(), 2);
         let vc = VectorClock::new();
-        
+
         // Add
         set.add("hello".to_string(), add_id1.clone(), vc.clone());
         assert!(set.contains(&"hello".to_string()));
-        
+
         // Remove
         set.remove(&"hello".to_string(), vc.clone());
         assert!(!set.contains(&"hello".to_string()));
-        
+
         // Add again with different ID (should succeed)
         set.add("hello".to_string(), add_id2, vc);
         assert!(set.contains(&"hello".to_string()));
     }
-    
+
     #[test]
     fn test_or_set_concurrent_adds() {
         let mut set: ORSet<String> = ORSet::new();
         let add_id1 = AddId::new("node1".to_string(), 1);
         let add_id2 = AddId::new("node2".to_string(), 1);
         let vc = VectorClock::new();
-        
+
         // Two concurrent adds of the same element
         set.add("hello".to_string(), add_id1, vc.clone());
         set.add("hello".to_string(), add_id2, vc);
-        
+
         assert!(set.contains(&"hello".to_string()));
         assert_eq!(set.get_add_ids(&"hello".to_string()).unwrap().len(), 2);
     }
-    
+
     #[test]
     fn test_or_set_elements() {
         let mut set: ORSet<i32> = ORSet::new();
         let vc = VectorClock::new();
-        
+
         set.add(1, AddId::new("node1".to_string(), 1), vc.clone());
         set.add(2, AddId::new("node1".to_string(), 2), vc.clone());
         set.add(3, AddId::new("node1".to_string(), 3), vc);
-        
+
         let elements = set.elements();
         assert_eq!(elements.len(), 3);
         assert!(elements.contains(&1));
         assert!(elements.contains(&2));
         assert!(elements.contains(&3));
     }
-    
+
     #[test]
     fn test_or_set_merge() {
         let mut set1: ORSet<String> = ORSet::new();
         let mut set2: ORSet<String> = ORSet::new();
         let vc = VectorClock::new();
-        
+
         set1.add("a".to_string(), AddId::new("node1".to_string(), 1), vc.clone());
         set2.add("b".to_string(), AddId::new("node2".to_string(), 1), vc);
-        
+
         set1.merge(&set2).unwrap();
-        
+
         assert!(set1.contains(&"a".to_string()));
         assert!(set1.contains(&"b".to_string()));
         assert_eq!(set1.len(), 2);
     }
-    
+
     #[test]
     fn test_or_set_merge_with_tombstones() {
         let mut set1: ORSet<String> = ORSet::new();
         let mut set2: ORSet<String> = ORSet::new();
         let add_id = AddId::new("node1".to_string(), 1);
         let vc = VectorClock::new();
-        
+
         // Set1: add then remove
         set1.add("hello".to_string(), add_id.clone(), vc.clone());
         set1.remove(&"hello".to_string(), vc.clone());
-        
+
         // Set2: just add
         set2.add("hello".to_string(), add_id, vc);
-        
+
         // Merge - set2's add should be overridden by set1's tombstone
         set2.merge(&set1).unwrap();
         assert!(!set2.contains(&"hello".to_string()));
     }
-    
+
     #[test]
     fn test_or_set_apply_add() {
         let mut set: ORSet<String> = ORSet::new();
         let mut vc = VectorClock::new();
         vc.increment("node1");
-        
+
         let metadata = OperationMetadata::new("node1".to_string(), vc);
         let op = ORSetOperation::Add {
             element: "test".to_string(),
             add_id: AddId::new("node1".to_string(), 1),
             metadata,
         };
-        
+
         set.apply(op).unwrap();
         assert!(set.contains(&"test".to_string()));
     }
-    
+
     #[test]
     fn test_or_set_apply_remove() {
         let mut set: ORSet<String> = ORSet::new();
         let add_id = AddId::new("node1".to_string(), 1);
         let mut vc = VectorClock::new();
         vc.increment("node1");
-        
+
         // First add
         set.add("test".to_string(), add_id.clone(), vc.clone());
-        
+
         // Then remove
         let metadata = OperationMetadata::new("node1".to_string(), vc);
         let mut add_ids = HashSet::new();
         add_ids.insert(add_id);
-        
-        let op = ORSetOperation::Remove {
-            element: "test".to_string(),
-            add_ids,
-            metadata,
-        };
-        
+
+        let op = ORSetOperation::Remove { element: "test".to_string(), add_ids, metadata };
+
         set.apply(op).unwrap();
         assert!(!set.contains(&"test".to_string()));
     }
-    
+
     #[test]
     fn test_or_set_gc_tombstones() {
         let mut set: ORSet<String> = ORSet::new();
         let add_id = AddId::new("node1".to_string(), 1);
         let vc = VectorClock::new();
-        
+
         set.add("hello".to_string(), add_id, vc.clone());
         set.remove(&"hello".to_string(), vc);
-        
+
         assert_eq!(set.tombstones.len(), 1);
-        
+
         let removed = set.gc_tombstones(0);
         assert_eq!(removed, 1);
         assert_eq!(set.tombstones.len(), 0);
     }
-    
+
     #[test]
     fn test_or_set_value() {
         let mut set: ORSet<i32> = ORSet::new();
         let vc = VectorClock::new();
-        
+
         set.add(1, AddId::new("node1".to_string(), 1), vc.clone());
         set.add(2, AddId::new("node1".to_string(), 2), vc);
-        
+
         let value = set.value();
         assert_eq!(value.len(), 2);
         assert!(value.contains(&1));

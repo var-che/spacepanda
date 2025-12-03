@@ -38,23 +38,13 @@ pub struct TreeNode {
 impl TreeNode {
     /// Create a new empty node
     pub fn new(index: NodeIndex) -> Self {
-        Self {
-            index,
-            public_key: None,
-            node_hash: None,
-            parent_hash: None,
-        }
+        Self { index, public_key: None, node_hash: None, parent_hash: None }
     }
 
     /// Create a leaf node with public key
     pub fn new_leaf(index: NodeIndex, public_key: Vec<u8>) -> Self {
         let node_hash = Some(hash_public_key(&public_key));
-        Self {
-            index,
-            public_key: Some(public_key),
-            node_hash,
-            parent_hash: None,
-        }
+        Self { index, public_key: Some(public_key), node_hash, parent_hash: None }
     }
 
     /// Check if node is blank (no public key)
@@ -80,10 +70,7 @@ pub struct MlsTree {
 impl MlsTree {
     /// Create a new empty tree
     pub fn new() -> Self {
-        Self {
-            nodes: HashMap::new(),
-            leaf_count: 0,
-        }
+        Self { nodes: HashMap::new(), leaf_count: 0 }
     }
 
     /// Get total node count (leaves + parents)
@@ -119,7 +106,7 @@ impl MlsTree {
         if node_idx as usize >= tree_size {
             return None;
         }
-        
+
         // Root has no parent
         let root_idx = (tree_size - 1) as NodeIndex;
         if node_idx == root_idx {
@@ -143,7 +130,7 @@ impl MlsTree {
             // Not a parent node
             return None;
         }
-        
+
         // Left child is at parent_idx - ((parent_idx + 1) / 2)
         let offset = (parent_idx + 1) / 2;
         if offset > parent_idx {
@@ -159,7 +146,7 @@ impl MlsTree {
             // Not a parent node
             return None;
         }
-        
+
         // Right child is at parent_idx + ((parent_idx + 1) / 2)
         let offset = (parent_idx + 1) / 2;
         Some(parent_idx + offset)
@@ -179,21 +166,21 @@ impl MlsTree {
     pub fn add_leaf(&mut self, public_key: Vec<u8>) -> MlsResult<LeafIndex> {
         let leaf_idx = self.leaf_count;
         let node_idx = Self::leaf_to_node_index(leaf_idx);
-        
+
         let node = TreeNode::new_leaf(node_idx, public_key);
         self.nodes.insert(node_idx, node);
         self.leaf_count += 1;
-        
+
         // Update parent hashes along the path
         self.update_parent_hashes(node_idx)?;
-        
+
         Ok(leaf_idx)
     }
 
     /// Remove a leaf node (member leaves) - blanks the node
     pub fn remove_leaf(&mut self, leaf_idx: LeafIndex) -> MlsResult<()> {
         let node_idx = Self::leaf_to_node_index(leaf_idx);
-        
+
         if !self.nodes.contains_key(&node_idx) {
             return Err(MlsError::InvalidState(format!("Leaf {} not found", leaf_idx)));
         }
@@ -201,27 +188,27 @@ impl MlsTree {
         // Blank the node (remove keys but keep structure)
         let node = TreeNode::new(node_idx);
         self.nodes.insert(node_idx, node);
-        
+
         // Update parent hashes
         self.update_parent_hashes(node_idx)?;
-        
+
         Ok(())
     }
 
     /// Update a leaf node's public key
     pub fn update_leaf(&mut self, leaf_idx: LeafIndex, new_public_key: Vec<u8>) -> MlsResult<()> {
         let node_idx = Self::leaf_to_node_index(leaf_idx);
-        
+
         if leaf_idx >= self.leaf_count {
             return Err(MlsError::InvalidState(format!("Leaf {} out of bounds", leaf_idx)));
         }
 
         let node = TreeNode::new_leaf(node_idx, new_public_key);
         self.nodes.insert(node_idx, node);
-        
+
         // Update parent hashes
         self.update_parent_hashes(node_idx)?;
-        
+
         Ok(())
     }
 
@@ -235,12 +222,12 @@ impl MlsTree {
         let mut path = Vec::new();
         let mut current = Self::leaf_to_node_index(leaf_idx);
         let tree_size = self.size();
-        
+
         while let Some(parent_idx) = Self::parent(current, tree_size) {
             path.push(parent_idx);
             current = parent_idx;
         }
-        
+
         path
     }
 
@@ -248,20 +235,26 @@ impl MlsTree {
     fn compute_parent_hash(&self, parent_idx: NodeIndex) -> Option<Vec<u8>> {
         let left_idx = Self::left_child(parent_idx)?;
         let right_idx = Self::right_child(parent_idx)?;
-        
-        let left_hash = self.nodes.get(&left_idx)
+
+        let left_hash = self
+            .nodes
+            .get(&left_idx)
             .and_then(|n| n.node_hash.clone())
             .unwrap_or_else(|| vec![0u8; 32]); // Blank node hash
-        
-        let right_hash = self.nodes.get(&right_idx)
+
+        let right_hash = self
+            .nodes
+            .get(&right_idx)
             .and_then(|n| n.node_hash.clone())
             .unwrap_or_else(|| vec![0u8; 32]); // Blank node hash
-        
+
         // Parent node might not exist yet (blank parent)
-        let parent_key_hash = self.nodes.get(&parent_idx)
+        let parent_key_hash = self
+            .nodes
+            .get(&parent_idx)
             .and_then(|n| n.public_key.as_ref().map(|pk| hash_public_key(pk)))
             .unwrap_or_else(|| vec![0u8; 32]);
-        
+
         // parent_hash = H(left_hash || right_hash || parent_key_hash)
         let mut hasher = Sha256::new();
         hasher.update(&left_hash);
@@ -274,7 +267,7 @@ impl MlsTree {
     fn update_parent_hashes(&mut self, start_node: NodeIndex) -> MlsResult<()> {
         let tree_size = self.size();
         let mut current = start_node;
-        
+
         // Update node's own hash
         if let Some(node) = self.nodes.get_mut(&current) {
             if let Some(ref pk) = node.public_key {
@@ -283,11 +276,11 @@ impl MlsTree {
                 node.node_hash = Some(vec![0u8; 32]); // Blank node
             }
         }
-        
+
         // Walk up to root
         while let Some(parent_idx) = Self::parent(current, tree_size) {
             let parent_hash = self.compute_parent_hash(parent_idx);
-            
+
             if let Some(parent_node) = self.nodes.get_mut(&parent_idx) {
                 parent_node.parent_hash = parent_hash.clone();
                 parent_node.node_hash = parent_hash; // For parent nodes, node_hash = parent_hash
@@ -298,18 +291,17 @@ impl MlsTree {
                 parent_node.node_hash = parent_hash;
                 self.nodes.insert(parent_idx, parent_node);
             }
-            
+
             current = parent_idx;
         }
-        
+
         Ok(())
     }
 
     /// Compute root hash (for group authentication)
     pub fn root_hash(&self) -> Option<Vec<u8>> {
         let root_idx = self.root_index()?;
-        self.nodes.get(&root_idx)
-            .and_then(|n| n.node_hash.clone())
+        self.nodes.get(&root_idx).and_then(|n| n.node_hash.clone())
     }
 
     /// Generate path secrets for HPKE encryption (placeholder)
@@ -321,14 +313,14 @@ impl MlsTree {
 
         let path = self.direct_path(leaf_idx);
         let mut secrets = Vec::new();
-        
+
         // For each node in the path, derive a secret (placeholder)
         // Real implementation would use HPKE KDF
         for &node_idx in &path {
             let secret = derive_node_secret(node_idx);
             secrets.push(secret);
         }
-        
+
         Ok(secrets)
     }
 
@@ -336,9 +328,7 @@ impl MlsTree {
     pub fn export_public_nodes(&self) -> Vec<(NodeIndex, Vec<u8>)> {
         self.nodes
             .iter()
-            .filter_map(|(idx, node)| {
-                node.public_key.as_ref().map(|pk| (*idx, pk.clone()))
-            })
+            .filter_map(|(idx, node)| node.public_key.as_ref().map(|pk| (*idx, pk.clone())))
             .collect()
     }
 }
@@ -383,7 +373,7 @@ mod tests {
         assert_eq!(MlsTree::leaf_to_node_index(0), 0);
         assert_eq!(MlsTree::leaf_to_node_index(1), 2);
         assert_eq!(MlsTree::leaf_to_node_index(2), 4);
-        
+
         assert_eq!(MlsTree::node_to_leaf_index(0), Some(0));
         assert_eq!(MlsTree::node_to_leaf_index(2), Some(1));
         assert_eq!(MlsTree::node_to_leaf_index(1), None); // Parent node
@@ -393,13 +383,13 @@ mod tests {
     fn test_add_single_leaf() {
         let mut tree = MlsTree::new();
         let public_key = b"alice_public_key".to_vec();
-        
+
         let leaf_idx = tree.add_leaf(public_key.clone()).unwrap();
-        
+
         assert_eq!(leaf_idx, 0);
         assert_eq!(tree.leaf_count(), 1);
         assert_eq!(tree.size(), 1);
-        
+
         let node = tree.get_node(0).unwrap();
         assert_eq!(node.public_key.as_ref().unwrap(), &public_key);
         assert!(node.node_hash.is_some());
@@ -408,14 +398,14 @@ mod tests {
     #[test]
     fn test_add_multiple_leaves() {
         let mut tree = MlsTree::new();
-        
+
         tree.add_leaf(b"alice".to_vec()).unwrap();
         tree.add_leaf(b"bob".to_vec()).unwrap();
         tree.add_leaf(b"charlie".to_vec()).unwrap();
-        
+
         assert_eq!(tree.leaf_count(), 3);
         assert_eq!(tree.size(), 5); // 3 leaves + 2 parents
-        
+
         // Check leaves exist
         assert!(tree.get_node(0).is_some()); // alice
         assert!(tree.get_node(2).is_some()); // bob
@@ -425,17 +415,17 @@ mod tests {
     #[test]
     fn test_remove_leaf() {
         let mut tree = MlsTree::new();
-        
+
         tree.add_leaf(b"alice".to_vec()).unwrap();
         tree.add_leaf(b"bob".to_vec()).unwrap();
-        
+
         assert_eq!(tree.leaf_count(), 2);
-        
+
         // Remove alice
         tree.remove_leaf(0).unwrap();
-        
+
         assert_eq!(tree.leaf_count(), 2); // Count doesn't change
-        
+
         let node = tree.get_node(0).unwrap();
         assert!(node.is_blank()); // Node blanked
     }
@@ -443,17 +433,17 @@ mod tests {
     #[test]
     fn test_update_leaf() {
         let mut tree = MlsTree::new();
-        
+
         tree.add_leaf(b"alice_v1".to_vec()).unwrap();
-        
+
         let old_hash = tree.root_hash().unwrap();
-        
+
         // Update alice's key
         tree.update_leaf(0, b"alice_v2".to_vec()).unwrap();
-        
+
         let new_hash = tree.root_hash().unwrap();
         assert_ne!(old_hash, new_hash); // Root hash should change
-        
+
         let node = tree.get_node(0).unwrap();
         assert_eq!(node.public_key.as_ref().unwrap(), b"alice_v2");
     }
@@ -462,7 +452,7 @@ mod tests {
     fn test_direct_path_single_node() {
         let mut tree = MlsTree::new();
         tree.add_leaf(b"alice".to_vec()).unwrap();
-        
+
         let path = tree.direct_path(0);
         assert_eq!(path.len(), 0); // Single node, no parents
     }
@@ -472,7 +462,7 @@ mod tests {
         let mut tree = MlsTree::new();
         tree.add_leaf(b"alice".to_vec()).unwrap();
         tree.add_leaf(b"bob".to_vec()).unwrap();
-        
+
         let path = tree.direct_path(0);
         assert!(path.len() > 0); // Should have parent nodes
     }
@@ -482,11 +472,11 @@ mod tests {
         let mut tree1 = MlsTree::new();
         tree1.add_leaf(b"alice".to_vec()).unwrap();
         tree1.add_leaf(b"bob".to_vec()).unwrap();
-        
+
         let mut tree2 = MlsTree::new();
         tree2.add_leaf(b"alice".to_vec()).unwrap();
         tree2.add_leaf(b"bob".to_vec()).unwrap();
-        
+
         assert_eq!(tree1.root_hash(), tree2.root_hash());
     }
 
@@ -495,11 +485,11 @@ mod tests {
         let mut tree = MlsTree::new();
         tree.add_leaf(b"alice".to_vec()).unwrap();
         tree.add_leaf(b"bob".to_vec()).unwrap();
-        
+
         let hash1 = tree.root_hash().unwrap();
-        
+
         tree.update_leaf(0, b"alice_updated".to_vec()).unwrap();
-        
+
         let hash2 = tree.root_hash().unwrap();
         assert_ne!(hash1, hash2);
     }
@@ -510,10 +500,10 @@ mod tests {
         tree.add_leaf(b"alice".to_vec()).unwrap();
         tree.add_leaf(b"bob".to_vec()).unwrap();
         tree.add_leaf(b"charlie".to_vec()).unwrap();
-        
+
         let secrets = tree.generate_path_secrets(0).unwrap();
         assert!(!secrets.is_empty());
-        
+
         // Each secret should be 32 bytes (SHA-256)
         for secret in secrets {
             assert_eq!(secret.len(), 32);
@@ -523,7 +513,7 @@ mod tests {
     #[test]
     fn test_generate_path_secrets_invalid_leaf() {
         let tree = MlsTree::new();
-        
+
         let result = tree.generate_path_secrets(0);
         assert!(result.is_err());
     }
@@ -533,10 +523,10 @@ mod tests {
         let mut tree = MlsTree::new();
         tree.add_leaf(b"alice".to_vec()).unwrap();
         tree.add_leaf(b"bob".to_vec()).unwrap();
-        
+
         let public_nodes = tree.export_public_nodes();
         assert_eq!(public_nodes.len(), 2); // Only leaves with keys
-        
+
         // Check alice and bob are exported
         let has_alice = public_nodes.iter().any(|(_, pk)| pk == b"alice");
         let has_bob = public_nodes.iter().any(|(_, pk)| pk == b"bob");
@@ -549,7 +539,7 @@ mod tests {
         let node0 = TreeNode::new(0);
         let node1 = TreeNode::new(1);
         let node2 = TreeNode::new(2);
-        
+
         assert!(node0.is_leaf());
         assert!(!node1.is_leaf());
         assert!(node2.is_leaf());
@@ -560,7 +550,7 @@ mod tests {
         // For a parent at index 1 (first parent in tree)
         assert_eq!(MlsTree::left_child(1), Some(0));
         assert_eq!(MlsTree::right_child(1), Some(2));
-        
+
         // Leaf nodes have no children
         assert_eq!(MlsTree::left_child(0), None);
         assert_eq!(MlsTree::right_child(0), None);
@@ -569,18 +559,18 @@ mod tests {
     #[test]
     fn test_tree_size_growth() {
         let mut tree = MlsTree::new();
-        
+
         assert_eq!(tree.size(), 0);
-        
+
         tree.add_leaf(b"1".to_vec()).unwrap();
         assert_eq!(tree.size(), 1); // 1 leaf
-        
+
         tree.add_leaf(b"2".to_vec()).unwrap();
         assert_eq!(tree.size(), 3); // 2 leaves + 1 parent
-        
+
         tree.add_leaf(b"3".to_vec()).unwrap();
         assert_eq!(tree.size(), 5); // 3 leaves + 2 parents
-        
+
         tree.add_leaf(b"4".to_vec()).unwrap();
         assert_eq!(tree.size(), 7); // 4 leaves + 3 parents
     }

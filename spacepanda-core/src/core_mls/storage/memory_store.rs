@@ -41,17 +41,16 @@ impl StorageProvider for MemoryStorageProvider {
 
     async fn load_group_snapshot(&self, group_id: &GroupId) -> MlsResult<PersistedGroupSnapshot> {
         let snapshots = self.snapshots.read().await;
-        snapshots
-            .get(group_id)
-            .cloned()
-            .ok_or_else(|| MlsError::NotFound(format!("Group not found: {}", hex::encode(group_id))))
+        snapshots.get(group_id).cloned().ok_or_else(|| {
+            MlsError::NotFound(format!("Group not found: {}", hex::encode(group_id)))
+        })
     }
 
     async fn delete_group_snapshot(&self, group_id: &GroupId) -> MlsResult<()> {
         let mut snapshots = self.snapshots.write().await;
-        snapshots
-            .remove(group_id)
-            .ok_or_else(|| MlsError::NotFound(format!("Group not found: {}", hex::encode(group_id))))?;
+        snapshots.remove(group_id).ok_or_else(|| {
+            MlsError::NotFound(format!("Group not found: {}", hex::encode(group_id)))
+        })?;
         Ok(())
     }
 

@@ -2,12 +2,12 @@
 //!
 //! Provides builder patterns and factory functions for creating test data.
 
-use crate::core_identity::*;
-use crate::core_router::{PeerId, PeerInfo, Capability};
-use crate::core_store::crdt::{VectorClock, AddId};
-use crate::core_store::model::types::Timestamp;
-use crate::core_store::model::{Space, Channel, SpaceId, ChannelId, UserId, ChannelType};
 use crate::core_dht::{DhtKey, DhtValue};
+use crate::core_identity::*;
+use crate::core_router::{Capability, PeerId, PeerInfo};
+use crate::core_store::crdt::{AddId, VectorClock};
+use crate::core_store::model::types::Timestamp;
+use crate::core_store::model::{Channel, ChannelId, ChannelType, Space, SpaceId, UserId};
 use std::net::SocketAddr;
 
 /// Builder for creating test peer IDs
@@ -66,10 +66,7 @@ impl TestPeerBuilder {
     }
 
     pub fn build(self) -> PeerInfo {
-        let mut peer = PeerInfo::new(
-            PeerId::from_bytes(vec![self.id]),
-            self.addresses,
-        );
+        let mut peer = PeerInfo::new(PeerId::from_bytes(vec![self.id]), self.addresses);
         peer.capabilities = self.capabilities;
         peer.asn = self.asn;
         peer.latency = self.latency_ms.map(std::time::Duration::from_millis);
@@ -85,10 +82,7 @@ pub struct TestSpaceBuilder {
 
 impl TestSpaceBuilder {
     pub fn new() -> Self {
-        Self {
-            name: "Test Space".to_string(),
-            creator: UserId::generate(),
-        }
+        Self { name: "Test Space".to_string(), creator: UserId::generate() }
     }
 
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
@@ -214,10 +208,7 @@ pub fn test_device_metadata(node_id: &str) -> DeviceMetadata {
 
 pub fn test_timestamp(offset_millis: u64) -> Timestamp {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let now_millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
+    let now_millis = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
     Timestamp::from_millis(now_millis + 365 * 24 * 3600 * 1000 + offset_millis)
 }
 

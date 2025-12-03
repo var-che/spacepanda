@@ -85,10 +85,7 @@ pub enum RouterCommand {
         response_tx: oneshot::Sender<Result<JsonValue, RpcError>>,
     },
     /// Register an RPC method handler
-    RegisterRpcHandler {
-        method: String,
-        handler_tx: mpsc::Sender<super::rpc_protocol::RpcRequest>,
-    },
+    RegisterRpcHandler { method: String, handler_tx: mpsc::Sender<super::rpc_protocol::RpcRequest> },
     /// Shutdown the router
     Shutdown,
 }
@@ -122,13 +119,7 @@ impl RouterHandle {
         let router = Router::new(command_rx, event_tx);
         let handle = router.spawn();
 
-        (
-            RouterHandle {
-                command_tx,
-                event_rx: Arc::new(Mutex::new(event_rx)),
-            },
-            handle,
-        )
+        (RouterHandle { command_tx, event_rx: Arc::new(Mutex::new(event_rx)) }, handle)
     }
 
     /// Start listening on an address
@@ -156,15 +147,15 @@ impl RouterHandle {
     }
 
     /// Send data anonymously via onion routing
-    pub async fn send_anonymous(&self, destination: PeerId, payload: Vec<u8>) -> Result<(), String> {
+    pub async fn send_anonymous(
+        &self,
+        destination: PeerId,
+        payload: Vec<u8>,
+    ) -> Result<(), String> {
         let (response_tx, response_rx) = oneshot::channel();
 
         self.command_tx
-            .send(RouterCommand::SendAnonymous {
-                destination,
-                payload,
-                response_tx,
-            })
+            .send(RouterCommand::SendAnonymous { destination, payload, response_tx })
             .await
             .map_err(|e| format!("Failed to send anonymous command: {}", e))?;
 
@@ -183,12 +174,7 @@ impl RouterHandle {
         let (response_tx, response_rx) = oneshot::channel();
 
         self.command_tx
-            .send(RouterCommand::RpcCall {
-                peer_id,
-                method,
-                params,
-                response_tx,
-            })
+            .send(RouterCommand::RpcCall { peer_id, method, params, response_tx })
             .await
             .map_err(|e| RpcError::internal_error(&format!("Failed to send RPC command: {}", e)))?;
 
@@ -204,10 +190,7 @@ impl RouterHandle {
         handler_tx: mpsc::Sender<super::rpc_protocol::RpcRequest>,
     ) -> Result<(), String> {
         self.command_tx
-            .send(RouterCommand::RegisterRpcHandler {
-                method,
-                handler_tx,
-            })
+            .send(RouterCommand::RegisterRpcHandler { method, handler_tx })
             .await
             .map_err(|e| format!("Failed to register RPC handler: {}", e))
     }
@@ -244,14 +227,7 @@ impl Router {
         // Create dummy event channels for now - we'll recreate managers in spawn()
         let rpc_protocol = RpcProtocol::new(session_tx.clone());
 
-        Router {
-            command_rx,
-            event_tx,
-            rpc_protocol,
-            transport_tx,
-            session_tx,
-            onion_tx: None,
-        }
+        Router { command_rx, event_tx, rpc_protocol, transport_tx, session_tx, onion_tx: None }
     }
 
     fn spawn(mut self) -> JoinHandle<()> {
@@ -313,10 +289,10 @@ impl Router {
         let (onion_event_tx, mut onion_event_rx) = mpsc::channel(100);
         let onion_config = OnionConfig::default();
         let onion_router = Arc::new(OnionRouter::new(onion_config, route_table, onion_event_tx));
-        
+
         let (onion_cmd_tx, onion_cmd_rx) = mpsc::channel(100);
         self.onion_tx = Some(onion_cmd_tx);
-        
+
         let onion_router_clone = onion_router.clone();
         tokio::spawn(async move {
             onion_router_clone.run(onion_cmd_rx).await;
@@ -391,11 +367,7 @@ impl Router {
                     .await
                     .map_err(|e| format!("Failed to send data via session: {}", e))?;
             }
-            RouterCommand::SendAnonymous {
-                destination,
-                payload,
-                response_tx,
-            } => {
+            RouterCommand::SendAnonymous { destination, payload, response_tx } => {
                 if let Some(ref onion_tx) = self.onion_tx {
                     onion_tx
                         .send(OnionCommand::Send {
@@ -409,30 +381,14 @@ impl Router {
                     let _ = response_tx.send(Err("Onion router not initialized".to_string()));
                 }
             }
-            RouterCommand::RpcCall {
-                peer_id,
-                method,
-                params,
-                response_tx,
-            } => {
+            RouterCommand::RpcCall { peer_id, method, params, response_tx } => {
                 self.rpc_protocol
-                    .handle_command(RpcCommand::Call {
-                        peer_id,
-                        method,
-                        params,
-                        response_tx,
-                    })
+                    .handle_command(RpcCommand::Call { peer_id, method, params, response_tx })
                     .await?;
             }
-            RouterCommand::RegisterRpcHandler {
-                method,
-                handler_tx,
-            } => {
+            RouterCommand::RegisterRpcHandler { method, handler_tx } => {
                 self.rpc_protocol
-                    .handle_command(RpcCommand::RegisterHandler {
-                        method,
-                        handler_tx,
-                    })
+                    .handle_command(RpcCommand::RegisterHandler { method, handler_tx })
                     .await?;
             }
             RouterCommand::Shutdown => {
@@ -442,31 +398,20 @@ impl Router {
         Ok(())
     }
 
-
-
     async fn handle_session_event(&mut self, event: SessionEvent) -> Result<(), String> {
         match event.clone() {
             SessionEvent::Established(peer_id, _conn_id) => {
-                let _ = self
-                    .event_tx
-                    .send(RouterEvent::PeerConnected(peer_id))
-                    .await;
+                let _ = self.event_tx.send(RouterEvent::PeerConnected(peer_id)).await;
             }
             SessionEvent::PlaintextFrame(peer_id, data) => {
                 // First try RPC protocol
                 if let Err(_) = self.rpc_protocol.handle_session_event(event.clone()).await {
                     // If not an RPC message, emit as data received
-                    let _ = self
-                        .event_tx
-                        .send(RouterEvent::DataReceived(peer_id, data))
-                        .await;
+                    let _ = self.event_tx.send(RouterEvent::DataReceived(peer_id, data)).await;
                 }
             }
             SessionEvent::Closed(peer_id) => {
-                let _ = self
-                    .event_tx
-                    .send(RouterEvent::PeerDisconnected(peer_id))
-                    .await;
+                let _ = self.event_tx.send(RouterEvent::PeerDisconnected(peer_id)).await;
             }
         }
         Ok(())
@@ -501,10 +446,8 @@ mod tests {
         handle.listen("127.0.0.1:0".to_string()).await.unwrap();
 
         // Should receive a Listening event
-        let event = timeout(Duration::from_millis(500), handle.next_event())
-            .await
-            .unwrap()
-            .unwrap();
+        let event =
+            timeout(Duration::from_millis(500), handle.next_event()).await.unwrap().unwrap();
 
         match event {
             RouterEvent::Listening(addr) => {
@@ -553,11 +496,11 @@ mod tests {
         // The call should timeout since there's no actual peer to respond
         // We give it a short timeout to detect if it times out quickly
         let result = timeout(Duration::from_millis(50), call_future).await;
-        
+
         // Either it times out (Err) or returns an error (Ok(Err))
         // Both cases are valid since there's no peer
         match result {
-            Err(_) => {} // Timeout - expected
+            Err(_) => {}     // Timeout - expected
             Ok(Err(_)) => {} // RPC error - also expected (no session)
             Ok(Ok(_)) => panic!("Unexpected success - there's no peer to respond"),
         }
@@ -573,9 +516,7 @@ mod tests {
         let (handler_tx, _handler_rx) = mpsc::channel(10);
 
         // Should successfully register a handler
-        let result = handle
-            .register_rpc_handler("my_method".to_string(), handler_tx)
-            .await;
+        let result = handle.register_rpc_handler("my_method".to_string(), handler_tx).await;
 
         assert!(result.is_ok());
 
@@ -602,15 +543,10 @@ mod tests {
         handle.dial("127.0.0.1:8888".to_string()).await.unwrap();
 
         let peer_id = PeerId::from_bytes(vec![13, 14, 15, 16]);
-        handle
-            .send_direct(peer_id, vec![1, 2, 3])
-            .await
-            .unwrap();
+        handle.send_direct(peer_id, vec![1, 2, 3]).await.unwrap();
 
         // Should receive at least the listening event
-        let event = timeout(Duration::from_millis(500), handle.next_event())
-            .await
-            .unwrap();
+        let event = timeout(Duration::from_millis(500), handle.next_event()).await.unwrap();
         assert!(event.is_some());
 
         handle.shutdown().await.unwrap();
@@ -626,7 +562,7 @@ mod tests {
         // This will fail since there are no relays in the route table
         // But we test that the API works correctly
         let result = handle.send_anonymous(destination, payload).await;
-        
+
         // Should get an error about no relays being available
         assert!(result.is_err());
         if let Err(e) = result {

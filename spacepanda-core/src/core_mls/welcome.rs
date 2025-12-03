@@ -12,9 +12,12 @@
 use super::encryption::HpkeContext;
 use super::errors::{MlsError, MlsResult};
 use super::tree::{MlsTree, NodeIndex};
-use super::types::{GroupId, GroupMetadata, MemberInfo};
+use super::types::{GroupId, GroupMetadata};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+#[cfg(test)]
+use super::types::MemberInfo;
 
 /// Welcome message for a new group member
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,8 +63,9 @@ impl WelcomeGroupSecrets {
 
     /// Deserialize from bytes
     pub fn from_bytes(bytes: &[u8]) -> MlsResult<Self> {
-        bincode::deserialize(bytes)
-            .map_err(|e| MlsError::PersistenceError(format!("Failed to deserialize secrets: {}", e)))
+        bincode::deserialize(bytes).map_err(|e| {
+            MlsError::PersistenceError(format!("Failed to deserialize secrets: {}", e))
+        })
     }
 }
 
@@ -92,11 +96,7 @@ impl TreeSnapshot {
             }
         }
 
-        Self {
-            leaf_count: tree.leaf_count(),
-            public_nodes,
-            node_hashes,
-        }
+        Self { leaf_count: tree.leaf_count(), public_nodes, node_hashes }
     }
 
     /// Reconstruct tree from snapshot
@@ -106,7 +106,7 @@ impl TreeSnapshot {
         // Add leaves in order
         for leaf_idx in 0..self.leaf_count {
             let node_idx = MlsTree::leaf_to_node_index(leaf_idx);
-            
+
             if let Some(public_key) = self.public_nodes.get(&node_idx) {
                 tree.add_leaf(public_key.clone())?;
             } else {
@@ -121,9 +121,7 @@ impl TreeSnapshot {
         if let Some(expected_hash) = self.node_hashes.get(&tree.root_index().unwrap_or(0)) {
             if let Some(actual_hash) = tree.root_hash() {
                 if &actual_hash != expected_hash {
-                    return Err(MlsError::VerifyFailed(
-                        "Tree root hash mismatch".to_string()
-                    ));
+                    return Err(MlsError::VerifyFailed("Tree root hash mismatch".to_string()));
                 }
             }
         }
@@ -158,29 +156,22 @@ impl Welcome {
         for (leaf_index, public_key) in new_members {
             // HPKE encrypt to member's public key
             let hpke = HpkeContext::new(public_key);
-            
+
             // Use group_id + epoch as AAD for binding
             let mut aad = group_id.as_bytes().to_vec();
             aad.extend_from_slice(&epoch.to_be_bytes());
-            
-            let encrypted_payload = hpke.seal(&secrets_bytes, &aad)
+
+            let encrypted_payload = hpke
+                .seal(&secrets_bytes, &aad)
                 .map_err(|e| MlsError::CryptoError(format!("HPKE encryption failed: {}", e)))?;
 
-            encrypted_secrets.push(EncryptedGroupSecrets {
-                new_member_index: leaf_index,
-                encrypted_payload,
-            });
+            encrypted_secrets
+                .push(EncryptedGroupSecrets { new_member_index: leaf_index, encrypted_payload });
         }
 
         let tree_snapshot = TreeSnapshot::from_tree(tree);
 
-        Ok(Self {
-            group_id,
-            epoch,
-            encrypted_secrets,
-            tree_snapshot,
-            metadata,
-        })
+        Ok(Self { group_id, epoch, encrypted_secrets, tree_snapshot, metadata })
     }
 
     /// Process Welcome message as a new member
@@ -202,30 +193,21 @@ impl Welcome {
             .iter()
             .find(|e| e.new_member_index == member_index)
             .ok_or_else(|| {
-                MlsError::InvalidState(format!(
-                    "No encrypted secrets for member {}",
-                    member_index
-                ))
+                MlsError::InvalidState(format!("No encrypted secrets for member {}", member_index))
             })?;
 
         // Decrypt group secrets using HPKE
         let mut aad = self.group_id.as_bytes().to_vec();
         aad.extend_from_slice(&self.epoch.to_be_bytes());
 
-        let secrets_bytes = HpkeContext::open(
-            member_secret_key,
-            &encrypted.encrypted_payload,
-            &aad,
-        )?;
+        let secrets_bytes =
+            HpkeContext::open(member_secret_key, &encrypted.encrypted_payload, &aad)?;
 
         let secrets = WelcomeGroupSecrets::from_bytes(&secrets_bytes)?;
 
         // Verify epoch matches
         if secrets.epoch != self.epoch {
-            return Err(MlsError::EpochMismatch {
-                expected: self.epoch,
-                actual: secrets.epoch,
-            });
+            return Err(MlsError::EpochMismatch { expected: self.epoch, actual: secrets.epoch });
         }
 
         // Reconstruct tree from snapshot
@@ -242,8 +224,9 @@ impl Welcome {
 
     /// Deserialize Welcome from bytes
     pub fn from_bytes(bytes: &[u8]) -> MlsResult<Self> {
-        bincode::deserialize(bytes)
-            .map_err(|e| MlsError::PersistenceError(format!("Failed to deserialize Welcome: {}", e)))
+        bincode::deserialize(bytes).map_err(|e| {
+            MlsError::PersistenceError(format!("Failed to deserialize Welcome: {}", e))
+        })
     }
 }
 
@@ -296,50 +279,41 @@ impl WelcomeBuilder {
 
     /// Build the Welcome message
     pub fn build(self) -> MlsResult<Welcome> {
-        let secrets = self.secrets.ok_or_else(|| {
-            MlsError::InvalidState("Welcome builder missing secrets".to_string())
-        })?;
+        let secrets = self
+            .secrets
+            .ok_or_else(|| MlsError::InvalidState("Welcome builder missing secrets".to_string()))?;
 
-        let tree = self.tree.ok_or_else(|| {
-            MlsError::InvalidState("Welcome builder missing tree".to_string())
-        })?;
+        let tree = self
+            .tree
+            .ok_or_else(|| MlsError::InvalidState("Welcome builder missing tree".to_string()))?;
 
         let metadata = self.metadata.ok_or_else(|| {
             MlsError::InvalidState("Welcome builder missing metadata".to_string())
         })?;
 
         if self.new_members.is_empty() {
-            return Err(MlsError::InvalidState(
-                "Welcome builder has no new members".to_string()
-            ));
+            return Err(MlsError::InvalidState("Welcome builder has no new members".to_string()));
         }
 
-        Welcome::create(
-            self.group_id,
-            self.epoch,
-            secrets,
-            &tree,
-            metadata,
-            self.new_members,
-        )
+        Welcome::create(self.group_id, self.epoch, secrets, &tree, metadata, self.new_members)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
     use x25519_dalek::{PublicKey, StaticSecret};
-    use sha2::{Sha256, Digest};
 
     fn test_keypair(name: &str) -> (Vec<u8>, Vec<u8>) {
         let mut hasher = Sha256::new();
         hasher.update(name.as_bytes());
         let hash = hasher.finalize();
-        
+
         let sk_bytes: [u8; 32] = hash.into();
         let sk = StaticSecret::from(sk_bytes);
         let pk = PublicKey::from(&sk);
-        
+
         (pk.as_bytes().to_vec(), sk.as_bytes().to_vec())
     }
 
@@ -370,16 +344,8 @@ mod tests {
             created_at: 1234567890,
             updated_at: 1234567890,
             members: vec![
-                MemberInfo {
-                    identity: b"alice".to_vec(),
-                    leaf_index: 0,
-                    joined_at: 1234567890,
-                },
-                MemberInfo {
-                    identity: b"bob".to_vec(),
-                    leaf_index: 1,
-                    joined_at: 1234567891,
-                },
+                MemberInfo { identity: b"alice".to_vec(), leaf_index: 0, joined_at: 1234567890 },
+                MemberInfo { identity: b"bob".to_vec(), leaf_index: 1, joined_at: 1234567891 },
             ],
         }
     }
@@ -469,15 +435,8 @@ mod tests {
         let (charlie_pk, charlie_sk) = test_keypair("charlie");
         let new_members = vec![(2, charlie_pk.clone())];
 
-        let welcome = Welcome::create(
-            group_id,
-            epoch,
-            secrets,
-            &tree,
-            metadata,
-            new_members,
-        )
-        .unwrap();
+        let welcome =
+            Welcome::create(group_id, epoch, secrets, &tree, metadata, new_members).unwrap();
 
         // Try to process as wrong member index
         let result = welcome.process(99, &charlie_sk);
@@ -495,15 +454,8 @@ mod tests {
         let (charlie_pk, _charlie_sk) = test_keypair("charlie");
         let new_members = vec![(2, charlie_pk.clone())];
 
-        let welcome = Welcome::create(
-            group_id,
-            epoch,
-            secrets,
-            &tree,
-            metadata,
-            new_members,
-        )
-        .unwrap();
+        let welcome =
+            Welcome::create(group_id, epoch, secrets, &tree, metadata, new_members).unwrap();
 
         // Try to decrypt with wrong key
         let (_wrong_pk, wrong_sk) = test_keypair("wrong");
@@ -517,22 +469,15 @@ mod tests {
         let epoch = 1;
         let mut secrets = test_secrets(epoch);
         secrets.epoch = 999; // Wrong epoch in secrets
-        
+
         let tree = test_tree();
         let metadata = test_metadata();
 
         let (charlie_pk, charlie_sk) = test_keypair("charlie");
         let new_members = vec![(2, charlie_pk.clone())];
 
-        let welcome = Welcome::create(
-            group_id,
-            epoch,
-            secrets,
-            &tree,
-            metadata,
-            new_members,
-        )
-        .unwrap();
+        let welcome =
+            Welcome::create(group_id, epoch, secrets, &tree, metadata, new_members).unwrap();
 
         let result = welcome.process(2, &charlie_sk);
         assert!(matches!(result, Err(MlsError::EpochMismatch { .. })));
@@ -549,15 +494,8 @@ mod tests {
         let (charlie_pk, _charlie_sk) = test_keypair("charlie");
         let new_members = vec![(2, charlie_pk.clone())];
 
-        let welcome = Welcome::create(
-            group_id,
-            epoch,
-            secrets,
-            &tree,
-            metadata,
-            new_members,
-        )
-        .unwrap();
+        let welcome =
+            Welcome::create(group_id, epoch, secrets, &tree, metadata, new_members).unwrap();
 
         let bytes = welcome.to_bytes().unwrap();
         let decoded = Welcome::from_bytes(&bytes).unwrap();
@@ -577,20 +515,11 @@ mod tests {
 
         let (charlie_pk, charlie_sk) = test_keypair("charlie");
         let (dave_pk, dave_sk) = test_keypair("dave");
-        let new_members = vec![
-            (2, charlie_pk.clone()),
-            (3, dave_pk.clone()),
-        ];
+        let new_members = vec![(2, charlie_pk.clone()), (3, dave_pk.clone())];
 
-        let welcome = Welcome::create(
-            group_id,
-            epoch,
-            secrets.clone(),
-            &tree,
-            metadata,
-            new_members,
-        )
-        .unwrap();
+        let welcome =
+            Welcome::create(group_id, epoch, secrets.clone(), &tree, metadata, new_members)
+                .unwrap();
 
         assert_eq!(welcome.encrypted_secrets.len(), 2);
 

@@ -4,7 +4,7 @@ use super::{Keystore, KeystoreError};
 use crate::core_identity::device_id::DeviceId;
 use crate::core_identity::keypair::Keypair;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, PoisonError};
+use std::sync::{Arc, PoisonError, RwLock};
 
 /// Helper to convert poison errors into KeystoreError
 fn handle_poison<T>(_err: PoisonError<T>) -> KeystoreError {
@@ -59,11 +59,7 @@ impl Keystore for MemoryKeystore {
             })
     }
 
-    fn save_device_keypair(
-        &self,
-        device_id: &DeviceId,
-        kp: &Keypair,
-    ) -> Result<(), KeystoreError> {
+    fn save_device_keypair(&self, device_id: &DeviceId, kp: &Keypair) -> Result<(), KeystoreError> {
         self.devices
             .write()
             .map_err(handle_poison)?

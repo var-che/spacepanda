@@ -5,17 +5,17 @@
 
 use crate::core_mls::errors::{MlsError, MlsResult};
 use crate::core_mls::traits::storage::{GroupId, PersistedGroupSnapshot, StorageProvider};
-use async_trait::async_trait;
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
 use argon2::Argon2;
+use async_trait::async_trait;
 use rand::RngCore;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use zeroize::Zeroizing;
 
 /// Magic header for encrypted snapshot files
@@ -48,9 +48,8 @@ impl FileStorageProvider {
     /// * `password` - Optional password for encryption at rest
     pub fn new(base_path: PathBuf, password: Option<&str>) -> MlsResult<Self> {
         // Create directory if it doesn't exist
-        std::fs::create_dir_all(&base_path).map_err(|e| {
-            MlsError::Storage(format!("Failed to create storage directory: {}", e))
-        })?;
+        std::fs::create_dir_all(&base_path)
+            .map_err(|e| MlsError::Storage(format!("Failed to create storage directory: {}", e)))?;
 
         Ok(Self {
             base_path,
@@ -75,7 +74,7 @@ impl FileStorageProvider {
         if let Some(password) = &self.password {
             // Generate random salt
             let mut salt = [0u8; SALT_LEN];
-            rand::thread_rng().fill_bytes(&mut salt);
+            rand::rng().fill_bytes(&mut salt);
 
             // Derive key from password
             let mut key = Zeroizing::new([0u8; 32]);
@@ -85,7 +84,7 @@ impl FileStorageProvider {
 
             // Generate random nonce
             let mut nonce_bytes = [0u8; NONCE_LEN];
-            rand::thread_rng().fill_bytes(&mut nonce_bytes);
+            rand::rng().fill_bytes(&mut nonce_bytes);
             let nonce = Nonce::from_slice(&nonce_bytes);
 
             // Encrypt
@@ -124,10 +123,7 @@ impl FileStorageProvider {
 
         let version = encrypted[8];
         if version != FORMAT_VERSION {
-            return Err(MlsError::Storage(format!(
-                "Unsupported format version: {}",
-                version
-            )));
+            return Err(MlsError::Storage(format!("Unsupported format version: {}", version)));
         }
 
         if let Some(password) = &self.password {
@@ -203,15 +199,13 @@ impl StorageProvider for FileStorageProvider {
 
         // Load from disk
         let path = self.snapshot_path(group_id);
-        let encrypted = tokio::fs::read(&path)
-            .await
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    MlsError::NotFound(format!("Group snapshot not found: {}", hex::encode(group_id)))
-                } else {
-                    MlsError::Storage(format!("Read failed: {}", e))
-                }
-            })?;
+        let encrypted = tokio::fs::read(&path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                MlsError::NotFound(format!("Group snapshot not found: {}", hex::encode(group_id)))
+            } else {
+                MlsError::Storage(format!("Read failed: {}", e))
+            }
+        })?;
 
         // Decrypt
         let decrypted = self.decrypt(&encrypted)?;
@@ -229,16 +223,14 @@ impl StorageProvider for FileStorageProvider {
 
     async fn delete_group_snapshot(&self, group_id: &GroupId) -> MlsResult<()> {
         let path = self.snapshot_path(group_id);
-        
-        tokio::fs::remove_file(&path)
-            .await
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    MlsError::NotFound(format!("Group snapshot not found: {}", hex::encode(group_id)))
-                } else {
-                    MlsError::Storage(format!("Delete failed: {}", e))
-                }
-            })?;
+
+        tokio::fs::remove_file(&path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                MlsError::NotFound(format!("Group snapshot not found: {}", hex::encode(group_id)))
+            } else {
+                MlsError::Storage(format!("Delete failed: {}", e))
+            }
+        })?;
 
         // Remove from cache
         let mut cache = self.cache.write().await;
@@ -260,15 +252,13 @@ impl StorageProvider for FileStorageProvider {
 
     async fn get_blob(&self, key: &str) -> MlsResult<Vec<u8>> {
         let path = self.blob_path(key);
-        let encrypted = tokio::fs::read(&path)
-            .await
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    MlsError::NotFound(format!("Blob not found: {}", key))
-                } else {
-                    MlsError::Storage(format!("Blob read failed: {}", e))
-                }
-            })?;
+        let encrypted = tokio::fs::read(&path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                MlsError::NotFound(format!("Blob not found: {}", key))
+            } else {
+                MlsError::Storage(format!("Blob read failed: {}", e))
+            }
+        })?;
 
         self.decrypt(&encrypted)
     }
@@ -280,10 +270,11 @@ impl StorageProvider for FileStorageProvider {
             .await
             .map_err(|e| MlsError::Storage(format!("Failed to read directory: {}", e)))?;
 
-        while let Some(entry) = entries.next_entry()
+        while let Some(entry) = entries
+            .next_entry()
             .await
-            .map_err(|e| MlsError::Storage(format!("Failed to read entry: {}", e)))? {
-            
+            .map_err(|e| MlsError::Storage(format!("Failed to read entry: {}", e)))?
+        {
             let path = entry.path();
             if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
                 if filename.starts_with("group-") && filename.ends_with(".snapshot") {
@@ -327,10 +318,8 @@ mod tests {
     #[tokio::test]
     async fn test_encrypted_snapshot() {
         let temp_dir = TempDir::new().unwrap();
-        let provider = FileStorageProvider::new(
-            temp_dir.path().to_path_buf(),
-            Some("test-password"),
-        ).unwrap();
+        let provider =
+            FileStorageProvider::new(temp_dir.path().to_path_buf(), Some("test-password")).unwrap();
 
         let snapshot = PersistedGroupSnapshot {
             group_id: vec![5, 6, 7, 8],

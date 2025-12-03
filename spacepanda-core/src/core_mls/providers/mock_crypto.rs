@@ -5,7 +5,7 @@
 use crate::core_mls::errors::MlsResult;
 use crate::core_mls::traits::crypto::CryptoProvider;
 use async_trait::async_trait;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 /// Mock crypto provider with deterministic operations (for testing)
 pub struct MockCryptoProvider {
@@ -23,13 +23,13 @@ impl MockCryptoProvider {
     fn deterministic_bytes(&self, n: usize, offset: u64) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(n);
         let mut state = self.seed.wrapping_add(offset);
-        
+
         for _ in 0..n {
             // Simple LCG
             state = state.wrapping_mul(1103515245).wrapping_add(12345);
             bytes.push((state >> 16) as u8);
         }
-        
+
         bytes
     }
 }
@@ -61,28 +61,33 @@ impl CryptoProvider for MockCryptoProvider {
             Ok(())
         } else {
             Err(crate::core_mls::errors::MlsError::CryptoError(
-                "Mock signature verification failed".to_string()
+                "Mock signature verification failed".to_string(),
             ))
         }
     }
 
-    async fn hpke_seal(&self, _recipient_pub: &[u8], info: &[u8], plaintext: &[u8]) -> MlsResult<Vec<u8>> {
+    async fn hpke_seal(
+        &self,
+        _recipient_pub: &[u8],
+        info: &[u8],
+        plaintext: &[u8],
+    ) -> MlsResult<Vec<u8>> {
         // Mock HPKE: XOR with deterministic key
         let key = self.deterministic_bytes(plaintext.len(), info.len() as u64);
-        let ciphertext: Vec<u8> = plaintext.iter()
-            .zip(key.iter())
-            .map(|(p, k)| p ^ k)
-            .collect();
+        let ciphertext: Vec<u8> = plaintext.iter().zip(key.iter()).map(|(p, k)| p ^ k).collect();
         Ok(ciphertext)
     }
 
-    async fn hpke_open(&self, _recipient_priv: &[u8], _sender_enc: &[u8], info: &[u8], ciphertext: &[u8]) -> MlsResult<Vec<u8>> {
+    async fn hpke_open(
+        &self,
+        _recipient_priv: &[u8],
+        _sender_enc: &[u8],
+        info: &[u8],
+        ciphertext: &[u8],
+    ) -> MlsResult<Vec<u8>> {
         // Mock HPKE: XOR with same deterministic key (symmetric)
         let key = self.deterministic_bytes(ciphertext.len(), info.len() as u64);
-        let plaintext: Vec<u8> = ciphertext.iter()
-            .zip(key.iter())
-            .map(|(c, k)| c ^ k)
-            .collect();
+        let plaintext: Vec<u8> = ciphertext.iter().zip(key.iter()).map(|(c, k)| c ^ k).collect();
         Ok(plaintext)
     }
 
@@ -92,23 +97,23 @@ impl CryptoProvider for MockCryptoProvider {
         hasher.update(prk);
         hasher.update(info);
         let base = hasher.finalize();
-        
+
         let mut result = Vec::with_capacity(len);
         let mut counter = 0u8;
-        
+
         while result.len() < len {
             let mut hasher = Sha256::new();
             hasher.update(&base);
             hasher.update(&[counter]);
             let chunk = hasher.finalize();
-            
+
             let remaining = len - result.len();
             let to_take = remaining.min(chunk.len());
             result.extend_from_slice(&chunk[..to_take]);
-            
+
             counter = counter.wrapping_add(1);
         }
-        
+
         Ok(result)
     }
 

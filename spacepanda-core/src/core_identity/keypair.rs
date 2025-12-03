@@ -8,10 +8,10 @@
 //!
 //! Security: Secret keys are automatically zeroized on drop using zeroize crate.
 
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
-use x25519_dalek::{StaticSecret, PublicKey as X25519PublicKey};
+use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 use zeroize::Zeroize;
 
 /// Key type enumeration
@@ -44,12 +44,12 @@ impl Keypair {
                 // Real Ed25519 key generation
                 // Generate 32 random bytes for the signing key seed
                 use rand::Rng;
-                let mut csprng = rand::thread_rng();
-                let seed_bytes: [u8; 32] = csprng.gen();
-                
+                let mut csprng = rand::rng();
+                let seed_bytes: [u8; 32] = csprng.random();
+
                 let signing_key = SigningKey::from_bytes(&seed_bytes);
                 let verifying_key = signing_key.verifying_key();
-                
+
                 Keypair {
                     key_type,
                     public: verifying_key.to_bytes().to_vec(),
@@ -59,12 +59,12 @@ impl Keypair {
             KeyType::X25519 => {
                 // Real X25519 key generation
                 use rand::Rng;
-                let mut csprng = rand::thread_rng();
-                let secret_bytes: [u8; 32] = csprng.gen();
-                
+                let mut csprng = rand::rng();
+                let secret_bytes: [u8; 32] = csprng.random();
+
                 let secret = StaticSecret::from(secret_bytes);
                 let public = X25519PublicKey::from(&secret);
-                
+
                 Keypair {
                     key_type,
                     public: public.to_bytes().to_vec(),
@@ -78,12 +78,12 @@ impl Keypair {
     /// Returns 64-byte signature
     pub fn sign(&self, msg: &[u8]) -> Vec<u8> {
         assert_eq!(self.key_type, KeyType::Ed25519, "Only Ed25519 can sign");
-        
+
         // Real Ed25519 signing
         let signing_key = SigningKey::from_bytes(
-            self.secret.as_slice().try_into().expect("Invalid secret key length")
+            self.secret.as_slice().try_into().expect("Invalid secret key length"),
         );
-        
+
         let signature = signing_key.sign(msg);
         signature.to_bytes().to_vec()
     }
@@ -95,19 +95,18 @@ impl Keypair {
         if pubkey.len() != 32 || sig.len() != 64 {
             return false;
         }
-        
-        let verifying_key = match VerifyingKey::from_bytes(
-            pubkey.try_into().expect("pubkey length checked")
-        ) {
-            Ok(vk) => vk,
-            Err(_) => return false,
-        };
-        
+
+        let verifying_key =
+            match VerifyingKey::from_bytes(pubkey.try_into().expect("pubkey length checked")) {
+                Ok(vk) => vk,
+                Err(_) => return false,
+            };
+
         let signature = match Signature::from_slice(sig) {
             Ok(sig) => sig,
             Err(_) => return false,
         };
-        
+
         verifying_key.verify(msg, &signature).is_ok()
     }
 
@@ -115,31 +114,30 @@ impl Keypair {
     /// Uses proper curve25519 conversion
     pub fn derive_x25519_from_ed25519(ed: &Keypair) -> Keypair {
         assert_eq!(ed.key_type, KeyType::Ed25519);
-        
+
         // Convert Ed25519 secret key to X25519
         // Ed25519 secret key is the seed (first 32 bytes)
-        let ed_secret_bytes: [u8; 32] = ed.secret.as_slice()
-            .try_into()
-            .expect("Ed25519 secret key must be 32 bytes");
-        
+        let ed_secret_bytes: [u8; 32] =
+            ed.secret.as_slice().try_into().expect("Ed25519 secret key must be 32 bytes");
+
         // Hash the Ed25519 secret to get X25519 scalar
-        use sha2::{Sha512, Digest};
+        use sha2::{Digest, Sha512};
         let mut hasher = Sha512::new();
         hasher.update(&ed_secret_bytes);
         let hash = hasher.finalize();
-        
+
         // Take first 32 bytes as X25519 scalar and clamp
         let mut scalar_bytes = [0u8; 32];
         scalar_bytes.copy_from_slice(&hash[..32]);
-        
+
         // Clamp the scalar for X25519
         scalar_bytes[0] &= 248;
         scalar_bytes[31] &= 127;
         scalar_bytes[31] |= 64;
-        
+
         let x25519_secret = StaticSecret::from(scalar_bytes);
         let x25519_public = X25519PublicKey::from(&x25519_secret);
-        
+
         Keypair {
             key_type: KeyType::X25519,
             public: x25519_public.to_bytes().to_vec(),
@@ -151,9 +149,9 @@ impl Keypair {
     pub fn serialize(&self) -> Vec<u8> {
         bincode::serialize(self).expect("Failed to serialize keypair")
     }
-    
+
     /// Create a keypair from only a public key (for verification-only purposes)
-    /// 
+    ///
     /// This creates a "public-key-only" keypair that can only verify signatures,
     /// not create them. Used when registering devices where the private key
     /// remains on the device.
@@ -161,12 +159,11 @@ impl Keypair {
         if public_key.len() != 32 {
             return Err("Public key must be 32 bytes".to_string());
         }
-        
+
         // Validate it's a valid Ed25519 public key
-        VerifyingKey::from_bytes(
-            public_key.try_into().expect("Length checked")
-        ).map_err(|e| format!("Invalid Ed25519 public key: {}", e))?;
-        
+        VerifyingKey::from_bytes(public_key.try_into().expect("Length checked"))
+            .map_err(|e| format!("Invalid Ed25519 public key: {}", e))?;
+
         Ok(Keypair {
             key_type: KeyType::Ed25519,
             public: public_key.to_vec(),
@@ -250,14 +247,14 @@ mod tests {
         let kp = Keypair::generate(KeyType::Ed25519);
         let secret_ptr = kp.secret.as_ptr();
         let secret_len = kp.secret.len();
-        
+
         // Verify secret is not all zeros initially
         let secret_copy: Vec<u8> = kp.secret.clone();
         assert!(secret_copy.iter().any(|&b| b != 0), "Secret should not be all zeros initially");
-        
+
         // Drop the keypair
         drop(kp);
-        
+
         // Note: We cannot safely check if memory was zeroized without unsafe code
         // and potential UB. The zeroize crate guarantees this behavior.
         // This test mainly documents the expectation.
@@ -267,7 +264,7 @@ mod tests {
     fn test_debug_does_not_leak_secret() {
         let kp = Keypair::generate(KeyType::Ed25519);
         let debug_str = format!("{:?}", kp);
-        
+
         // Debug output should not contain the actual secret key
         assert!(debug_str.contains("<redacted>"), "Debug should redact secret");
         assert!(!debug_str.contains(&hex::encode(&kp.secret)), "Debug should not show secret");

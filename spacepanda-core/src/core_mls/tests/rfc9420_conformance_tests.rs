@@ -1,3 +1,11 @@
+use crate::core_mls::api::MlsHandle;
+use crate::core_mls::commit::*;
+use crate::core_mls::crypto::MlsSigningKey; // Crypto primitives
+use crate::core_mls::encryption::*;
+use crate::core_mls::errors::*;
+use crate::core_mls::group::*;
+use crate::core_mls::proposals::*;
+use crate::core_mls::tree::*;
 /// RFC 9420 MLS Protocol Conformance Test Suite
 ///
 /// This comprehensive test suite validates full compliance with the MLS Protocol
@@ -18,17 +26,8 @@
 /// 11. ERROR HANDLING & RECOVERY (12 tests)
 ///
 /// Total: 104 comprehensive conformance tests
-
 use crate::core_mls::types::*;
-use crate::core_mls::errors::*;
-use crate::core_mls::group::*;
-use crate::core_mls::proposals::*;
-use crate::core_mls::commit::*;
-use crate::core_mls::tree::*;
-use crate::core_mls::welcome::*;
-use crate::core_mls::encryption::*;
-use crate::core_mls::crypto::MlsSigningKey; // Crypto primitives
-use crate::core_mls::api::MlsHandle; // Legacy MLS implementation used in these tests
+use crate::core_mls::welcome::*; // Legacy MLS implementation used in these tests
 
 // ============================================================================
 // TEST HARNESS & HELPER FUNCTIONS
@@ -43,7 +42,7 @@ fn test_keypair(name: &str) -> (Vec<u8>, MlsSigningKey) {
     let bytes = seed_str.as_bytes();
     let len = bytes.len().min(32);
     seed[..len].copy_from_slice(&bytes[..len]);
-    
+
     let signing_key = MlsSigningKey::from_bytes(&seed);
     let verifying_key = signing_key.verifying_key();
     let public_key_bytes = verifying_key.to_bytes().to_vec();
@@ -151,7 +150,7 @@ mod group_initialization_tests {
 
         let tree_hash = group.tree.root_hash().unwrap_or_default();
         assert!(!tree_hash.is_empty(), "Tree hash must be computed on init");
-        
+
         // Recompute and verify it matches
         let recomputed_hash = group.tree.root_hash().unwrap_or_default();
         assert_eq!(tree_hash, recomputed_hash, "Tree hash must be deterministic");
@@ -161,7 +160,7 @@ mod group_initialization_tests {
     #[test]
     fn test_g5_init_secrets_uniqueness() {
         let (alice_pk, _) = test_keypair("alice");
-        
+
         let group1 = MlsGroup::new(
             GroupId::new(b"group1".to_vec()),
             alice_pk.clone(),
@@ -181,12 +180,8 @@ mod group_initialization_tests {
         .unwrap();
 
         // Different groups must have different IDs
-        assert_ne!(
-            group1.group_id,
-            group2.group_id,
-            "Different groups must have unique IDs"
-        );
-        
+        assert_ne!(group1.group_id, group2.group_id, "Different groups must have unique IDs");
+
         // Different application secrets should also differ
         // (In real MLS, even with same keys, different group contexts produce different derived secrets)
     }
@@ -223,10 +218,7 @@ mod group_initialization_tests {
 
         // Cannot commit without proposals
         let result = group.commit(None);
-        assert!(
-            result.is_err(),
-            "Commit without proposals must fail"
-        );
+        assert!(result.is_err(), "Commit without proposals must fail");
     }
 
     /// G8: Init blank-leaf encoding - Leaves encode to correct blank value
@@ -253,7 +245,7 @@ mod group_initialization_tests {
         // Creating a group with an invalid key should fail
         // This would require malformed key construction which our API prevents
         let (alice_pk, _) = test_keypair("alice");
-        
+
         let group = MlsGroup::new(
             test_group_id(),
             alice_pk,
@@ -324,7 +316,7 @@ mod add_proposal_tests {
 
         let (bob_pk, _) = test_keypair("bob");
         let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
-        
+
         let result = group.add_proposal(proposal);
         assert!(result.is_ok(), "Valid add proposal must succeed");
     }
@@ -345,7 +337,7 @@ mod add_proposal_tests {
         // Trying to add the same key that's already in the group
         let proposal = Proposal::new_add(0, 0, alice_pk, b"alice2".to_vec());
         let result = group.add_proposal(proposal);
-        
+
         // Should fail (duplicate key)
         assert!(result.is_err(), "Adding self must be rejected");
     }
@@ -370,7 +362,7 @@ mod add_proposal_tests {
         // Try to add bob again
         let proposal2 = Proposal::new_add(0, 1, bob_pk, b"bob2".to_vec());
         let result = group.add_proposal(proposal2);
-        
+
         assert!(result.is_err(), "Adding duplicate member must fail");
     }
 
@@ -390,7 +382,7 @@ mod add_proposal_tests {
         // Create a proposal but we'll trust the validation happens during processing
         let (bob_pk, _) = test_keypair("bob");
         let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
-        
+
         // Valid proposal should work
         assert!(group.add_proposal(proposal).is_ok());
     }
@@ -456,11 +448,11 @@ mod add_proposal_tests {
         group.add_proposal(proposal).unwrap();
 
         let (_, mut welcomes) = group.commit(None).unwrap();
-        
+
         // Corrupt the HPKE ciphertext
         if !welcomes.is_empty() && !welcomes[0].encrypted_secrets.is_empty() {
             corrupt_bytes(&mut welcomes[0].encrypted_secrets[0].encrypted_payload);
-            
+
             // Try to join with corrupted Welcome
             let result = MlsGroup::from_welcome(&welcomes[0], 1, &bob_sk.to_bytes());
             assert!(result.is_err(), "Corrupted HPKE must be rejected");
@@ -501,7 +493,7 @@ mod add_proposal_tests {
         // Proposal with incorrect sender index
         let proposal = Proposal::new_add(999, 0, bob_pk, b"bob".to_vec());
         let result = group.add_proposal(proposal);
-        
+
         assert!(result.is_err(), "Wrong leaf index must be rejected");
     }
 }
@@ -529,7 +521,7 @@ mod update_proposal_tests {
 
         let (alice_pk2, _) = test_keypair("alice_v2");
         let result = alice.propose_update(alice_pk2);
-        
+
         assert!(result.is_ok(), "Valid update proposal must succeed");
     }
 
@@ -550,7 +542,7 @@ mod update_proposal_tests {
         let (bob_pk, _) = test_keypair("bob");
         let proposal = Proposal::new_update(999, 0, bob_pk);
         let result = group.add_proposal(proposal);
-        
+
         assert!(result.is_err(), "Update from invalid sender must fail");
     }
 
@@ -606,7 +598,7 @@ mod update_proposal_tests {
 
         let (new_pk, _) = test_keypair("alice_v2");
         let result = alice.propose_update(new_pk);
-        
+
         assert!(result.is_ok(), "Valid update must succeed");
     }
 
@@ -625,7 +617,7 @@ mod update_proposal_tests {
 
         let (new_pk, _) = test_keypair("alice_v2");
         alice.propose_update(new_pk).unwrap();
-        
+
         let result = alice.commit();
         assert!(result.is_ok(), "Commit with valid tree hash must succeed");
     }
@@ -646,7 +638,7 @@ mod update_proposal_tests {
 
         let (new_pk, _) = test_keypair("alice_v2");
         let result = alice.propose_update(new_pk);
-        
+
         assert!(result.is_ok());
     }
 
@@ -665,7 +657,7 @@ mod update_proposal_tests {
 
         let (new_pk, _) = test_keypair("alice_v2");
         let result = alice.propose_update(new_pk);
-        
+
         assert!(result.is_ok(), "Valid HPKE must succeed");
     }
 
@@ -685,7 +677,7 @@ mod update_proposal_tests {
         // Tree size is validated during operations
         let (new_pk, _) = test_keypair("alice_v2");
         let result = alice.propose_update(new_pk);
-        
+
         assert!(result.is_ok());
     }
 }
@@ -787,7 +779,7 @@ mod remove_proposal_tests {
         // Try to remove a blank/non-existent leaf
         let proposal = Proposal::new_remove(0, 0, 100);
         let result = group.add_proposal(proposal);
-        
+
         assert!(result.is_err(), "Cannot remove blank leaf");
     }
 
@@ -833,7 +825,7 @@ mod remove_proposal_tests {
         // Proposal from non-existent sender
         let proposal = Proposal::new_remove(999, 0, 0);
         let result = group.add_proposal(proposal);
-        
+
         assert!(result.is_err(), "Invalid sender must be rejected");
     }
 
@@ -852,7 +844,7 @@ mod remove_proposal_tests {
 
         // Propose remove (of self) but don't commit
         alice.propose_remove(0).unwrap();
-        
+
         // Alice should still be in the group until commit
         // (This tests that proposals are pending until committed)
         assert_eq!(alice.member_count().unwrap(), 1, "Remove not applied until commit");
@@ -882,10 +874,10 @@ mod commit_tests {
 
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
-        
+
         let result = alice.commit();
         assert!(result.is_ok(), "Commit with add proposal must succeed");
-        
+
         // Verify epoch advanced
         assert_eq!(alice.current_epoch().unwrap(), 1, "Epoch must advance after commit");
     }
@@ -905,7 +897,7 @@ mod commit_tests {
 
         let (alice_pk2, _) = test_keypair("alice_v2");
         alice.propose_update(alice_pk2).unwrap();
-        
+
         let result = alice.commit();
         assert!(result.is_ok(), "Commit with update proposal must succeed");
         assert_eq!(alice.current_epoch().unwrap(), 1, "Epoch must advance");
@@ -925,7 +917,7 @@ mod commit_tests {
         .unwrap();
 
         alice.propose_remove(0).unwrap(); // Self-remove
-        
+
         let result = alice.commit();
         assert!(result.is_ok(), "Commit with remove proposal must succeed");
         assert_eq!(alice.current_epoch().unwrap(), 1, "Epoch must advance");
@@ -947,10 +939,10 @@ mod commit_tests {
         // Add, update, remove in sequence
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
-        
+
         let (alice_pk2, _) = test_keypair("alice_v2");
         alice.propose_update(alice_pk2).unwrap();
-        
+
         let result = alice.commit();
         assert!(result.is_ok(), "Commit with mixed proposals must succeed");
     }
@@ -988,7 +980,7 @@ mod commit_tests {
 
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
-        
+
         // Commit succeeds but confirmation tag is computed internally
         // In real implementation, tampering would be caught during receipt
         let result = alice.commit();
@@ -1011,9 +1003,9 @@ mod commit_tests {
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         alice.commit().unwrap();
-        
+
         let epoch_after_first = alice.current_epoch().unwrap();
-        
+
         // Try to commit again without new proposals
         let result = alice.commit();
         assert!(result.is_err(), "Cannot commit without proposals");
@@ -1036,12 +1028,12 @@ mod commit_tests {
         .unwrap();
 
         assert_eq!(alice.current_epoch().unwrap(), 0, "Initial epoch is 0");
-        
+
         // Normal progression
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         alice.commit().unwrap();
-        
+
         assert_eq!(alice.current_epoch().unwrap(), 1, "Epoch advances sequentially");
     }
 
@@ -1063,7 +1055,7 @@ mod commit_tests {
         // Valid sender creates valid commit
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
-        
+
         let result = alice.commit();
         assert!(result.is_ok(), "Valid sender creates valid commit");
     }
@@ -1084,7 +1076,7 @@ mod commit_tests {
         // GroupContext (group_id, epoch) is validated automatically
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
-        
+
         let result = alice.commit();
         assert!(result.is_ok(), "Commit with correct context succeeds");
     }
@@ -1105,7 +1097,7 @@ mod commit_tests {
         // Tree integrity is maintained internally
         let (alice_pk2, _) = test_keypair("alice_v2");
         alice.propose_update(alice_pk2).unwrap();
-        
+
         let result = alice.commit();
         assert!(result.is_ok(), "Commit with valid tree path succeeds");
     }
@@ -1124,11 +1116,11 @@ mod commit_tests {
         .unwrap();
 
         let (bob_pk, _) = test_keypair("bob");
-        
+
         // Create proposal with wrong epoch
         let stale_proposal = Proposal::new_add(0, 999, bob_pk, b"bob".to_vec());
         let result = group.add_proposal(stale_proposal);
-        
+
         assert!(result.is_err(), "Proposal with wrong epoch must be rejected");
     }
 }
@@ -1156,10 +1148,10 @@ mod welcome_tests {
 
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
-        
+
         let result = alice.commit();
         assert!(result.is_ok(), "Creating welcome must succeed");
-        
+
         // Note: Full Welcome join test requires matching HPKE keys
         // This validates the creation side
     }
@@ -1182,7 +1174,7 @@ mod welcome_tests {
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         let (_, welcomes) = alice.commit().unwrap();
-        
+
         assert_eq!(welcomes.len(), 1, "One welcome created for one new member");
     }
 
@@ -1204,13 +1196,13 @@ mod welcome_tests {
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         let result = alice.commit();
-        
+
         assert!(result.is_ok(), "Welcome creation succeeds");
     }
 
     /// W4-W13: Additional welcome validation tests
     /// These test various Welcome message validation scenarios
-    
+
     #[test]
     fn test_w4_welcome_tree_mismatch() {
         // Tree hash in Welcome must match reconstructed tree
@@ -1378,7 +1370,7 @@ mod tree_hash_tests {
         let (alice_pk2, _) = test_keypair("alice_v2");
         alice.propose_update(alice_pk2).unwrap();
         alice.commit().unwrap();
-        
+
         // Tree hash changes after update commit
         assert_eq!(alice.current_epoch().unwrap(), 1, "Epoch advances on update");
     }
@@ -1399,7 +1391,7 @@ mod tree_hash_tests {
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         alice.commit().unwrap();
-        
+
         assert_eq!(alice.current_epoch().unwrap(), 1, "Epoch advances on add");
     }
 
@@ -1418,7 +1410,7 @@ mod tree_hash_tests {
 
         alice.propose_remove(0).unwrap();
         alice.commit().unwrap();
-        
+
         assert_eq!(alice.current_epoch().unwrap(), 1, "Epoch advances on remove");
     }
 
@@ -1457,7 +1449,7 @@ mod tree_hash_tests {
     }
 
     /// T6-T12: Additional tree hash tests
-    
+
     #[test]
     fn test_t6_tree_hash_deterministic() {
         let (alice_pk, _) = test_keypair("alice");
@@ -1595,7 +1587,7 @@ mod encryption_secrecy_tests {
 
         alice.propose_remove(0).unwrap();
         alice.commit().unwrap();
-        
+
         assert_eq!(alice.current_epoch().unwrap(), 1, "Epoch advances, keys rotate");
     }
 
@@ -1614,11 +1606,11 @@ mod encryption_secrecy_tests {
         .unwrap();
 
         let epoch0 = alice.current_epoch().unwrap();
-        
+
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         alice.commit().unwrap();
-        
+
         assert_eq!(alice.current_epoch().unwrap(), epoch0 + 1, "Bob joins at new epoch");
     }
 
@@ -1656,7 +1648,7 @@ mod encryption_secrecy_tests {
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         alice.commit().unwrap();
-        
+
         assert_eq!(alice.current_epoch().unwrap(), 1, "Keys derived for new epoch");
     }
 
@@ -1677,7 +1669,7 @@ mod encryption_secrecy_tests {
         let (alice_pk2, _) = test_keypair("alice_v2");
         alice.propose_update(alice_pk2).unwrap();
         alice.commit().unwrap();
-        
+
         assert_eq!(alice.current_epoch().unwrap(), 1, "New epoch has new secrets");
     }
 
@@ -1696,7 +1688,7 @@ mod encryption_secrecy_tests {
 
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
-        
+
         // Confirmation tag is computed during commit
         let result = alice.commit();
         assert!(result.is_ok(), "Valid confirmation tag");
@@ -1714,7 +1706,7 @@ mod encryption_secrecy_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // Sender data is encrypted with AEAD
     }
 
@@ -1730,7 +1722,7 @@ mod encryption_secrecy_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // AEAD decryption catches tampering
     }
 
@@ -1746,7 +1738,7 @@ mod encryption_secrecy_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // Nonce reuse detection prevents replay
     }
 
@@ -1767,11 +1759,11 @@ mod encryption_secrecy_tests {
         let (alice_pk2, _) = test_keypair("alice_v2");
         alice.propose_update(alice_pk2).unwrap();
         alice.commit().unwrap();
-        
+
         let (alice_pk3, _) = test_keypair("alice_v3");
         alice.propose_update(alice_pk3).unwrap();
         alice.commit().unwrap();
-        
+
         assert_eq!(alice.current_epoch().unwrap(), 2, "Multiple epochs with unique secrets");
     }
 }
@@ -1813,7 +1805,7 @@ mod authentication_signing_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // Invalid signatures would be caught during validation
     }
 
@@ -1832,7 +1824,7 @@ mod authentication_signing_tests {
 
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
-        
+
         // Commit signatures are verified
         let result = alice.commit();
         assert!(result.is_ok(), "Valid commit signature");
@@ -1869,7 +1861,7 @@ mod authentication_signing_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // Key packages require valid signatures
     }
 
@@ -1885,7 +1877,7 @@ mod authentication_signing_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // GroupInfo signatures are verified
     }
 
@@ -1901,7 +1893,7 @@ mod authentication_signing_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // Signature key must match credential
     }
 
@@ -1965,7 +1957,7 @@ mod application_message_tests {
         let (alice_pk2, _) = test_keypair("alice_v2");
         alice.propose_update(alice_pk2).unwrap();
         alice.commit().unwrap();
-        
+
         let result = alice.send_message(b"After update");
         assert!(result.is_ok(), "Message uses new epoch keys");
     }
@@ -1985,7 +1977,7 @@ mod application_message_tests {
 
         let result = alice.send_message(b"Before update");
         assert!(result.is_ok(), "Message at epoch 0");
-        
+
         assert_eq!(alice.current_epoch().unwrap(), 0, "Still at epoch 0");
     }
 
@@ -2001,7 +1993,7 @@ mod application_message_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // Message sender authentication verified
     }
 
@@ -2019,7 +2011,7 @@ mod application_message_tests {
         .unwrap();
 
         alice.send_message(b"Original").unwrap();
-        
+
         // Replay of same message would be detected
     }
 
@@ -2053,7 +2045,7 @@ mod application_message_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // Content type validation
     }
 
@@ -2072,7 +2064,7 @@ mod application_message_tests {
 
         alice.propose_remove(0).unwrap();
         alice.commit().unwrap();
-        
+
         // Removed members can't decrypt new messages
         assert_eq!(alice.current_epoch().unwrap(), 1, "New epoch excludes removed member");
     }
@@ -2100,11 +2092,11 @@ mod error_handling_tests {
         .unwrap();
 
         let epoch_before = alice.current_epoch().unwrap();
-        
+
         // Try invalid operation
         let result = alice.commit();
         assert!(result.is_err(), "Invalid commit rejected");
-        
+
         // State unchanged
         assert_eq!(alice.current_epoch().unwrap(), epoch_before, "State rolled back");
     }
@@ -2124,7 +2116,7 @@ mod error_handling_tests {
 
         // Failed commit
         let _ = alice.commit();
-        
+
         // Group can continue
         let (bob_pk, _) = test_keypair("bob");
         let result = alice.propose_add(bob_pk, b"bob".to_vec());
@@ -2146,7 +2138,7 @@ mod error_handling_tests {
 
         // Invalid update (same key)
         let _ = alice.propose_update(alice_pk);
-        
+
         // Valid add still works
         let (bob_pk, _) = test_keypair("bob");
         let result = alice.propose_add(bob_pk, b"bob".to_vec());
@@ -2169,7 +2161,7 @@ mod error_handling_tests {
         let (bob_pk, _) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         alice.commit().unwrap();
-        
+
         // Proposals cleared after commit
         let result = alice.commit();
         assert!(result.is_err(), "No pending proposals after commit");
@@ -2190,7 +2182,7 @@ mod error_handling_tests {
 
         let (bob_pk, _) = test_keypair("bob");
         let stale_proposal = Proposal::new_add(0, 999, bob_pk, b"bob".to_vec());
-        
+
         let result = group.add_proposal(stale_proposal);
         assert!(result.is_err(), "Proposal with wrong epoch rejected");
     }
@@ -2208,7 +2200,7 @@ mod error_handling_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // Invalid data handled gracefully
     }
 
@@ -2224,7 +2216,7 @@ mod error_handling_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // Extension handling per policy
     }
 
@@ -2240,7 +2232,7 @@ mod error_handling_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // Only supported ciphersuites accepted
         assert!(alice.current_epoch().is_ok(), "Valid ciphersuite");
     }
@@ -2257,7 +2249,7 @@ mod error_handling_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // Protocol version validation
     }
 
@@ -2273,7 +2265,7 @@ mod error_handling_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // Malformed messages rejected cleanly
     }
 
@@ -2289,7 +2281,7 @@ mod error_handling_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // Tree hash mismatches detected
     }
 
@@ -2305,7 +2297,7 @@ mod error_handling_tests {
             test_config(),
         )
         .unwrap();
-        
+
         // Key schedule consistency verified
     }
 }

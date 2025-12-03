@@ -7,6 +7,8 @@
 //! - Error recovery
 //! - Performance validation
 
+#![allow(dead_code, unused_imports, unused_variables)]
+
 use super::api::MlsHandle;
 use super::discovery::{DiscoveryQuery, GroupPublicInfo};
 use super::errors::MlsResult;
@@ -22,9 +24,7 @@ struct TestNetwork {
 
 impl TestNetwork {
     fn new() -> Self {
-        Self {
-            mailboxes: HashMap::new(),
-        }
+        Self { mailboxes: HashMap::new() }
     }
 
     /// Send message to recipient
@@ -191,7 +191,7 @@ mod tests {
 
         // Alice receives Bob's commit (Charlie is being removed)
         alice.receive_commit(&remove_commit).unwrap();
-        
+
         // Alice and Bob now at epoch 3 with 2 members
         assert_eq!(alice.epoch().unwrap(), 3);
         assert_eq!(bob.epoch().unwrap(), 3);
@@ -372,30 +372,28 @@ mod tests {
 
         // Get group info for publication
         let metadata = alice.metadata().unwrap();
-        
+
         // Simulate creating public info (would use actual tree from handle)
         use crate::core_mls::discovery::GroupPublicInfo;
         use crate::core_mls::tree::MlsTree;
         use sha2::{Digest, Sha256};
 
         let tree = MlsTree::new(); // Simplified for test
-        let public_info = GroupPublicInfo::from_metadata(
-            alice.group_id().unwrap(),
-            &metadata,
-            &tree,
-            |data| {
+        let public_info =
+            GroupPublicInfo::from_metadata(alice.group_id().unwrap(), &metadata, &tree, |data| {
                 let mut hasher = Sha256::new();
                 hasher.update(data);
                 hasher.finalize().to_vec()
-            },
-        );
+            });
 
         // Verify signature
-        assert!(public_info.verify(|data, sig| {
-            let mut hasher = Sha256::new();
-            hasher.update(data);
-            &hasher.finalize()[..] == sig
-        }).is_ok());
+        assert!(public_info
+            .verify(|data, sig| {
+                let mut hasher = Sha256::new();
+                hasher.update(data);
+                &hasher.finalize()[..] == sig
+            })
+            .is_ok());
 
         // Serialize for CRDT storage
         let json = public_info.to_json().unwrap();
@@ -522,7 +520,7 @@ mod tests {
 
         assert_eq!(welcomes.len(), 20);
         assert_eq!(alice.member_count().unwrap(), 21);
-        
+
         // Should complete in reasonable time (< 1s)
         assert!(duration.as_millis() < 1000, "Took {}ms", duration.as_millis());
     }

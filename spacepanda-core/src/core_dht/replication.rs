@@ -3,7 +3,7 @@
 
     Responsibilities:
     `replication.rs` implements the periodic replication and republishing of DHT key-value pairs.
-    It handles: 
+    It handles:
     - publishes original values you PUT
     - refresh keys
     - pushes replicas to nearest nodes
@@ -18,7 +18,7 @@
     - PUT RPC messages
     - storage updates
     - replication logs
-    
+
 */
 
 use std::collections::HashSet;
@@ -37,11 +37,7 @@ use super::routing_table::{PeerContact, RoutingTable};
 #[derive(Debug, Clone)]
 pub enum ReplicationEvent {
     /// Need to replicate a value to peers
-    ReplicateValue {
-        key: DhtKey,
-        value: DhtValue,
-        peers: Vec<PeerContact>,
-    },
+    ReplicateValue { key: DhtKey, value: DhtValue, peers: Vec<PeerContact> },
     /// Need to refresh a key
     RefreshKey { key: DhtKey },
     /// Expired keys garbage collected
@@ -72,19 +68,14 @@ impl ReplicationState {
     }
 
     fn needs_replication(&self, interval_secs: u64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+
         (now - self.last_replicated) > interval_secs
     }
 
     fn mark_replicated(&mut self) {
-        self.last_replicated = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        self.last_replicated =
+            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     }
 
     fn add_replica_peer(&mut self, peer: DhtKey) {
@@ -147,71 +138,70 @@ impl ReplicationManager {
     /// Perform replication round
     async fn do_replication(&self) -> Result<(), String> {
         let keys = self.storage.active_keys()?;
-        
+
         for key in keys {
             if let Ok(value) = self.storage.get(&key) {
                 // Check if this key needs replication
                 let mut states = self.replication_state.lock().await;
                 let state = states.entry(key).or_insert_with(|| ReplicationState::new(false));
-                
+
                 let interval = if state.is_original {
                     self.config.republish_interval.as_secs()
                 } else {
                     // For cached values, use half the republish interval
                     self.config.republish_interval.as_secs() / 2
                 };
-                
+
                 if state.needs_replication(interval) {
                     // Find k closest nodes to this key
                     let routing_table = self.routing_table.lock().await;
                     let closest_peers = routing_table.find_closest(&key, self.config.bucket_size);
                     drop(routing_table);
-                    
+
                     // Filter out peers that already have the replica
                     let peers_to_replicate: Vec<PeerContact> = closest_peers
                         .into_iter()
                         .filter(|p| !state.replica_peers.contains(&p.id))
                         .collect();
-                    
+
                     if !peers_to_replicate.is_empty() {
                         // Emit replication event
-                        let _ = self.event_tx
+                        let _ = self
+                            .event_tx
                             .send(ReplicationEvent::ReplicateValue {
                                 key,
                                 value: value.clone(),
                                 peers: peers_to_replicate.clone(),
                             })
                             .await;
-                        
+
                         // Mark peers as having replica
                         for peer in peers_to_replicate {
                             state.add_replica_peer(peer.id);
                         }
                     }
-                    
+
                     state.mark_replicated();
                 }
             }
         }
-        
+
         Ok(())
     }
 
     /// Perform garbage collection
     async fn do_garbage_collection(&self) -> Result<(), String> {
         let removed = self.storage.cleanup_expired()?;
-        
+
         if removed > 0 {
             // Clean up replication state for removed keys
             let keys = self.storage.keys()?;
             let mut states = self.replication_state.lock().await;
             states.retain(|k, _| keys.contains(k));
-            
-            let _ = self.event_tx
-                .send(ReplicationEvent::GarbageCollected { count: removed })
-                .await;
+
+            let _ = self.event_tx.send(ReplicationEvent::GarbageCollected { count: removed }).await;
         }
-        
+
         Ok(())
     }
 
@@ -227,7 +217,7 @@ impl ReplicationManager {
         let mut states = self.replication_state.lock().await;
         let state = states.entry(*key).or_insert_with(|| ReplicationState::new(false));
         state.add_replica_peer(peer_id);
-        
+
         // Also update storage
         let _ = self.storage.add_replica(key, peer_id);
     }
@@ -235,18 +225,13 @@ impl ReplicationManager {
     /// Get replication statistics
     pub async fn stats(&self) -> ReplicationStats {
         let states = self.replication_state.lock().await;
-        
+
         let total_keys = states.len();
         let original_keys = states.values().filter(|s| s.is_original).count();
         let cached_keys = total_keys - original_keys;
         let total_replicas: usize = states.values().map(|s| s.replica_peers.len()).sum();
-        
-        ReplicationStats {
-            total_keys,
-            original_keys,
-            cached_keys,
-            total_replicas,
-        }
+
+        ReplicationStats { total_keys, original_keys, cached_keys, total_replicas }
     }
 }
 
@@ -291,10 +276,10 @@ mod tests {
         let (event_tx, _event_rx) = tokio::sync::mpsc::channel(100);
 
         let manager = ReplicationManager::new(config, storage, routing_table, event_tx);
-        
+
         let key = DhtKey::hash(b"test_key");
         manager.mark_original(key).await;
-        
+
         let states = manager.replication_state.lock().await;
         assert!(states.get(&key).unwrap().is_original);
     }
@@ -307,14 +292,14 @@ mod tests {
         let (event_tx, _event_rx) = tokio::sync::mpsc::channel(100);
 
         let manager = ReplicationManager::new(config, storage.clone(), routing_table, event_tx);
-        
+
         let key = DhtKey::hash(b"test_key");
         let value = DhtValue::new(b"test_data".to_vec()).with_ttl(3600);
         storage.put(key, value).unwrap();
-        
+
         let peer_id = DhtKey::hash(b"peer1");
         manager.mark_peer_has_replica(&key, peer_id).await;
-        
+
         let states = manager.replication_state.lock().await;
         assert!(states.get(&key).unwrap().replica_peers.contains(&peer_id));
     }
@@ -327,18 +312,18 @@ mod tests {
         let (event_tx, _event_rx) = tokio::sync::mpsc::channel(100);
 
         let manager = ReplicationManager::new(config, storage.clone(), routing_table, event_tx);
-        
+
         // Add some keys
         let key1 = DhtKey::hash(b"key1");
         let key2 = DhtKey::hash(b"key2");
-        
+
         manager.mark_original(key1).await;
         manager.mark_peer_has_replica(&key1, DhtKey::hash(b"peer1")).await;
         manager.mark_peer_has_replica(&key1, DhtKey::hash(b"peer2")).await;
-        
+
         let peer_id = DhtKey::hash(b"peer3");
         manager.mark_peer_has_replica(&key2, peer_id).await;
-        
+
         let stats = manager.stats().await;
         assert_eq!(stats.total_keys, 2);
         assert_eq!(stats.original_keys, 1);
@@ -352,20 +337,20 @@ mod tests {
         let routing_table = create_test_routing_table();
         let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
 
-        let manager = Arc::new(ReplicationManager::new(
-            config,
-            storage.clone(),
-            routing_table,
-            event_tx,
-        ));
-        
+        let manager =
+            Arc::new(ReplicationManager::new(config, storage.clone(), routing_table, event_tx));
+
         // Add expired keys
-        storage.put(DhtKey::hash(b"key1"), DhtValue::new(b"data1".to_vec()).with_ttl(0)).unwrap();
-        storage.put(DhtKey::hash(b"key2"), DhtValue::new(b"data2".to_vec()).with_ttl(0)).unwrap();
-        
+        storage
+            .put(DhtKey::hash(b"key1"), DhtValue::new(b"data1".to_vec()).with_ttl(0))
+            .unwrap();
+        storage
+            .put(DhtKey::hash(b"key2"), DhtValue::new(b"data2".to_vec()).with_ttl(0))
+            .unwrap();
+
         // Run GC
         manager.do_garbage_collection().await.unwrap();
-        
+
         // Should receive GC event
         if let Some(event) = event_rx.try_recv().ok() {
             match event {
@@ -396,28 +381,24 @@ mod tests {
             }
         }
 
-        let manager = Arc::new(ReplicationManager::new(
-            config,
-            storage.clone(),
-            routing_table,
-            event_tx,
-        ));
-        
+        let manager =
+            Arc::new(ReplicationManager::new(config, storage.clone(), routing_table, event_tx));
+
         // Add a key to storage and mark as original
         let key = DhtKey::hash(b"test_key");
         let value = DhtValue::new(b"test_data".to_vec()).with_ttl(3600);
         storage.put(key, value.clone()).unwrap();
         manager.mark_original(key).await;
-        
+
         // Force immediate replication by setting last_replicated to 0
         {
             let mut states = manager.replication_state.lock().await;
             states.get_mut(&key).unwrap().last_replicated = 0;
         }
-        
+
         // Run replication
         manager.do_replication().await.unwrap();
-        
+
         // Should receive replication event
         if let Some(event) = event_rx.try_recv().ok() {
             match event {
@@ -434,10 +415,10 @@ mod tests {
     #[test]
     fn test_replication_state_needs_replication() {
         let mut state = ReplicationState::new(false);
-        
+
         // Fresh state doesn't need replication
         assert!(!state.needs_replication(60));
-        
+
         // Old state needs replication
         state.last_replicated = 0;
         assert!(state.needs_replication(60));
@@ -446,13 +427,13 @@ mod tests {
     #[test]
     fn test_replication_state_replica_peers() {
         let mut state = ReplicationState::new(false);
-        
+
         let peer1 = DhtKey::hash(b"peer1");
         let peer2 = DhtKey::hash(b"peer2");
-        
+
         state.add_replica_peer(peer1);
         state.add_replica_peer(peer2);
-        
+
         assert_eq!(state.replica_peers.len(), 2);
         assert!(state.replica_peers.contains(&peer1));
         assert!(state.replica_peers.contains(&peer2));
@@ -462,10 +443,10 @@ mod tests {
     fn test_replication_state_mark_replicated() {
         let mut state = ReplicationState::new(false);
         let before = state.last_replicated;
-        
+
         std::thread::sleep(std::time::Duration::from_millis(1001));
         state.mark_replicated();
-        
+
         assert!(state.last_replicated > before);
     }
 }

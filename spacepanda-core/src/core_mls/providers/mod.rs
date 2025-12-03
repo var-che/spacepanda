@@ -2,8 +2,8 @@
 //!
 //! This module provides concrete implementations of the `CryptoProvider` trait.
 
-pub mod openmls_provider;
 pub mod mock_crypto;
+pub mod openmls_provider;
 
-pub use openmls_provider::OpenMlsCryptoProvider;
 pub use mock_crypto::MockCryptoProvider;
+pub use openmls_provider::OpenMlsCryptoProvider;

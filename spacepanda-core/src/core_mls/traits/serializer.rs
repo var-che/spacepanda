@@ -2,9 +2,9 @@
 //!
 //! Handles conversion between internal message types and wire format.
 
-use async_trait::async_trait;
-use crate::core_mls::errors::MlsResult;
 use super::transport::WireMessage;
+use crate::core_mls::errors::MlsResult;
+use async_trait::async_trait;
 
 /// Outbound message (to be serialized)
 ///

@@ -2,12 +2,15 @@
 //!
 //! Handles incoming MLS messages: parsing, verification, and application to group state.
 
+use super::EncryptedEnvelope;
 use crate::core_mls::{
     engine::openmls_engine::{OpenMlsEngine, ProcessedMessage},
     errors::{MlsError, MlsResult},
     events::MlsEvent,
 };
-use super::{EncryptedEnvelope, MessageType};
+
+#[cfg(test)]
+use super::MessageType;
 
 /// Inbound message processor
 ///
@@ -22,7 +25,7 @@ impl InboundHandler {
     pub fn new() -> Self {
         Self {}
     }
-    
+
     /// Process an incoming encrypted envelope
     ///
     /// # Arguments
@@ -44,10 +47,10 @@ impl InboundHandler {
                 actual: envelope.epoch(),
             });
         }
-        
+
         // Process the MLS message payload
         let processed = engine.process_message(envelope.payload()).await?;
-        
+
         // Convert to result with events
         let result = match processed {
             ProcessedMessage::Application(plaintext) => {
@@ -58,20 +61,17 @@ impl InboundHandler {
                     epoch: envelope.epoch(),
                     plaintext: plaintext.clone(),
                 };
-                
+
                 ProcessedMessageResult {
                     content: MessageContent::Application(plaintext),
                     events: vec![event],
                 }
-            },
+            }
             ProcessedMessage::Proposal => {
                 // Proposal received and stored in group state
                 // Note: We don't emit a specific event for proposals since we don't know the type yet
-                ProcessedMessageResult {
-                    content: MessageContent::Proposal,
-                    events: vec![],
-                }
-            },
+                ProcessedMessageResult { content: MessageContent::Proposal, events: vec![] }
+            }
             ProcessedMessage::Commit { new_epoch } => {
                 // Commit processed, epoch advanced
                 let event = MlsEvent::EpochChanged {
@@ -79,17 +79,17 @@ impl InboundHandler {
                     old_epoch: envelope.epoch(),
                     new_epoch,
                 };
-                
+
                 ProcessedMessageResult {
                     content: MessageContent::Commit { new_epoch },
                     events: vec![event],
                 }
-            },
+            }
         };
-        
+
         Ok(result)
     }
-    
+
     /// Verify envelope matches expected group and epoch constraints
     pub fn verify_envelope_metadata(
         &self,
@@ -106,7 +106,7 @@ impl InboundHandler {
                 envelope.group_id()
             )));
         }
-        
+
         // Verify epoch is within acceptable range
         if envelope.epoch() < current_epoch.saturating_sub(max_epoch_drift) {
             return Err(MlsError::EpochMismatch {
@@ -114,14 +114,14 @@ impl InboundHandler {
                 actual: envelope.epoch(),
             });
         }
-        
+
         if envelope.epoch() > current_epoch + max_epoch_drift {
             return Err(MlsError::EpochMismatch {
                 expected: current_epoch,
                 actual: envelope.epoch(),
             });
         }
-        
+
         Ok(())
     }
 }
@@ -137,7 +137,7 @@ impl Default for InboundHandler {
 pub struct ProcessedMessageResult {
     /// The content of the processed message
     pub content: MessageContent,
-    
+
     /// Events to emit to the application layer
     pub events: Vec<MlsEvent>,
 }
@@ -147,10 +147,10 @@ pub struct ProcessedMessageResult {
 pub enum MessageContent {
     /// Decrypted application message
     Application(Vec<u8>),
-    
+
     /// Proposal was stored
     Proposal,
-    
+
     /// Commit was applied, epoch advanced
     Commit { new_epoch: u64 },
 }
@@ -158,22 +158,20 @@ pub enum MessageContent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core_mls::{
-        types::{GroupId, MlsConfig},
-    };
-    
+    use crate::core_mls::types::{GroupId, MlsConfig};
+
     #[tokio::test]
     async fn test_inbound_handler_creation() {
         let handler = InboundHandler::new();
         // Handler should be created successfully
         assert!(std::mem::size_of_val(&handler) >= 0);
     }
-    
+
     #[tokio::test]
     async fn test_verify_envelope_metadata_valid() {
         let handler = InboundHandler::new();
         let group_id = GroupId::random();
-        
+
         let envelope = EncryptedEnvelope::new(
             group_id.clone(),
             10,
@@ -181,17 +179,17 @@ mod tests {
             vec![1, 2, 3],
             MessageType::Application,
         );
-        
+
         let result = handler.verify_envelope_metadata(&envelope, &group_id, 5, 10);
         assert!(result.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_verify_envelope_metadata_wrong_group() {
         let handler = InboundHandler::new();
         let group_id = GroupId::random();
         let wrong_group_id = GroupId::random();
-        
+
         let envelope = EncryptedEnvelope::new(
             wrong_group_id,
             10,
@@ -199,16 +197,16 @@ mod tests {
             vec![1, 2, 3],
             MessageType::Application,
         );
-        
+
         let result = handler.verify_envelope_metadata(&envelope, &group_id, 5, 10);
         assert!(result.is_err());
     }
-    
+
     #[tokio::test]
     async fn test_verify_envelope_metadata_epoch_too_old() {
         let handler = InboundHandler::new();
         let group_id = GroupId::random();
-        
+
         let envelope = EncryptedEnvelope::new(
             group_id.clone(),
             3, // Too old
@@ -216,16 +214,16 @@ mod tests {
             vec![1, 2, 3],
             MessageType::Application,
         );
-        
+
         let result = handler.verify_envelope_metadata(&envelope, &group_id, 5, 10);
         assert!(result.is_err());
     }
-    
+
     #[tokio::test]
     async fn test_verify_envelope_metadata_epoch_too_new() {
         let handler = InboundHandler::new();
         let group_id = GroupId::random();
-        
+
         let envelope = EncryptedEnvelope::new(
             group_id.clone(),
             20, // Too far in future
@@ -233,7 +231,7 @@ mod tests {
             vec![1, 2, 3],
             MessageType::Application,
         );
-        
+
         let result = handler.verify_envelope_metadata(&envelope, &group_id, 5, 10);
         assert!(result.is_err());
     }

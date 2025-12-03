@@ -4,7 +4,7 @@
     Responsibilities:
     `kad_search.rs` implements the Kademlia search procedures for finding nodes and values in the DHT.
     Its behaviors include: iterative FIND_NODE, iterative GET_VALUE, alpha parallel lookups, termination criteria, integrate results from peers,
-    detect stalled peers, ranking peers by closeness. 
+    detect stalled peers, ranking peers by closeness.
 
     Inputs:
     - search request (key or node id)
@@ -195,9 +195,10 @@ impl KadSearch {
         }
 
         // Check if we've queried all peers
-        let all_done = self.peers.iter().all(|(_, state)| {
-            *state == PeerState::Responded || *state == PeerState::Failed
-        });
+        let all_done = self
+            .peers
+            .iter()
+            .all(|(_, state)| *state == PeerState::Responded || *state == PeerState::Failed);
 
         all_done
     }
@@ -208,7 +209,8 @@ impl KadSearch {
             SearchResult::Value(value.clone())
         } else if !self.peers.is_empty() {
             // Return k closest peers that responded
-            let closest: Vec<PeerContact> = self.peers
+            let closest: Vec<PeerContact> = self
+                .peers
                 .iter()
                 .filter(|(_, state)| *state == PeerState::Responded)
                 .take(self.k)
@@ -229,9 +231,7 @@ impl KadSearch {
     pub fn active_count(&self) -> usize {
         self.peers
             .iter()
-            .filter(|(_, state)| {
-                *state == PeerState::Pending || *state == PeerState::Querying
-            })
+            .filter(|(_, state)| *state == PeerState::Pending || *state == PeerState::Querying)
             .count()
     }
 
@@ -327,10 +327,7 @@ impl SearchManager {
     /// Check if search is complete
     pub async fn is_complete(&self, search_id: u64) -> bool {
         let searches = self.searches.lock().await;
-        searches
-            .get(&search_id)
-            .map(|s| s.is_complete())
-            .unwrap_or(true)
+        searches.get(&search_id).map(|s| s.is_complete()).unwrap_or(true)
     }
 
     /// Get search result
@@ -361,13 +358,7 @@ mod tests {
         let peer1 = PeerContact::new(DhtKey::hash(b"peer1"), "127.0.0.1:8001".to_string());
         let peer2 = PeerContact::new(DhtKey::hash(b"peer2"), "127.0.0.1:8002".to_string());
 
-        let search = KadSearch::new(
-            target,
-            SearchType::FindValue,
-            vec![peer1, peer2],
-            3,
-            20,
-        );
+        let search = KadSearch::new(target, SearchType::FindValue, vec![peer1, peer2], 3, 20);
 
         assert_eq!(search.target(), target);
         assert_eq!(search.search_type(), SearchType::FindValue);
@@ -449,13 +440,8 @@ mod tests {
         let peer1 = PeerContact::new(DhtKey::hash(b"peer1"), "127.0.0.1:8001".to_string());
         let peer2 = PeerContact::new(DhtKey::hash(b"peer2"), "127.0.0.1:8002".to_string());
 
-        let mut search = KadSearch::new(
-            target,
-            SearchType::FindNode,
-            vec![peer1.clone(), peer2.clone()],
-            3,
-            20,
-        );
+        let mut search =
+            KadSearch::new(target, SearchType::FindNode, vec![peer1.clone(), peer2.clone()], 3, 20);
 
         assert!(!search.is_complete());
 
@@ -534,9 +520,8 @@ mod tests {
         let target = DhtKey::hash(b"target");
         let peer1 = PeerContact::new(DhtKey::hash(b"peer1"), "127.0.0.1:8001".to_string());
 
-        let search_id = manager
-            .start_search(target, SearchType::FindValue, vec![peer1], 3, 20)
-            .await;
+        let search_id =
+            manager.start_search(target, SearchType::FindValue, vec![peer1], 3, 20).await;
 
         assert_eq!(search_id, 0);
     }
@@ -553,9 +538,7 @@ mod tests {
             .start_search(target1, SearchType::FindValue, vec![peer1.clone()], 3, 20)
             .await;
 
-        let id2 = manager
-            .start_search(target2, SearchType::FindNode, vec![peer1], 3, 20)
-            .await;
+        let id2 = manager.start_search(target2, SearchType::FindNode, vec![peer1], 3, 20).await;
 
         assert_ne!(id1, id2);
     }
@@ -575,9 +558,7 @@ mod tests {
         assert_eq!(queries.len(), 1);
 
         // Mark as responded
-        manager
-            .mark_responded(search_id, &peer1.id, vec![])
-            .await;
+        manager.mark_responded(search_id, &peer1.id, vec![]).await;
 
         // Should be complete
         assert!(manager.is_complete(search_id).await);
@@ -604,9 +585,7 @@ mod tests {
             .await;
 
         let value = DhtValue::new(b"found!".to_vec()).with_ttl(3600);
-        manager
-            .mark_value_found(search_id, &peer1.id, value.clone())
-            .await;
+        manager.mark_value_found(search_id, &peer1.id, value.clone()).await;
 
         assert!(manager.is_complete(search_id).await);
 

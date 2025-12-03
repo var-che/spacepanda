@@ -4,10 +4,10 @@
 //! API to work with the new OpenMlsEngine backend, enabling gradual migration.
 
 use crate::core_mls::{
-    errors::{MlsError, MlsResult},
-    types::{GroupId, GroupMetadata, MlsConfig},
     engine::openmls_engine::OpenMlsEngine,
+    errors::MlsResult,
     state::GroupSnapshot,
+    types::{GroupId, GroupMetadata, MlsConfig},
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -19,7 +19,7 @@ use tokio::sync::RwLock;
 pub struct OpenMlsHandleAdapter {
     /// The underlying OpenMLS engine
     engine: Arc<RwLock<OpenMlsEngine>>,
-    
+
     /// Configuration
     config: MlsConfig,
 }
@@ -37,13 +37,10 @@ impl OpenMlsHandleAdapter {
         config: MlsConfig,
     ) -> MlsResult<Self> {
         let gid = group_id.unwrap_or_else(GroupId::random);
-        
+
         let engine = OpenMlsEngine::create_group(gid, identity, config.clone()).await?;
-        
-        Ok(Self {
-            engine: Arc::new(RwLock::new(engine)),
-            config,
-        })
+
+        Ok(Self { engine: Arc::new(RwLock::new(engine)), config })
     }
 
     /// Join an existing group from a Welcome message
@@ -57,12 +54,10 @@ impl OpenMlsHandleAdapter {
         ratchet_tree: Option<Vec<u8>>,
         config: MlsConfig,
     ) -> MlsResult<Self> {
-        let engine = OpenMlsEngine::join_from_welcome(welcome_bytes, ratchet_tree, config.clone()).await?;
-        
-        Ok(Self {
-            engine: Arc::new(RwLock::new(engine)),
-            config,
-        })
+        let engine =
+            OpenMlsEngine::join_from_welcome(welcome_bytes, ratchet_tree, config.clone()).await?;
+
+        Ok(Self { engine: Arc::new(RwLock::new(engine)), config })
     }
 
     /// Get the group ID
@@ -145,7 +140,7 @@ mod tests {
             .expect("Failed to create group via adapter");
 
         assert_eq!(adapter.epoch().await, 0);
-        
+
         let metadata = adapter.metadata().await.expect("Failed to get metadata");
         assert_eq!(metadata.epoch, 0);
         assert_eq!(metadata.members.len(), 1);
@@ -157,13 +152,9 @@ mod tests {
         let group_id = GroupId::random();
         let identity = b"bob@example.com".to_vec();
 
-        let adapter = OpenMlsHandleAdapter::create_group(
-            Some(group_id.clone()),
-            identity,
-            config,
-        )
-        .await
-        .expect("Failed to create group");
+        let adapter = OpenMlsHandleAdapter::create_group(Some(group_id.clone()), identity, config)
+            .await
+            .expect("Failed to create group");
 
         let actual_id = adapter.group_id().await;
         assert_eq!(actual_id, group_id);
@@ -173,21 +164,15 @@ mod tests {
     async fn test_adapter_multiple_instances() {
         let config = MlsConfig::default();
 
-        let adapter1 = OpenMlsHandleAdapter::create_group(
-            None,
-            b"user1@example.com".to_vec(),
-            config.clone(),
-        )
-        .await
-        .expect("Failed to create adapter 1");
+        let adapter1 =
+            OpenMlsHandleAdapter::create_group(None, b"user1@example.com".to_vec(), config.clone())
+                .await
+                .expect("Failed to create adapter 1");
 
-        let adapter2 = OpenMlsHandleAdapter::create_group(
-            None,
-            b"user2@example.com".to_vec(),
-            config,
-        )
-        .await
-        .expect("Failed to create adapter 2");
+        let adapter2 =
+            OpenMlsHandleAdapter::create_group(None, b"user2@example.com".to_vec(), config)
+                .await
+                .expect("Failed to create adapter 2");
 
         let id1 = adapter1.group_id().await;
         let id2 = adapter2.group_id().await;
@@ -229,8 +214,7 @@ mod tests {
         assert!(!bytes.is_empty());
 
         // Load snapshot from bytes
-        let loaded = OpenMlsHandleAdapter::load_snapshot(&bytes)
-            .expect("Failed to load snapshot");
+        let loaded = OpenMlsHandleAdapter::load_snapshot(&bytes).expect("Failed to load snapshot");
 
         // Verify loaded snapshot matches
         assert_eq!(loaded.group_id(), &group_id);

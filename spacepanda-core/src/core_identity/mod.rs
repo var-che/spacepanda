@@ -10,16 +10,16 @@
 //! - Identity syncing (via CRDT)
 
 // New modules following the specification
-pub mod user_id;
-pub mod device_id;
-pub mod keypair;
-pub mod master_key;
-pub mod device_key;
-pub mod metadata;
 pub mod bundles;
-pub mod signatures;
-pub mod validation;
+pub mod device_id;
+pub mod device_key;
+pub mod keypair;
 pub mod keystore;
+pub mod master_key;
+pub mod metadata;
+pub mod signatures;
+pub mod user_id;
+pub mod validation;
 
 // Legacy modules (to be refactored)
 mod channel;
@@ -29,20 +29,22 @@ mod store;
 
 // Test module
 // Temporarily disabled due to rand_core version conflicts
-#[cfg(all(test, feature = "never_enabled"))]
-mod tests;
+// #[cfg(all(test, feature = "never_enabled"))]
+// mod tests;
 
 // Re-exports
-pub use user_id::UserId;
+pub use bundles::{DeviceBundle, IdentityBundle, KeyPackage};
 pub use device_id::DeviceId;
-pub use keypair::{Keypair, KeyType};
-pub use master_key::MasterKey;
 pub use device_key::{DeviceKey, DeviceKeyBinding, KeyVersion};
-pub use metadata::{UserMetadata, DeviceMetadata};
-pub use bundles::{KeyPackage, DeviceBundle, IdentityBundle};
-pub use signatures::IdentitySignature;
-pub use validation::{ValidationError, validate_keypackage, validate_device_bundle, validate_identity_bundle};
+pub use keypair::{KeyType, Keypair};
 pub use keystore::{Keystore, KeystoreError};
+pub use master_key::MasterKey;
+pub use metadata::{DeviceMetadata, UserMetadata};
+pub use signatures::IdentitySignature;
+pub use user_id::UserId;
+pub use validation::{
+    validate_device_bundle, validate_identity_bundle, validate_keypackage, ValidationError,
+};
 
 // Legacy exports (for backwards compatibility)
 pub use channel::{ChannelHash, ChannelIdentity};

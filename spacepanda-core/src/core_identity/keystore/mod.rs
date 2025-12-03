@@ -29,7 +29,7 @@ pub enum KeystoreError {
 
     #[error("Invalid password")]
     InvalidPassword,
-    
+
     #[error("Other error: {0}")]
     Other(String),
 }
@@ -46,8 +46,7 @@ pub trait Keystore: Send + Sync {
     fn load_device_keypair(&self, device_id: &DeviceId) -> Result<Keypair, KeystoreError>;
 
     /// Save device keypair
-    fn save_device_keypair(&self, device_id: &DeviceId, kp: &Keypair)
-        -> Result<(), KeystoreError>;
+    fn save_device_keypair(&self, device_id: &DeviceId, kp: &Keypair) -> Result<(), KeystoreError>;
 
     /// List all device IDs
     fn list_devices(&self) -> Result<Vec<DeviceId>, KeystoreError>;
@@ -55,8 +54,6 @@ pub trait Keystore: Send + Sync {
     /// Rotate master key (optional, for password change)
     fn rotate_master_key(&self, password: &str) -> Result<(), KeystoreError> {
         let _ = password;
-        Err(KeystoreError::Encryption(
-            "Not implemented".to_string(),
-        ))
+        Err(KeystoreError::Encryption("Not implemented".to_string()))
     }
 }

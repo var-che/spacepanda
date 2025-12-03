@@ -2,9 +2,9 @@
 //!
 //! Bridges core_identity with MLS credential requirements.
 
+use crate::core_identity::{KeyType, Keypair};
 use crate::core_mls::errors::{MlsError, MlsResult};
 use crate::core_mls::traits::identity::{IdentityBridge, MemberId};
-use crate::core_identity::{Keypair, KeyType};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -26,9 +26,7 @@ impl IdentityBridgeImpl {
 
     /// Create from an existing keypair
     pub fn from_keypair(keypair: Keypair) -> Self {
-        Self {
-            keypair: Arc::new(keypair),
-        }
+        Self { keypair: Arc::new(keypair) }
     }
 
     /// Generate a new identity with a random keypair
@@ -91,7 +89,7 @@ mod tests {
     async fn test_identity_bridge_creation() {
         let bridge = IdentityBridgeImpl::generate().unwrap();
         let member_id = bridge.local_member_id().await.unwrap();
-        
+
         assert_eq!(member_id.len(), 32); // Ed25519 public key
     }
 
@@ -99,7 +97,7 @@ mod tests {
     async fn test_export_credential() {
         let bridge = IdentityBridgeImpl::generate().unwrap();
         let credential = bridge.export_credential_bundle().await.unwrap();
-        
+
         assert_eq!(credential.len(), 32);
     }
 
@@ -107,10 +105,10 @@ mod tests {
     async fn test_validate_credential() {
         let bridge = IdentityBridgeImpl::generate().unwrap();
         let credential = bridge.export_credential_bundle().await.unwrap();
-        
+
         // Should accept valid credential
         bridge.validate_remote_credential(&credential).await.unwrap();
-        
+
         // Should reject invalid length
         let invalid = vec![0u8; 16];
         assert!(bridge.validate_remote_credential(&invalid).await.is_err());
@@ -120,10 +118,10 @@ mod tests {
     async fn test_sign_and_verify() {
         let bridge = IdentityBridgeImpl::generate().unwrap();
         let message = b"test message";
-        
+
         let signature = bridge.sign_for_mls(message).await.unwrap();
         let public_key = bridge.public_key().await.unwrap();
-        
+
         // Verify using the static method
         assert!(Keypair::verify(&public_key, message, &signature));
     }

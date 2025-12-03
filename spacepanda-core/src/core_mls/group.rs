@@ -10,9 +10,11 @@
 //! This is the main API for interacting with an MLS group.
 
 use super::commit::{Commit, CommitResult, CommitValidator, UpdatePath};
-use super::encryption::{encrypt_message, decrypt_message, EncryptedMessage, KeySchedule, SenderData};
+use super::encryption::{
+    decrypt_message, encrypt_message, EncryptedMessage, KeySchedule, SenderData,
+};
 use super::errors::{MlsError, MlsResult};
-use super::proposals::{Proposal, ProposalContent, ProposalQueue, ProposalRef};
+use super::proposals::{Proposal, ProposalContent, ProposalQueue};
 use super::tree::{LeafIndex, MlsTree};
 use super::types::{GroupId, GroupMetadata, MemberInfo, MlsConfig};
 use super::welcome::{TreeSnapshot, Welcome, WelcomeGroupSecrets};
@@ -117,10 +119,7 @@ impl MlsGroup {
     pub fn add_proposal(&mut self, proposal: Proposal) -> MlsResult<u32> {
         // Verify epoch matches
         if proposal.epoch != self.epoch {
-            return Err(MlsError::EpochMismatch {
-                expected: self.epoch,
-                actual: proposal.epoch,
-            });
+            return Err(MlsError::EpochMismatch { expected: self.epoch, actual: proposal.epoch });
         }
 
         // Validate proposal based on type
@@ -128,9 +127,10 @@ impl MlsGroup {
             ProposalContent::Add { public_key, .. } => {
                 // Verify sender exists
                 if proposal.sender >= self.tree.leaf_count() {
-                    return Err(MlsError::InvalidProposal(
-                        format!("Invalid sender index: {}", proposal.sender)
-                    ));
+                    return Err(MlsError::InvalidProposal(format!(
+                        "Invalid sender index: {}",
+                        proposal.sender
+                    )));
                 }
                 // Check for duplicate key in existing members
                 for i in 0..self.tree.leaf_count() {
@@ -138,7 +138,7 @@ impl MlsGroup {
                         if let Some(ref existing_key) = node.public_key {
                             if existing_key == public_key {
                                 return Err(MlsError::InvalidProposal(
-                                    "Duplicate public key already exists in group".to_string()
+                                    "Duplicate public key already exists in group".to_string(),
                                 ));
                             }
                         }
@@ -148,35 +148,38 @@ impl MlsGroup {
             ProposalContent::Update { .. } => {
                 // Verify sender exists
                 if proposal.sender >= self.tree.leaf_count() {
-                    return Err(MlsError::InvalidProposal(
-                        format!("Invalid sender index: {}", proposal.sender)
-                    ));
+                    return Err(MlsError::InvalidProposal(format!(
+                        "Invalid sender index: {}",
+                        proposal.sender
+                    )));
                 }
             }
             ProposalContent::Remove { removed } => {
                 // Verify target exists
                 if *removed >= self.tree.leaf_count() {
-                    return Err(MlsError::InvalidProposal(
-                        format!("Invalid remove target index: {}", removed)
-                    ));
+                    return Err(MlsError::InvalidProposal(format!(
+                        "Invalid remove target index: {}",
+                        removed
+                    )));
                 }
                 // Verify target is not blank
                 if let Some(node) = self.tree.get_node(MlsTree::leaf_to_node_index(*removed)) {
                     if node.public_key.is_none() {
                         return Err(MlsError::InvalidProposal(
-                            "Cannot remove blank leaf".to_string()
+                            "Cannot remove blank leaf".to_string(),
                         ));
                     }
                 } else {
                     return Err(MlsError::InvalidProposal(
-                        "Target leaf does not exist".to_string()
+                        "Target leaf does not exist".to_string(),
                     ));
                 }
                 // Verify sender exists
                 if proposal.sender >= self.tree.leaf_count() {
-                    return Err(MlsError::InvalidProposal(
-                        format!("Invalid sender index: {}", proposal.sender)
-                    ));
+                    return Err(MlsError::InvalidProposal(format!(
+                        "Invalid sender index: {}",
+                        proposal.sender
+                    )));
                 }
             }
             ProposalContent::PreSharedKey { .. } => {
@@ -190,9 +193,7 @@ impl MlsGroup {
     /// Create and commit pending proposals
     pub fn commit(&mut self, path: Option<UpdatePath>) -> MlsResult<(Commit, Vec<Welcome>)> {
         if self.proposals.is_empty() && path.is_none() {
-            return Err(MlsError::InvalidState(
-                "No proposals to commit".to_string(),
-            ));
+            return Err(MlsError::InvalidState("No proposals to commit".to_string()));
         }
 
         // Collect all proposals from queue (embed in commit)
@@ -234,13 +235,8 @@ impl MlsGroup {
     /// Apply a commit from another member
     pub fn apply_commit(&mut self, commit: &Commit) -> MlsResult<CommitResult> {
         // Validate commit
-        let valid_senders: Vec<u32> = self
-            .metadata
-            .members
-            .iter()
-            .map(|m| m.leaf_index)
-            .collect();
-        
+        let valid_senders: Vec<u32> = self.metadata.members.iter().map(|m| m.leaf_index).collect();
+
         let validator = CommitValidator::new(self.epoch, valid_senders);
         validator.validate(commit)?;
 
@@ -270,11 +266,7 @@ impl MlsGroup {
         // Get next sequence number for this sender
         let sequence = self.get_next_sequence(self.self_index);
 
-        let sender_data = SenderData {
-            leaf_index: self.self_index,
-            sequence,
-            epoch: self.epoch,
-        };
+        let sender_data = SenderData { leaf_index: self.self_index, sequence, epoch: self.epoch };
 
         encrypt_message(&mut self.key_schedule, sender_data, plaintext)
     }
@@ -328,13 +320,13 @@ impl MlsGroup {
             match &proposal.content {
                 ProposalContent::Add { public_key, identity } => {
                     let leaf_idx = self.tree.add_leaf(public_key.clone())?;
-                    
+
                     self.metadata.members.push(MemberInfo {
                         identity: identity.clone(),
                         leaf_index: leaf_idx,
                         joined_at: current_timestamp(),
                     });
-                    
+
                     result.added_members.push(leaf_idx);
                 }
                 ProposalContent::Update { public_key } => {
@@ -343,7 +335,7 @@ impl MlsGroup {
                 }
                 ProposalContent::Remove { removed } => {
                     self.tree.remove_leaf(*removed)?;
-                    
+
                     self.metadata.members.retain(|m| m.leaf_index != *removed);
                     result.removed_members.push(*removed);
                 }
@@ -380,12 +372,12 @@ impl MlsGroup {
         // Simplified: hash of tree root + epoch
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
-        
+
         if let Some(root_hash) = self.tree.root_hash() {
             hasher.update(&root_hash);
         }
         hasher.update(&self.epoch.to_be_bytes());
-        
+
         hasher.finalize().to_vec()
     }
 
@@ -421,7 +413,7 @@ impl MlsGroup {
         // Remove oldest entries (simplified - in production use LRU)
         let to_remove = self.replay_cache.len() - (self.config.replay_cache_size / 2);
         let keys_to_remove: Vec<_> = self.replay_cache.iter().take(to_remove).cloned().collect();
-        
+
         for key in keys_to_remove {
             self.replay_cache.remove(&key);
         }
@@ -502,12 +494,7 @@ mod tests {
         )
         .unwrap();
 
-        let proposal = Proposal::new_add(
-            0,
-            0,
-            b"bob_pk".to_vec(),
-            b"bob".to_vec(),
-        );
+        let proposal = Proposal::new_add(0, 0, b"bob_pk".to_vec(), b"bob".to_vec());
 
         let idx = group.add_proposal(proposal).unwrap();
         assert_eq!(idx, 0);
@@ -615,12 +602,7 @@ mod tests {
 
         // Add proposal
         let (bob_pk, _) = test_keypair("bob");
-        let proposal = Proposal::new_add(
-            0,
-            0,
-            bob_pk,
-            b"bob".to_vec(),
-        );
+        let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         group.add_proposal(proposal).unwrap();
 
         // Commit
@@ -646,12 +628,7 @@ mod tests {
 
         // Add bob first
         let (bob_pk, _) = test_keypair("bob");
-        let add_proposal = Proposal::new_add(
-            0,
-            0,
-            bob_pk,
-            b"bob".to_vec(),
-        );
+        let add_proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         group.add_proposal(add_proposal).unwrap();
         group.commit(None).unwrap();
 
@@ -678,11 +655,7 @@ mod tests {
         .unwrap();
 
         // Update self
-        let update_proposal = Proposal::new_update(
-            0,
-            0,
-            b"alice_new_pk".to_vec(),
-        );
+        let update_proposal = Proposal::new_update(0, 0, b"alice_new_pk".to_vec());
         group.add_proposal(update_proposal).unwrap();
 
         let (commit, _) = group.commit(None).unwrap();
@@ -744,12 +717,7 @@ mod tests {
 
         // Add bob
         let (bob_pk, bob_sk) = test_keypair("bob");
-        let proposal = Proposal::new_add(
-            0,
-            0,
-            bob_pk,
-            b"bob".to_vec(),
-        );
+        let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         creator.add_proposal(proposal).unwrap();
         let (_, welcomes) = creator.commit(None).unwrap();
 

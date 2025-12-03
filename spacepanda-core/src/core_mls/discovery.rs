@@ -53,7 +53,7 @@ impl GroupPublicInfo {
         sign_fn: impl FnOnce(&[u8]) -> Vec<u8>,
     ) -> Self {
         let tree_snapshot = TreeSnapshot::from_tree(tree);
-        
+
         let mut info = Self {
             group_id,
             name: metadata.name.clone(),
@@ -83,9 +83,7 @@ impl GroupPublicInfo {
         if verify_fn(&bytes, &sig) {
             Ok(())
         } else {
-            Err(MlsError::VerifyFailed(
-                "GroupPublicInfo signature invalid".to_string(),
-            ))
+            Err(MlsError::VerifyFailed("GroupPublicInfo signature invalid".to_string()))
         }
     }
 
@@ -101,7 +99,7 @@ impl GroupPublicInfo {
         bytes.extend_from_slice(&(self.member_count as u64).to_be_bytes());
         bytes.extend_from_slice(&self.created_at.to_be_bytes());
         bytes.extend_from_slice(&self.updated_at.to_be_bytes());
-        
+
         // Include tree snapshot hash
         if let Ok(snapshot_bytes) = bincode::serialize(&self.tree_snapshot) {
             let mut hasher = Sha256::new();
@@ -121,9 +119,7 @@ impl GroupPublicInfo {
     pub fn merge(&mut self, other: &GroupPublicInfo) -> MlsResult<()> {
         // Only merge if same group
         if self.group_id != other.group_id {
-            return Err(MlsError::InvalidState(
-                "Cannot merge different groups".to_string(),
-            ));
+            return Err(MlsError::InvalidState("Cannot merge different groups".to_string()));
         }
 
         // Keep newer version
@@ -141,14 +137,12 @@ impl GroupPublicInfo {
 
     /// Serialize to JSON for CRDT storage
     pub fn to_json(&self) -> MlsResult<String> {
-        serde_json::to_string(self)
-            .map_err(|e| MlsError::Serialization(e.to_string()))
+        serde_json::to_string(self).map_err(|e| MlsError::Serialization(e.to_string()))
     }
 
     /// Deserialize from JSON
     pub fn from_json(json: &str) -> MlsResult<Self> {
-        serde_json::from_str(json)
-            .map_err(|e| MlsError::Serialization(e.to_string()))
+        serde_json::from_str(json).map_err(|e| MlsError::Serialization(e.to_string()))
     }
 }
 
@@ -168,12 +162,7 @@ pub struct DiscoveryQuery {
 impl DiscoveryQuery {
     /// Create empty query (matches all)
     pub fn all() -> Self {
-        Self {
-            name_pattern: None,
-            min_members: None,
-            max_members: None,
-            created_after: None,
-        }
+        Self { name_pattern: None, min_members: None, max_members: None, created_after: None }
     }
 
     /// Check if group info matches query
@@ -253,7 +242,7 @@ mod tests {
     #[test]
     fn test_create_public_info() {
         let group = test_group();
-        
+
         let info = GroupPublicInfo::from_metadata(
             group.group_id.clone(),
             &group.metadata,
@@ -270,7 +259,7 @@ mod tests {
     #[test]
     fn test_verify_signature() {
         let group = test_group();
-        
+
         let info = GroupPublicInfo::from_metadata(
             group.group_id.clone(),
             &group.metadata,
@@ -284,7 +273,7 @@ mod tests {
     #[test]
     fn test_verify_signature_fails_on_tamper() {
         let group = test_group();
-        
+
         let mut info = GroupPublicInfo::from_metadata(
             group.group_id.clone(),
             &group.metadata,
@@ -301,7 +290,7 @@ mod tests {
     #[test]
     fn test_json_serialization() {
         let group = test_group();
-        
+
         let info = GroupPublicInfo::from_metadata(
             group.group_id.clone(),
             &group.metadata,
@@ -318,7 +307,7 @@ mod tests {
     #[test]
     fn test_is_newer_than() {
         let group = test_group();
-        
+
         let info1 = GroupPublicInfo::from_metadata(
             group.group_id.clone(),
             &group.metadata,
@@ -329,7 +318,7 @@ mod tests {
         let mut group2 = group.clone();
         group2.metadata.epoch = 1;
         group2.metadata.updated_at += 1000;
-        
+
         let info2 = GroupPublicInfo::from_metadata(
             group2.group_id.clone(),
             &group2.metadata,
@@ -344,7 +333,7 @@ mod tests {
     #[test]
     fn test_merge() {
         let group = test_group();
-        
+
         let mut info1 = GroupPublicInfo::from_metadata(
             group.group_id.clone(),
             &group.metadata,
@@ -355,7 +344,7 @@ mod tests {
         let mut group2 = group.clone();
         group2.metadata.epoch = 1;
         group2.metadata.updated_at += 1000;
-        
+
         let info2 = GroupPublicInfo::from_metadata(
             group2.group_id.clone(),
             &group2.metadata,
@@ -373,7 +362,7 @@ mod tests {
     fn test_merge_different_groups_fails() {
         let group1 = test_group();
         let group2 = test_group();
-        
+
         let mut info1 = GroupPublicInfo::from_metadata(
             group1.group_id.clone(),
             &group1.metadata,
@@ -409,7 +398,7 @@ mod tests {
     fn test_discovery_query_name_pattern() {
         let mut group = test_group();
         group.metadata.name = Some("test-group".to_string());
-        
+
         let info = GroupPublicInfo::from_metadata(
             group.group_id.clone(),
             &group.metadata,

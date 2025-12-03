@@ -140,10 +140,7 @@ mod tests {
         let err = MlsError::GroupNotFound("test_group".to_string());
         assert_eq!(err.to_string(), "Group not found: test_group");
 
-        let err = MlsError::EpochMismatch {
-            expected: 5,
-            actual: 3,
-        };
+        let err = MlsError::EpochMismatch { expected: 5, actual: 3 };
         assert_eq!(err.to_string(), "Epoch mismatch: expected 5, got 3");
     }
 

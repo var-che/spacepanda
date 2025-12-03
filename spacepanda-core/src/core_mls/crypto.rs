@@ -11,10 +11,10 @@
 use super::errors::{MlsError, MlsResult};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand::RngCore;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::ZeroizeOnDrop;
 
 /// Ed25519 signing key (secret key)
-/// 
+///
 /// Implements `ZeroizeOnDrop` to ensure the secret key is securely
 /// erased from memory when dropped.
 #[derive(ZeroizeOnDrop)]
@@ -28,24 +28,18 @@ impl MlsSigningKey {
         let mut rng = rand::rng();
         let mut seed = [0u8; 32];
         rng.fill_bytes(&mut seed);
-        
-        Self {
-            inner: SigningKey::from_bytes(&seed),
-        }
+
+        Self { inner: SigningKey::from_bytes(&seed) }
     }
 
     /// Create from raw 32-byte seed
     pub fn from_bytes(bytes: &[u8; 32]) -> Self {
-        Self {
-            inner: SigningKey::from_bytes(bytes),
-        }
+        Self { inner: SigningKey::from_bytes(bytes) }
     }
 
     /// Get the corresponding verifying (public) key
     pub fn verifying_key(&self) -> MlsVerifyingKey {
-        MlsVerifyingKey {
-            inner: self.inner.verifying_key(),
-        }
+        MlsVerifyingKey { inner: self.inner.verifying_key() }
     }
 
     /// Sign data and return signature bytes
@@ -71,7 +65,7 @@ impl MlsVerifyingKey {
     pub fn from_bytes(bytes: &[u8; 32]) -> MlsResult<Self> {
         let inner = VerifyingKey::from_bytes(bytes)
             .map_err(|e| MlsError::CryptoError(format!("Invalid Ed25519 public key: {}", e)))?;
-        
+
         Ok(Self { inner })
     }
 
@@ -81,9 +75,10 @@ impl MlsVerifyingKey {
             return Ok(false);
         }
 
-        let sig_array: [u8; 64] = signature.try_into()
+        let sig_array: [u8; 64] = signature
+            .try_into()
             .map_err(|_| MlsError::CryptoError("Invalid signature length".to_string()))?;
-        
+
         let signature = Signature::from_bytes(&sig_array);
 
         match self.inner.verify(data, &signature) {
@@ -104,7 +99,11 @@ pub fn sign_with_key(data: &[u8], signing_key: &MlsSigningKey) -> MlsResult<Vec<
 }
 
 /// Helper function for verification in tests and examples
-pub fn verify_with_key(data: &[u8], signature: &[u8], verifying_key: &MlsVerifyingKey) -> MlsResult<bool> {
+pub fn verify_with_key(
+    data: &[u8],
+    signature: &[u8],
+    verifying_key: &MlsVerifyingKey,
+) -> MlsResult<bool> {
     verifying_key.verify(data, signature)
 }
 

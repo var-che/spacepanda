@@ -55,8 +55,10 @@ impl KeyPackage {
         let extensions = vec![
             Extension {
                 extension_type: "capabilities".to_string(),
-                data: bincode::serialize(device_metadata.capabilities.get().unwrap_or(&HashMap::new()))
-                    .unwrap_or_default(),
+                data: bincode::serialize(
+                    device_metadata.capabilities.get().unwrap_or(&HashMap::new()),
+                )
+                .unwrap_or_default(),
             },
             Extension {
                 extension_type: "device_id".to_string(),
@@ -151,11 +153,7 @@ impl DeviceBundle {
 
         let signature = identity_kp.sign(&body);
 
-        DeviceBundle {
-            key_package,
-            device_metadata,
-            signature,
-        }
+        DeviceBundle { key_package, device_metadata, signature }
     }
 
     /// Verify this bundle
@@ -198,12 +196,7 @@ impl IdentityBundle {
 
         let signature = identity_kp.sign(&body);
 
-        IdentityBundle {
-            user_id,
-            public_key,
-            devices,
-            signature,
-        }
+        IdentityBundle { user_id, public_key, devices, signature }
     }
 
     /// Verify this bundle
@@ -285,12 +278,8 @@ mod tests {
         let user_id = vec![1, 2, 3, 4];
         let devices = vec![DeviceId::generate(), DeviceId::generate()];
 
-        let bundle = IdentityBundle::new(
-            user_id,
-            identity_kp.public_key().to_vec(),
-            devices,
-            &identity_kp,
-        );
+        let bundle =
+            IdentityBundle::new(user_id, identity_kp.public_key().to_vec(), devices, &identity_kp);
 
         assert!(bundle.verify());
     }

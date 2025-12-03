@@ -15,79 +15,37 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum MlsEvent {
     /// A new member was added to the group
-    MemberAdded {
-        group_id: Vec<u8>,
-        member_id: Vec<u8>,
-        epoch: u64,
-    },
+    MemberAdded { group_id: Vec<u8>, member_id: Vec<u8>, epoch: u64 },
 
     /// A member was removed from the group
-    MemberRemoved {
-        group_id: Vec<u8>,
-        member_id: Vec<u8>,
-        epoch: u64,
-    },
+    MemberRemoved { group_id: Vec<u8>, member_id: Vec<u8>, epoch: u64 },
 
     /// A member updated their leaf key
-    MemberUpdated {
-        group_id: Vec<u8>,
-        member_id: Vec<u8>,
-        epoch: u64,
-    },
+    MemberUpdated { group_id: Vec<u8>, member_id: Vec<u8>, epoch: u64 },
 
     /// Epoch advanced (commit was applied)
-    EpochChanged {
-        group_id: Vec<u8>,
-        old_epoch: u64,
-        new_epoch: u64,
-    },
+    EpochChanged { group_id: Vec<u8>, old_epoch: u64, new_epoch: u64 },
 
     /// Application message received and decrypted
-    MessageReceived {
-        group_id: Vec<u8>,
-        sender_id: Vec<u8>,
-        epoch: u64,
-        plaintext: Vec<u8>,
-    },
+    MessageReceived { group_id: Vec<u8>, sender_id: Vec<u8>, epoch: u64, plaintext: Vec<u8> },
 
     /// Welcome message processed (joined group)
-    GroupJoined {
-        group_id: Vec<u8>,
-        epoch: u64,
-        member_count: usize,
-    },
+    GroupJoined { group_id: Vec<u8>, epoch: u64, member_count: usize },
 
     /// Group was created
-    GroupCreated {
-        group_id: Vec<u8>,
-        creator_id: Vec<u8>,
-    },
+    GroupCreated { group_id: Vec<u8>, creator_id: Vec<u8> },
 
     /// Left the group
-    GroupLeft {
-        group_id: Vec<u8>,
-        final_epoch: u64,
-    },
+    GroupLeft { group_id: Vec<u8>, final_epoch: u64 },
 
     /// Proposal was created
-    ProposalCreated {
-        group_id: Vec<u8>,
-        proposal_type: ProposalType,
-        epoch: u64,
-    },
+    ProposalCreated { group_id: Vec<u8>, proposal_type: ProposalType, epoch: u64 },
 
     /// Commit was created
-    CommitCreated {
-        group_id: Vec<u8>,
-        epoch: u64,
-        proposal_count: usize,
-    },
+    CommitCreated { group_id: Vec<u8>, epoch: u64, proposal_count: usize },
 
     /// Error occurred
-    Error {
-        group_id: Vec<u8>,
-        error: String,
-    },
+    Error { group_id: Vec<u8>, error: String },
 }
 
 /// Proposal type enumeration
@@ -148,36 +106,25 @@ mod tests {
 
     #[test]
     fn test_event_group_id() {
-        let event = MlsEvent::MemberAdded {
-            group_id: vec![1, 2, 3],
-            member_id: vec![4, 5, 6],
-            epoch: 5,
-        };
+        let event =
+            MlsEvent::MemberAdded { group_id: vec![1, 2, 3], member_id: vec![4, 5, 6], epoch: 5 };
         assert_eq!(event.group_id(), &[1, 2, 3]);
     }
 
     #[test]
     fn test_event_epoch() {
-        let event = MlsEvent::EpochChanged {
-            group_id: vec![1, 2, 3],
-            old_epoch: 4,
-            new_epoch: 5,
-        };
+        let event = MlsEvent::EpochChanged { group_id: vec![1, 2, 3], old_epoch: 4, new_epoch: 5 };
         assert_eq!(event.epoch(), Some(5));
     }
 
     #[test]
     fn test_is_error() {
-        let error_event = MlsEvent::Error {
-            group_id: vec![1, 2, 3],
-            error: "test error".to_string(),
-        };
+        let error_event =
+            MlsEvent::Error { group_id: vec![1, 2, 3], error: "test error".to_string() };
         assert!(error_event.is_error());
 
-        let normal_event = MlsEvent::GroupCreated {
-            group_id: vec![1, 2, 3],
-            creator_id: vec![4, 5, 6],
-        };
+        let normal_event =
+            MlsEvent::GroupCreated { group_id: vec![1, 2, 3], creator_id: vec![4, 5, 6] };
         assert!(!normal_event.is_error());
     }
 

@@ -40,17 +40,17 @@
     ```
 */
 
+use hashlink::LruCache;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, Mutex};
+use tracing::{debug, instrument, trace, warn};
 use uuid::Uuid;
-use hashlink::LruCache;
-use tracing::{debug, warn, trace, instrument};
 
-use super::rate_limiter::{RateLimiter, RateLimiterConfig, RateLimitResult};
 use super::metrics;
+use super::rate_limiter::{RateLimitResult, RateLimiter, RateLimiterConfig};
 use super::session_manager::{PeerId, SessionCommand, SessionEvent};
 
 /// RPC message types
@@ -58,16 +58,9 @@ use super::session_manager::{PeerId, SessionCommand, SessionEvent};
 #[serde(tag = "type")]
 pub enum RpcMessage {
     #[serde(rename = "request")]
-    Request {
-        id: String,
-        method: String,
-        params: serde_json::Value,
-    },
+    Request { id: String, method: String, params: serde_json::Value },
     #[serde(rename = "response")]
-    Response {
-        id: String,
-        result: Result<serde_json::Value, RpcError>,
-    },
+    Response { id: String, result: Result<serde_json::Value, RpcError> },
 }
 
 /// RPC error types
@@ -114,10 +107,7 @@ pub enum RpcCommand {
         response_tx: oneshot::Sender<Result<serde_json::Value, RpcError>>,
     },
     /// Register an RPC handler for a method
-    RegisterHandler {
-        method: String,
-        handler_tx: mpsc::Sender<RpcRequest>,
-    },
+    RegisterHandler { method: String, handler_tx: mpsc::Sender<RpcRequest> },
 }
 
 /// RPC request to be handled
@@ -168,13 +158,13 @@ impl RpcProtocol {
     pub fn new(session_tx: mpsc::Sender<SessionCommand>) -> Self {
         Self::new_with_config(
             session_tx,
-            Duration::from_secs(30),  // default RPC timeout
-            100_000,                   // max 100k seen request IDs
+            Duration::from_secs(30), // default RPC timeout
+            100_000,                 // max 100k seen request IDs
         )
     }
-    
+
     /// Create a new RPC protocol handler with custom configuration
-    /// 
+    ///
     /// # Arguments
     /// * `session_tx` - Channel to send session commands
     /// * `default_timeout` - Default timeout for RPC calls
@@ -193,7 +183,7 @@ impl RpcProtocol {
     }
 
     /// Create a new RPC protocol handler with custom rate limiting configuration
-    /// 
+    ///
     /// # Arguments
     /// * `session_tx` - Channel to send session commands
     /// * `default_timeout` - Default timeout for RPC calls
@@ -207,7 +197,7 @@ impl RpcProtocol {
     ) -> Self {
         // Create LRU cache for seen requests (O(1) insert/check, automatic eviction)
         let seen_requests = Arc::new(Mutex::new(LruCache::new(seen_requests_capacity)));
-        
+
         RpcProtocol {
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
             handlers: Arc::new(Mutex::new(HashMap::new())),
@@ -223,7 +213,7 @@ impl RpcProtocol {
         self.default_timeout = timeout;
         self
     }
-    
+
     /// Get the number of seen requests (for testing)
     #[cfg(test)]
     pub async fn seen_requests_count(&self) -> usize {
@@ -246,19 +236,10 @@ impl RpcProtocol {
     /// Handle RPC commands
     pub async fn handle_command(&self, command: RpcCommand) -> Result<(), String> {
         match command {
-            RpcCommand::Call {
-                peer_id,
-                method,
-                params,
-                response_tx,
-            } => {
-                self.make_call(peer_id, method, params, response_tx)
-                    .await?;
+            RpcCommand::Call { peer_id, method, params, response_tx } => {
+                self.make_call(peer_id, method, params, response_tx).await?;
             }
-            RpcCommand::RegisterHandler {
-                method,
-                handler_tx,
-            } => {
+            RpcCommand::RegisterHandler { method, handler_tx } => {
                 self.handlers.lock().await.insert(method, handler_tx);
             }
         }
@@ -278,11 +259,7 @@ impl RpcProtocol {
         let request_id = Uuid::new_v4().to_string();
 
         let method_clone = method.clone();
-        let message = RpcMessage::Request {
-            id: request_id.clone(),
-            method,
-            params,
-        };
+        let message = RpcMessage::Request { id: request_id.clone(), method, params };
 
         // Serialize the message
         let bytes = serde_json::to_vec(&message)
@@ -292,7 +269,7 @@ impl RpcProtocol {
         let pending_requests = self.pending_requests.clone();
         let timeout = self.default_timeout;
         let request_id_for_timeout = request_id.clone();
-        
+
         let timeout_task = tokio::spawn(async move {
             tokio::time::sleep(timeout).await;
             // Only send timeout error if request is still pending
@@ -301,18 +278,12 @@ impl RpcProtocol {
                 let _ = pending.response_tx.send(Err(RpcError::timeout()));
             }
         });
-        
+
         let timeout_handle = timeout_task.abort_handle();
 
         // Store pending request with timeout handle
-        let pending = PendingRequest { 
-            response_tx,
-            timeout_handle,
-        };
-        self.pending_requests
-            .lock()
-            .await
-            .insert(request_id.clone(), pending);
+        let pending = PendingRequest { response_tx, timeout_handle };
+        self.pending_requests.lock().await.insert(request_id.clone(), pending);
 
         // Send via session manager
         self.session_tx
@@ -346,18 +317,14 @@ impl RpcProtocol {
                 return Err(format!("Circuit breaker open for peer {:?}", peer_id));
             }
         }
-        
+
         // Reject oversized frames to prevent memory exhaustion DoS
         if bytes.len() > MAX_FRAME_SIZE {
-            warn!(
-                frame_size = bytes.len(),
-                max_size = MAX_FRAME_SIZE,
-                "Oversized frame rejected"
-            );
+            warn!(frame_size = bytes.len(), max_size = MAX_FRAME_SIZE, "Oversized frame rejected");
             metrics::oversized_frame_rejected(bytes.len());
             return Err(format!("Frame too large: {} bytes (max {})", bytes.len(), MAX_FRAME_SIZE));
         }
-        
+
         let message: RpcMessage = serde_json::from_slice(&bytes)
             .map_err(|e| format!("Failed to deserialize RPC message: {}", e))?;
 
@@ -387,7 +354,7 @@ impl RpcProtocol {
         // LRU automatically evicts oldest entries when capacity is reached
         {
             let mut seen = self.seen_requests.lock().await;
-            
+
             // Check if request ID was already seen (replay attack)
             if seen.contains_key(&id) {
                 // Replay detected! Reject the request
@@ -397,17 +364,18 @@ impl RpcProtocol {
                     "Replay attack detected: duplicate request ID"
                 );
                 metrics::replay_attack_detected();
-                let error = RpcError::new(ERR_DUPLICATE_REQUEST, format!("Duplicate request ID: {}", id));
+                let error =
+                    RpcError::new(ERR_DUPLICATE_REQUEST, format!("Duplicate request ID: {}", id));
                 self.send_response(peer_id, id, Err(error)).await?;
                 return Ok(()); // Don't process replay
             }
-            
+
             // Insert into LRU cache (O(1) operation)
             // If at capacity, LRU automatically evicts least recently used entry
             seen.insert(id.clone(), ());
             debug!("Request ID added to seen cache");
         }
-        
+
         let handlers = self.handlers.lock().await;
         let handler_tx = handlers.get(&method).cloned();
         drop(handlers);
@@ -454,7 +422,7 @@ impl RpcProtocol {
                                 rate_limiter.record_failure(&peer_id_clone).await;
                             }
                         }
-                        
+
                         let message = RpcMessage::Response { id, result };
                         if let Ok(bytes) = serde_json::to_vec(&message) {
                             let _ = session_tx
@@ -491,7 +459,7 @@ impl RpcProtocol {
             // Abort the timeout task since response arrived
             pending.timeout_handle.abort();
             trace!("Response received, timeout cancelled");
-            
+
             // Send response to caller
             let _ = pending.response_tx.send(result);
         } else {
@@ -509,7 +477,7 @@ impl RpcProtocol {
     ) -> Result<(), String> {
         self.send_response(peer_id, id, Err(error)).await
     }
-    
+
     /// Send a response (success or error) to a peer
     async fn send_response(
         &self,
@@ -548,12 +516,9 @@ mod tests {
 
         // Register a handler for "ping" method
         let (handler_tx, mut _handler_rx) = mpsc::channel(100);
-        rpc.handle_command(RpcCommand::RegisterHandler {
-            method: "ping".to_string(),
-            handler_tx,
-        })
-        .await
-        .unwrap();
+        rpc.handle_command(RpcCommand::RegisterHandler { method: "ping".to_string(), handler_tx })
+            .await
+            .unwrap();
 
         // Make an RPC call
         let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
@@ -597,12 +562,9 @@ mod tests {
 
         // Register a handler
         let (handler_tx, mut handler_rx) = mpsc::channel(100);
-        rpc.handle_command(RpcCommand::RegisterHandler {
-            method: "echo".to_string(),
-            handler_tx,
-        })
-        .await
-        .unwrap();
+        rpc.handle_command(RpcCommand::RegisterHandler { method: "echo".to_string(), handler_tx })
+            .await
+            .unwrap();
 
         // Simulate incoming request from peer
         let peer_id = PeerId::from_bytes(vec![5, 6, 7, 8]);
@@ -619,25 +581,17 @@ mod tests {
             .unwrap();
 
         // Handler should receive the request
-        let req = timeout(Duration::from_secs(1), handler_rx.recv())
-            .await
-            .unwrap()
-            .unwrap();
+        let req = timeout(Duration::from_secs(1), handler_rx.recv()).await.unwrap().unwrap();
 
         assert_eq!(req.method, "echo");
         assert_eq!(req.id, "test-123");
         assert_eq!(req.params["msg"], "hello");
 
         // Send response from handler
-        req.response_tx
-            .send(Ok(serde_json::json!({"echo": "hello"})))
-            .unwrap();
+        req.response_tx.send(Ok(serde_json::json!({"echo": "hello"}))).unwrap();
 
         // Verify response was sent via session
-        let cmd = timeout(Duration::from_secs(1), session_rx.recv())
-            .await
-            .unwrap()
-            .unwrap();
+        let cmd = timeout(Duration::from_secs(1), session_rx.recv()).await.unwrap().unwrap();
 
         match cmd {
             SessionCommand::SendPlaintext(pid, bytes) => {
@@ -673,10 +627,7 @@ mod tests {
             .unwrap();
 
         // Should receive error response
-        let cmd = timeout(Duration::from_secs(1), session_rx.recv())
-            .await
-            .unwrap()
-            .unwrap();
+        let cmd = timeout(Duration::from_secs(1), session_rx.recv()).await.unwrap().unwrap();
 
         match cmd {
             SessionCommand::SendPlaintext(pid, bytes) => {
@@ -713,10 +664,7 @@ mod tests {
         .unwrap();
 
         // Wait for timeout
-        let result = timeout(Duration::from_secs(1), response_rx)
-            .await
-            .unwrap()
-            .unwrap();
+        let result = timeout(Duration::from_secs(1), response_rx).await.unwrap().unwrap();
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -726,30 +674,33 @@ mod tests {
         sleep(Duration::from_millis(150)).await;
         assert_eq!(rpc.pending_count().await, 0);
     }
-    
+
     #[tokio::test]
     async fn test_oversized_frame_rejection() {
         let (session_tx, _session_rx) = mpsc::channel(100);
         let mut rpc = RpcProtocol::new(session_tx);
-        
+
         let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
-        
+
         // Create a frame larger than MAX_FRAME_SIZE (64 KiB)
         let oversized_payload = vec![0u8; MAX_FRAME_SIZE + 1];
-        
+
         // Should reject with clear error
-        let result = rpc.handle_session_event(SessionEvent::PlaintextFrame(
-            peer_id,
-            oversized_payload,
-        )).await;
-        
+        let result = rpc
+            .handle_session_event(SessionEvent::PlaintextFrame(peer_id, oversized_payload))
+            .await;
+
         assert!(result.is_err(), "Should reject oversized frame");
         let err_msg = result.unwrap_err();
-        assert!(err_msg.contains("Frame too large"), "Error should mention frame size: {}", err_msg);
+        assert!(
+            err_msg.contains("Frame too large"),
+            "Error should mention frame size: {}",
+            err_msg
+        );
         // The error message contains "65536" (64 * 1024) not just "64"
         assert!(err_msg.contains("65536"), "Error should mention limit: {}", err_msg);
     }
-    
+
     #[tokio::test]
     async fn test_seen_requests_capacity_limit() {
         let (session_tx, _session_rx) = mpsc::channel(1000);
@@ -759,20 +710,17 @@ mod tests {
             Duration::from_secs(30),
             10, // Only allow 10 seen requests
         );
-        
+
         // LRU cache should start empty
         assert_eq!(rpc.seen_requests_count().await, 0);
-        
+
         let (handler_tx, _handler_rx) = mpsc::channel(100);
-        rpc.handle_command(RpcCommand::RegisterHandler {
-            method: "test".to_string(),
-            handler_tx,
-        })
-        .await
-        .unwrap();
-        
+        rpc.handle_command(RpcCommand::RegisterHandler { method: "test".to_string(), handler_tx })
+            .await
+            .unwrap();
+
         let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
-        
+
         // Send 10 unique requests (should all be accepted)
         for i in 0..10 {
             let request = RpcMessage::Request {
@@ -785,10 +733,10 @@ mod tests {
                 .await
                 .unwrap();
         }
-        
+
         // Should have 10 seen requests
         assert_eq!(rpc.seen_requests_count().await, 10);
-        
+
         // Send 11th unique request - LRU will auto-evict oldest (req-0)
         let request = RpcMessage::Request {
             id: "req-10".to_string(),
@@ -799,10 +747,10 @@ mod tests {
         rpc.handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes))
             .await
             .unwrap();
-        
+
         // Should still have 10 seen requests (capacity limit)
         assert_eq!(rpc.seen_requests_count().await, 10);
-        
+
         // req-0 should have been evicted, so it can be reused
         let request = RpcMessage::Request {
             id: "req-0".to_string(),
@@ -811,13 +759,14 @@ mod tests {
         };
         let bytes = serde_json::to_vec(&request).unwrap();
         // This should succeed (not detected as duplicate) since req-0 was evicted
-        let result = rpc.handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes))
+        let result = rpc
+            .handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes))
             .await;
-        
+
         // Should succeed without error (req-0 was evicted from LRU)
         assert!(result.is_ok(), "req-0 should be accepted after eviction");
     }
-    
+
     #[tokio::test]
     async fn test_lru_eviction() {
         let (session_tx, _session_rx) = mpsc::channel(100);
@@ -827,17 +776,14 @@ mod tests {
             Duration::from_secs(30),
             5, // Only 5 entries
         );
-        
+
         let (handler_tx, mut _handler_rx) = mpsc::channel(100);
-        rpc.handle_command(RpcCommand::RegisterHandler {
-            method: "test".to_string(),
-            handler_tx,
-        })
-        .await
-        .unwrap();
-        
+        rpc.handle_command(RpcCommand::RegisterHandler { method: "test".to_string(), handler_tx })
+            .await
+            .unwrap();
+
         let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
-        
+
         // Send 5 requests (fill up LRU cache)
         for i in 0..5 {
             let request = RpcMessage::Request {
@@ -850,10 +796,10 @@ mod tests {
                 .await
                 .unwrap();
         }
-        
+
         // Should have 5 seen requests
         assert_eq!(rpc.seen_requests_count().await, 5);
-        
+
         // Send 6th request - should evict oldest (req-0)
         let request = RpcMessage::Request {
             id: "req-5".to_string(),
@@ -864,10 +810,10 @@ mod tests {
         rpc.handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes))
             .await
             .unwrap();
-        
+
         // Still 5 entries (LRU evicted oldest)
         assert_eq!(rpc.seen_requests_count().await, 5);
-        
+
         // req-0 should be evicted, so we can reuse it
         let request = RpcMessage::Request {
             id: "req-0".to_string(),
@@ -878,45 +824,41 @@ mod tests {
         rpc.handle_session_event(SessionEvent::PlaintextFrame(peer_id, bytes))
             .await
             .unwrap();
-        
+
         // Still 5 entries (oldest evicted)
         assert_eq!(rpc.seen_requests_count().await, 5);
     }
-    
+
     #[tokio::test]
     async fn test_graceful_shutdown() {
         let (session_tx, _session_rx) = mpsc::channel(100);
-        let rpc = RpcProtocol::new_with_config(
-            session_tx,
-            Duration::from_secs(30),
-            1000,
-        );
-        
+        let rpc = RpcProtocol::new_with_config(session_tx, Duration::from_secs(30), 1000);
+
         // No background task with LRU implementation
         // Nothing to shutdown
         assert!(rpc.seen_requests.lock().await.is_empty());
     }
-    
+
     #[tokio::test]
     async fn test_malformed_frames_dont_panic() {
         let (session_tx, _session_rx) = mpsc::channel(100);
         let rpc = RpcProtocol::new(session_tx);
-        
+
         let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
-        
+
         // Test various malformed payloads
         let malformed_payloads = vec![
-            vec![],                           // empty
-            vec![0xFF, 0xFF, 0xFF],          // invalid UTF-8/JSON
-            vec![b'{'; 100],                 // incomplete JSON
-            b"not json at all".to_vec(),     // plain text
+            vec![],                      // empty
+            vec![0xFF, 0xFF, 0xFF],      // invalid UTF-8/JSON
+            vec![b'{'; 100],             // incomplete JSON
+            b"not json at all".to_vec(), // plain text
         ];
-        
+
         for payload in malformed_payloads {
             let result = rpc
                 .handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), payload))
                 .await;
-            
+
             // Should return error but not panic
             assert!(result.is_err());
         }
@@ -927,7 +869,7 @@ mod tests {
         let (session_tx, mut session_rx) = mpsc::channel(100);
         let rpc = Arc::new(RpcProtocol::new_with_config(
             session_tx,
-            Duration::from_secs(10),  // Long timeout
+            Duration::from_secs(10), // Long timeout
             1000,
         ));
 
@@ -967,7 +909,7 @@ mod tests {
             result: Ok(serde_json::json!({"status": "ok"})),
         };
         let response_bytes = serde_json::to_vec(&response).unwrap();
-        
+
         rpc.handle_session_event(SessionEvent::PlaintextFrame(peer_id, response_bytes))
             .await
             .unwrap();
@@ -979,7 +921,7 @@ mod tests {
             .expect("Channel should be open");
 
         assert!(result.is_ok());
-        
+
         // Verify no pending requests (timeout was cancelled)
         assert_eq!(rpc.pending_requests.lock().await.len(), 0);
     }
@@ -989,7 +931,7 @@ mod tests {
         let (session_tx, mut session_rx) = mpsc::channel(100);
         let rpc = Arc::new(RpcProtocol::new_with_config(
             session_tx,
-            Duration::from_millis(100),  // Short timeout for testing
+            Duration::from_millis(100), // Short timeout for testing
             1000,
         ));
 
@@ -1011,11 +953,11 @@ mod tests {
 
         // Wait for timeout
         let result = response_rx.await.expect("Should receive timeout");
-        
+
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.code, ERR_TIMEOUT);
-        
+
         // Verify pending request was cleaned up
         assert_eq!(rpc.pending_requests.lock().await.len(), 0);
     }
@@ -1026,7 +968,7 @@ mod tests {
         let (session_tx, mut session_rx) = mpsc::channel(100);
         let rpc = Arc::new(RpcProtocol::new_with_config(
             session_tx,
-            Duration::from_millis(50),  // Very short timeout
+            Duration::from_millis(50), // Very short timeout
             1000,
         ));
 
@@ -1036,7 +978,7 @@ mod tests {
 
             let rpc_clone = rpc.clone();
             let peer_id_clone = peer_id.clone();
-            
+
             tokio::spawn(async move {
                 rpc_clone
                     .handle_command(RpcCommand::Call {
@@ -1067,12 +1009,15 @@ mod tests {
                 result: Ok(serde_json::json!({"status": "ok"})),
             };
             let response_bytes = serde_json::to_vec(&response).unwrap();
-            
+
             let rpc_clone = rpc.clone();
             let peer_id_clone = peer_id.clone();
             tokio::spawn(async move {
                 let _ = rpc_clone
-                    .handle_session_event(SessionEvent::PlaintextFrame(peer_id_clone, response_bytes))
+                    .handle_session_event(SessionEvent::PlaintextFrame(
+                        peer_id_clone,
+                        response_bytes,
+                    ))
                     .await;
             });
 
@@ -1080,10 +1025,10 @@ mod tests {
             let result = tokio::time::timeout(Duration::from_millis(200), response_rx)
                 .await
                 .expect("Should receive a result");
-            
+
             assert!(result.is_ok(), "Channel should deliver exactly one message");
         }
-        
+
         // All pending requests should be cleaned up
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(rpc.pending_requests.lock().await.len(), 0);
@@ -1095,7 +1040,7 @@ mod tests {
         let rpc = Arc::new(RpcProtocol::new(session_tx));
 
         let mut handles = vec![];
-        
+
         // Make 50 concurrent calls
         for i in 0..50 {
             let rpc_clone = rpc.clone();
@@ -1137,7 +1082,7 @@ mod tests {
                 result: Ok(serde_json::json!({"status": "ok"})),
             };
             let response_bytes = serde_json::to_vec(&response).unwrap();
-            
+
             rpc.handle_session_event(SessionEvent::PlaintextFrame(peer_id, response_bytes))
                 .await
                 .unwrap();
@@ -1149,7 +1094,7 @@ mod tests {
             let result = rx.await.unwrap();
             assert!(result.is_ok());
         }
-        
+
         // All pending requests should be cleaned up
         assert_eq!(rpc.pending_requests.lock().await.len(), 0);
     }
@@ -1158,15 +1103,15 @@ mod tests {
     async fn test_heavy_concurrent_seen_requests() {
         // Test LRU cache under heavy concurrent load (1000+ threads)
         let (session_tx, _session_rx) = mpsc::channel(10000);
-        
+
         // Use very high rate limit for this stress test
         let rate_config = RateLimiterConfig {
-            max_requests_per_sec: 10000,  // Very high limit for stress test
+            max_requests_per_sec: 10000, // Very high limit for stress test
             burst_size: 5000,
             circuit_breaker_threshold: 10000,
             circuit_breaker_timeout: Duration::from_secs(60),
         };
-        
+
         let rpc = Arc::new(RpcProtocol::new_with_rate_limiting(
             session_tx,
             Duration::from_secs(30),
@@ -1175,12 +1120,9 @@ mod tests {
         ));
 
         let (handler_tx, mut _handler_rx) = mpsc::channel(10000);
-        rpc.handle_command(RpcCommand::RegisterHandler {
-            method: "test".to_string(),
-            handler_tx,
-        })
-        .await
-        .unwrap();
+        rpc.handle_command(RpcCommand::RegisterHandler { method: "test".to_string(), handler_tx })
+            .await
+            .unwrap();
 
         let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
         let mut handles = vec![];
@@ -1219,19 +1161,12 @@ mod tests {
     async fn test_lru_no_race_conditions() {
         // Test that the LRU check-and-insert is atomic
         let (session_tx, _session_rx) = mpsc::channel(1000);
-        let rpc = Arc::new(RpcProtocol::new_with_config(
-            session_tx,
-            Duration::from_secs(30),
-            100,
-        ));
+        let rpc = Arc::new(RpcProtocol::new_with_config(session_tx, Duration::from_secs(30), 100));
 
         let (handler_tx, _handler_rx) = mpsc::channel(1000);
-        rpc.handle_command(RpcCommand::RegisterHandler {
-            method: "test".to_string(),
-            handler_tx,
-        })
-        .await
-        .unwrap();
+        rpc.handle_command(RpcCommand::RegisterHandler { method: "test".to_string(), handler_tx })
+            .await
+            .unwrap();
 
         let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
 
@@ -1269,15 +1204,15 @@ mod tests {
     #[tokio::test]
     async fn test_rate_limiting_blocks_excess_requests() {
         let (session_tx, _session_rx) = mpsc::channel(32);
-        
+
         // Create RPC with very restrictive rate limit
         let rate_config = RateLimiterConfig {
             max_requests_per_sec: 10,
-            burst_size: 5,  // Only allow 5 requests initially
-            circuit_breaker_threshold: 100,  // High threshold to not interfere
+            burst_size: 5,                  // Only allow 5 requests initially
+            circuit_breaker_threshold: 100, // High threshold to not interfere
             circuit_breaker_timeout: Duration::from_secs(60),
         };
-        
+
         let rpc = RpcProtocol::new_with_rate_limiting(
             session_tx,
             Duration::from_secs(30),
@@ -1295,7 +1230,7 @@ mod tests {
                 params: serde_json::json!({}),
             };
             let bytes = serde_json::to_vec(&request).unwrap();
-            
+
             let result = rpc
                 .handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes))
                 .await;
@@ -1309,7 +1244,7 @@ mod tests {
             params: serde_json::json!({}),
         };
         let bytes = serde_json::to_vec(&request).unwrap();
-        
+
         let result = rpc
             .handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes))
             .await;
@@ -1320,15 +1255,15 @@ mod tests {
     #[tokio::test]
     async fn test_circuit_breaker_opens_on_failures() {
         let (session_tx, mut session_rx) = mpsc::channel(32);
-        
+
         // Create RPC with low failure threshold
         let rate_config = RateLimiterConfig {
             max_requests_per_sec: 1000,
             burst_size: 1000,
-            circuit_breaker_threshold: 3,  // Open after 3 failures
+            circuit_breaker_threshold: 3, // Open after 3 failures
             circuit_breaker_timeout: Duration::from_secs(60),
         };
-        
+
         let rpc = Arc::new(RpcProtocol::new_with_rate_limiting(
             session_tx,
             Duration::from_secs(30),
@@ -1338,12 +1273,9 @@ mod tests {
 
         // Register a failing handler
         let (handler_tx, mut handler_rx) = mpsc::channel(32);
-        rpc.handle_command(RpcCommand::RegisterHandler {
-            method: "test".to_string(),
-            handler_tx,
-        })
-        .await
-        .unwrap();
+        rpc.handle_command(RpcCommand::RegisterHandler { method: "test".to_string(), handler_tx })
+            .await
+            .unwrap();
 
         let peer_id = PeerId::from_bytes(vec![1, 2, 3, 4]);
 
@@ -1357,9 +1289,7 @@ mod tests {
         });
 
         // Spawn task to drain session responses
-        tokio::spawn(async move {
-            while session_rx.recv().await.is_some() {}
-        });
+        tokio::spawn(async move { while session_rx.recv().await.is_some() {} });
 
         // Send 3 failing requests
         for i in 0..3 {
@@ -1369,11 +1299,11 @@ mod tests {
                 params: serde_json::json!({}),
             };
             let bytes = serde_json::to_vec(&request).unwrap();
-            
+
             rpc.handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes))
                 .await
                 .unwrap();
-            
+
             // Give time for async processing
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -1385,7 +1315,7 @@ mod tests {
             params: serde_json::json!({}),
         };
         let bytes = serde_json::to_vec(&request).unwrap();
-        
+
         let result = rpc
             .handle_session_event(SessionEvent::PlaintextFrame(peer_id.clone(), bytes))
             .await;
@@ -1396,7 +1326,7 @@ mod tests {
     #[tokio::test]
     async fn test_different_peers_have_independent_rate_limits() {
         let (session_tx, _session_rx) = mpsc::channel(32);
-        
+
         // Create RPC with restrictive rate limit
         let rate_config = RateLimiterConfig {
             max_requests_per_sec: 10,
@@ -1404,7 +1334,7 @@ mod tests {
             circuit_breaker_threshold: 100,
             circuit_breaker_timeout: Duration::from_secs(60),
         };
-        
+
         let rpc = RpcProtocol::new_with_rate_limiting(
             session_tx,
             Duration::from_secs(30),
@@ -1435,7 +1365,8 @@ mod tests {
             params: serde_json::json!({}),
         };
         let bytes = serde_json::to_vec(&request).unwrap();
-        assert!(rpc.handle_session_event(SessionEvent::PlaintextFrame(peer1, bytes))
+        assert!(rpc
+            .handle_session_event(SessionEvent::PlaintextFrame(peer1, bytes))
             .await
             .is_err());
 
@@ -1447,10 +1378,12 @@ mod tests {
                 params: serde_json::json!({}),
             };
             let bytes = serde_json::to_vec(&request).unwrap();
-            assert!(rpc.handle_session_event(SessionEvent::PlaintextFrame(peer2.clone(), bytes))
-                .await
-                .is_ok(), "Peer2 should not be rate limited");
+            assert!(
+                rpc.handle_session_event(SessionEvent::PlaintextFrame(peer2.clone(), bytes))
+                    .await
+                    .is_ok(),
+                "Peer2 should not be rate limited"
+            );
         }
     }
 }
-

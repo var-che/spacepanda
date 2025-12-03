@@ -80,10 +80,7 @@ pub fn assert_same_elements<T: PartialEq + Debug>(a: &[T], b: &[T]) {
 /// Assert that a value is within a range
 pub fn assert_in_range<T: PartialOrd + Debug>(value: T, min: T, max: T) {
     if value < min || value > max {
-        panic!(
-            "Value {:?} is not in range [{:?}, {:?}]",
-            value, min, max
-        );
+        panic!("Value {:?} is not in range [{:?}, {:?}]", value, min, max);
     }
 }
 
@@ -112,10 +109,7 @@ macro_rules! assert_does_timeout {
 /// Assert that two floating point numbers are approximately equal
 pub fn assert_approx_eq(a: f64, b: f64, epsilon: f64) {
     if (a - b).abs() > epsilon {
-        panic!(
-            "Values are not approximately equal: {} vs {} (epsilon: {})",
-            a, b, epsilon
-        );
+        panic!("Values are not approximately equal: {} vs {} (epsilon: {})", a, b, epsilon);
     }
 }
 

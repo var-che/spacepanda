@@ -27,7 +27,7 @@
       - OnionEvent::DeliverLocal(inner_envelope)
 
     Notes:
-    
+
     Mixing: optionally batch multiple decrypted inner blobs into a short window (50-200ms), shuffle,
     and forward to reduce timing correlation. This is heavier but increases anonymity.
 
@@ -62,7 +62,7 @@
     └─────────────────┬──────────────────────────────────┘
                       │
                       ▼  (repeat at R2, R3...)
-                      
+
     ┌────────────────────────────────────────────────────┐
     │         Final Node R3 (exit/destination)            │
     │                                                     │
@@ -115,14 +115,9 @@ pub enum OnionCommand {
         response_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     },
     /// Relay a received onion packet
-    RelayPacket {
-        encrypted_blob: Vec<u8>,
-    },
+    RelayPacket { encrypted_blob: Vec<u8> },
     /// Enable/disable mixing
-    SetMixing {
-        enabled: bool,
-        window_ms: u64,
-    },
+    SetMixing { enabled: bool, window_ms: u64 },
     /// Shutdown
     Shutdown,
 }
@@ -170,11 +165,7 @@ struct MixQueue {
 
 impl MixQueue {
     fn new(enabled: bool, window: Duration) -> Self {
-        MixQueue {
-            packets: Vec::new(),
-            enabled,
-            window,
-        }
+        MixQueue { packets: Vec::new(), enabled, window }
     }
 
     fn add(&mut self, peer: PeerId, blob: Vec<u8>) {
@@ -182,8 +173,8 @@ impl MixQueue {
     }
 
     fn flush(&mut self) -> Vec<(PeerId, Vec<u8>)> {
-        use rand::seq::SliceRandom;
         use rand::rng;
+        use rand::seq::SliceRandom;
 
         if self.enabled {
             // Shuffle for mixing
@@ -210,30 +201,20 @@ impl OnionRouter {
         route_table: Arc<RouteTable>,
         event_tx: mpsc::Sender<OnionEvent>,
     ) -> Self {
-        let mix_queue = Arc::new(Mutex::new(MixQueue::new(
-            config.mixing_enabled,
-            config.mixing_window,
-        )));
+        let mix_queue =
+            Arc::new(Mutex::new(MixQueue::new(config.mixing_enabled, config.mixing_window)));
 
-        OnionRouter {
-            config,
-            route_table,
-            event_tx,
-            mix_queue,
-        }
+        OnionRouter { config, route_table, event_tx, mix_queue }
     }
 
     /// Start the onion router loop
-    pub async fn run(
-        self: Arc<Self>,
-        mut command_rx: mpsc::Receiver<OnionCommand>,
-    ) {
+    pub async fn run(self: Arc<Self>, mut command_rx: mpsc::Receiver<OnionCommand>) {
         // Spawn mixing task if enabled
         if self.config.mixing_enabled {
             let mix_queue = self.mix_queue.clone();
             let event_tx = self.event_tx.clone();
             let window = self.config.mixing_window;
-            
+
             tokio::spawn(async move {
                 let mut tick = interval(window);
                 loop {
@@ -241,10 +222,7 @@ impl OnionRouter {
                     let packets = mix_queue.lock().await.flush();
                     for (peer, blob) in packets {
                         let _ = event_tx
-                            .send(OnionEvent::PacketForward {
-                                next_peer: peer,
-                                blob,
-                            })
+                            .send(OnionEvent::PacketForward { next_peer: peer, blob })
                             .await;
                     }
                 }
@@ -292,10 +270,7 @@ impl OnionRouter {
         }
 
         // 2. Build inner envelope
-        let envelope = InnerEnvelope {
-            destination: destination.0.clone(),
-            payload,
-        };
+        let envelope = InnerEnvelope { destination: destination.0.clone(), payload };
 
         let envelope_bytes = serde_json::to_vec(&envelope)
             .map_err(|e| format!("Failed to serialize envelope: {}", e))?;
@@ -306,10 +281,7 @@ impl OnionRouter {
         // 4. Send to first hop
         if let Some(first_hop) = path.first() {
             if self.config.mixing_enabled {
-                self.mix_queue
-                    .lock()
-                    .await
-                    .add(first_hop.peer_id.clone(), onion_packet);
+                self.mix_queue.lock().await.add(first_hop.peer_id.clone(), onion_packet);
             } else {
                 let _ = self
                     .event_tx
@@ -320,12 +292,7 @@ impl OnionRouter {
                     .await;
             }
 
-            let _ = self
-                .event_tx
-                .send(OnionEvent::CircuitBuilt {
-                    path_length: path.len(),
-                })
-                .await;
+            let _ = self.event_tx.send(OnionEvent::CircuitBuilt { path_length: path.len() }).await;
 
             Ok(())
         } else {
@@ -347,33 +314,26 @@ impl OnionRouter {
         let decrypted = self.decrypt_layer(&encrypted_blob)?;
 
         // Try to parse as header + remaining layers
-        if let Ok(header) = serde_json::from_slice::<OnionHeader>(&decrypted[..64.min(decrypted.len())]) {
+        if let Ok(header) =
+            serde_json::from_slice::<OnionHeader>(&decrypted[..64.min(decrypted.len())])
+        {
             if header.deliver_local {
                 // Final hop - deliver to application
                 let envelope: InnerEnvelope = serde_json::from_slice(&decrypted[64..])
                     .map_err(|e| format!("Failed to parse inner envelope: {}", e))?;
 
-                let _ = self
-                    .event_tx
-                    .send(OnionEvent::DeliverLocal { envelope })
-                    .await;
+                let _ = self.event_tx.send(OnionEvent::DeliverLocal { envelope }).await;
             } else {
                 // Forward to next hop
                 let next_peer = PeerId::from_bytes(header.next_hop);
                 let remaining_blob = decrypted[64..].to_vec();
 
                 if self.config.mixing_enabled {
-                    self.mix_queue
-                        .lock()
-                        .await
-                        .add(next_peer, remaining_blob);
+                    self.mix_queue.lock().await.add(next_peer, remaining_blob);
                 } else {
                     let _ = self
                         .event_tx
-                        .send(OnionEvent::PacketForward {
-                            next_peer,
-                            blob: remaining_blob,
-                        })
+                        .send(OnionEvent::PacketForward { next_peer, blob: remaining_blob })
                         .await;
                 }
             }
@@ -385,7 +345,7 @@ impl OnionRouter {
     /// Pick a path of relay nodes
     async fn pick_path(&self) -> Result<Vec<PeerInfo>, String> {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        
+
         self.route_table
             .handle_command(RouteTableCommand::PickDiverseRelays {
                 k: self.config.circuit_hops,
@@ -393,8 +353,7 @@ impl OnionRouter {
             })
             .await?;
 
-        rx.await
-            .map_err(|e| format!("Failed to pick relays: {}", e))
+        rx.await.map_err(|e| format!("Failed to pick relays: {}", e))
     }
 
     /// Build onion layers (simplified version)
@@ -440,9 +399,7 @@ impl OnionRouter {
         let cipher = ChaCha20Poly1305::new(&key.into());
         let nonce = Nonce::from_slice(&[0u8; 12]); // Simplified: use proper nonce
 
-        cipher
-            .encrypt(nonce, data)
-            .map_err(|e| format!("Encryption failed: {}", e))
+        cipher.encrypt(nonce, data).map_err(|e| format!("Encryption failed: {}", e))
     }
 
     /// Decrypt a layer (simplified)
@@ -454,9 +411,7 @@ impl OnionRouter {
         let cipher = ChaCha20Poly1305::new(&key.into());
         let nonce = Nonce::from_slice(&[0u8; 12]);
 
-        cipher
-            .decrypt(nonce, data)
-            .map_err(|e| format!("Decryption failed: {}", e))
+        cipher.decrypt(nonce, data).map_err(|e| format!("Decryption failed: {}", e))
     }
 
     /// Get mixing queue size
@@ -471,10 +426,8 @@ mod tests {
     use crate::core_router::route_table::{Capability, RouteTable};
 
     fn create_test_relay(id: u8, asn: u32) -> PeerInfo {
-        let mut peer = PeerInfo::new(
-            PeerId::from_bytes(vec![id]),
-            vec![format!("10.0.0.{}:8080", id)],
-        );
+        let mut peer =
+            PeerInfo::new(PeerId::from_bytes(vec![id]), vec![format!("10.0.0.{}:8080", id)]);
         peer.capabilities.push(Capability::Relay);
         peer.asn = Some(asn);
         peer
@@ -630,11 +583,7 @@ mod tests {
         assert_eq!(router.mix_queue_size().await, 0);
 
         // Add to mix queue
-        router
-            .mix_queue
-            .lock()
-            .await
-            .add(PeerId::from_bytes(vec![1]), vec![1, 2, 3]);
+        router.mix_queue.lock().await.add(PeerId::from_bytes(vec![1]), vec![1, 2, 3]);
 
         assert_eq!(router.mix_queue_size().await, 1);
 
@@ -698,10 +647,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_inner_envelope_serialization() {
-        let envelope = InnerEnvelope {
-            destination: vec![1, 2, 3, 4],
-            payload: vec![5, 6, 7, 8],
-        };
+        let envelope = InnerEnvelope { destination: vec![1, 2, 3, 4], payload: vec![5, 6, 7, 8] };
 
         let serialized = serde_json::to_vec(&envelope).unwrap();
         let deserialized: InnerEnvelope = serde_json::from_slice(&serialized).unwrap();

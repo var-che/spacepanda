@@ -19,13 +19,13 @@
 
 use super::api::MlsHandle;
 use super::commit::{Commit, CommitValidator};
-use super::crypto::{MlsSigningKey, sign_with_key, verify_with_key};
+use super::crypto::{sign_with_key, verify_with_key, MlsSigningKey};
 use super::encryption::EncryptedMessage;
 use super::errors::{MlsError, MlsResult};
 use super::group::MlsGroup;
 use super::persistence::{
     decrypt_group_state, encrypt_group_state, load_group_from_file, save_group_to_file,
-    PersistedGroupState, GroupSecrets,
+    GroupSecrets, PersistedGroupState,
 };
 use super::proposals::{Proposal, ProposalContent};
 use super::transport::{MlsEnvelope, MlsMessageType};
@@ -96,10 +96,10 @@ mod key_package_tests {
         // Test that signatures produced by signing keys are valid
         let signing_key = test_signing_key("alice");
         let verifying_key = signing_key.verifying_key();
-        
+
         let message = b"key package commitment";
         let signature = signing_key.sign(message);
-        
+
         let result = verifying_key.verify(message, &signature);
         assert!(result.is_ok(), "Valid signature must verify");
     }
@@ -109,21 +109,24 @@ mod key_package_tests {
         // Ed25519 signatures are deterministic
         let signing_key = test_signing_key("alice");
         let verifying_key = signing_key.verifying_key();
-        
+
         let original_message = b"original key package";
         let signature = signing_key.sign(original_message);
-        
+
         // Same key, same message -> same signature (deterministic)
         let signature2 = signing_key.sign(original_message);
         assert_eq!(signature, signature2, "Ed25519 signatures should be deterministic");
-        
+
         // Different message should verify as invalid
         let tampered_message = b"tampered key package";
         let result = verifying_key.verify(tampered_message, &signature);
-        
+
         // Note: Current implementation may not fail gracefully,
         // but the important thing is it doesn't succeed
-        assert!(result.is_err() || !matches!(result, Ok(true)), "Tampered message must not verify");
+        assert!(
+            result.is_err() || !matches!(result, Ok(true)),
+            "Tampered message must not verify"
+        );
     }
 }
 
@@ -195,7 +198,7 @@ mod add_member_tests {
         let (bob_pk, _) = test_keypair("bob");
         let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         group.add_proposal(proposal).unwrap();
-        
+
         let (_commit, _welcomes) = group.commit(None).unwrap();
 
         assert_eq!(group.member_count(), 2, "Member count must increase to 2");
@@ -217,7 +220,7 @@ mod add_member_tests {
         let (bob_pk, _) = test_keypair("bob");
         let proposal = Proposal::new_add(0, 0, bob_pk.clone(), b"bob".to_vec());
         group.add_proposal(proposal).unwrap();
-        
+
         let (commit, _welcomes) = group.commit(None).unwrap();
 
         // Validate commit structure
@@ -251,14 +254,14 @@ mod add_member_tests {
         let (bob_pk, bob_sk) = test_keypair("bob");
         let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         group.add_proposal(proposal).unwrap();
-        
+
         let (_commit, welcomes) = group.commit(None).unwrap();
 
         assert_eq!(welcomes.len(), 1, "Must produce one Welcome message");
 
         // Bob processes the Welcome using his secret key
         let bob_group = MlsGroup::from_welcome(&welcomes[0], 1, &bob_sk);
-        
+
         assert!(bob_group.is_ok(), "Bob must successfully process Welcome");
         let bob_group = bob_group.unwrap();
         assert_eq!(bob_group.epoch, 1, "Bob's group must be at epoch 1");
@@ -291,7 +294,9 @@ mod remove_member_tests {
         group.commit(None).unwrap();
 
         let (charlie_pk, _) = test_keypair("charlie");
-        group.add_proposal(Proposal::new_add(0, 1, charlie_pk, b"charlie".to_vec())).unwrap();
+        group
+            .add_proposal(Proposal::new_add(0, 1, charlie_pk, b"charlie".to_vec()))
+            .unwrap();
         group.commit(None).unwrap();
 
         assert_eq!(group.member_count(), 3);
@@ -322,7 +327,7 @@ mod remove_member_tests {
         let (bob_pk, bob_sk) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         let (_commit, welcomes) = alice.commit().unwrap();
-        
+
         let bob = MlsHandle::join_group(&welcomes[0], 1, &bob_sk, test_config()).unwrap();
 
         // Bob can receive messages
@@ -336,7 +341,7 @@ mod remove_member_tests {
         // Bob's old state cannot decrypt new messages
         let msg2 = alice.send_message(b"bob is gone").unwrap();
         let result = bob.receive_message(&msg2);
-        
+
         // Bob's state is stale - he was removed
         assert!(result.is_err(), "Removed member must not decrypt messages");
     }
@@ -372,10 +377,7 @@ mod update_tests {
 
         let tree_hash_after = group.tree.root_hash();
 
-        assert_ne!(
-            tree_hash_before, tree_hash_after,
-            "Tree hash must change after update"
-        );
+        assert_ne!(tree_hash_before, tree_hash_after, "Tree hash must change after update");
         assert_eq!(group.epoch, 1, "Epoch must advance");
     }
 
@@ -458,7 +460,7 @@ mod commit_ratcheting_tests {
         // The validator should reject commits with no proposals
         let validator = CommitValidator::new(0, vec![0]);
         let result = validator.validate(&malformed_commit);
-        
+
         assert!(result.is_err(), "Commit with no proposals must be rejected");
     }
 
@@ -476,7 +478,7 @@ mod commit_ratcheting_tests {
 
         // Try to commit without adding any proposals
         let result = group.commit(None);
-        
+
         assert!(result.is_err(), "Commit must fail when no proposals exist");
     }
 }
@@ -533,7 +535,7 @@ mod encryption_tests {
 
         // Try to decrypt old message with new epoch
         let result = group.open_message(&encrypted_epoch_0);
-        
+
         // Message from old epoch should fail
         assert!(result.is_err(), "Old epoch messages must not decrypt in new epoch");
     }
@@ -602,15 +604,15 @@ mod identity_auth_tests {
         let (bob_pk, bob_sk) = test_keypair("bob");
         let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         group.add_proposal(proposal).unwrap();
-        
+
         let (_commit, mut welcomes) = group.commit(None).unwrap();
-        
+
         // Tamper with the Welcome group_id (simulates tampering/corruption)
         welcomes[0].group_id = GroupId::new(b"tampered".to_vec());
 
         // Bob tries to process tampered Welcome
         let result = MlsGroup::from_welcome(&welcomes[0], 1, &bob_sk);
-        
+
         // Should fail due to group_id mismatch or auth failure
         assert!(result.is_err(), "Tampered Welcome must be rejected");
     }
@@ -633,12 +635,12 @@ mod identity_auth_tests {
         let (bob_pk, _) = test_keypair("bob");
         let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         group.add_proposal(proposal).unwrap();
-        
+
         let (commit, _) = group.commit(None).unwrap();
 
         // Get the bytes that were signed
         let to_verify = commit.to_be_signed().unwrap();
-        
+
         // Verify commit structure is complete
         assert!(!to_verify.is_empty(), "Commit data to sign must not be empty");
         assert!(!commit.confirmation_tag.is_empty(), "Confirmation tag must be set");
@@ -713,8 +715,8 @@ mod persistence_tests {
         let passphrase = "secure-passphrase-123";
 
         // Encrypt
-        let encrypted_blob = encrypt_group_state(&state, Some(passphrase))
-            .expect("encryption must succeed");
+        let encrypted_blob =
+            encrypt_group_state(&state, Some(passphrase)).expect("encryption must succeed");
 
         // Decrypt
         let decrypted_state = decrypt_group_state(&encrypted_blob, Some(passphrase))
@@ -752,12 +754,11 @@ mod persistence_tests {
         let passphrase = "test-passphrase";
 
         // Save to file
-        save_group_to_file(&file_path, &state, Some(passphrase))
-            .expect("save must succeed");
+        save_group_to_file(&file_path, &state, Some(passphrase)).expect("save must succeed");
 
         // Load from file
-        let loaded_state = load_group_from_file(&file_path, Some(passphrase))
-            .expect("load must succeed");
+        let loaded_state =
+            load_group_from_file(&file_path, Some(passphrase)).expect("load must succeed");
 
         // Verify
         assert_eq!(loaded_state.metadata.group_id, state.metadata.group_id);
@@ -786,13 +787,13 @@ mod persistence_tests {
                 sequence_counters: std::collections::HashMap::new(),
             },
         };
-        
+
         let encrypted_blob = encrypt_group_state(&state, Some("correct-passphrase"))
             .expect("encryption must succeed");
 
         // Try to decrypt with wrong passphrase
         let result = decrypt_group_state(&encrypted_blob, Some("wrong-passphrase"));
-        
+
         assert!(result.is_err(), "Wrong passphrase must fail decryption");
     }
 }
@@ -840,7 +841,7 @@ mod error_handling_tests {
         fake_message.sender_leaf = 999; // Invalid sender index
 
         let result = group.open_message(&fake_message);
-        
+
         assert!(result.is_err(), "Message from unknown sender must be rejected");
     }
 
@@ -859,7 +860,7 @@ mod error_handling_tests {
         let (bob_pk, _) = test_keypair("bob");
         let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         group.add_proposal(proposal).unwrap();
-        
+
         let (mut commit, _) = group.commit(None).unwrap();
 
         // Tamper with confirmation tag
@@ -885,7 +886,7 @@ mod error_handling_tests {
 
         // Try to apply tampered commit
         let result = group2.apply_commit(&commit);
-        
+
         assert!(result.is_err(), "Commit with invalid confirmation tag must be rejected");
     }
 
@@ -908,7 +909,7 @@ mod error_handling_tests {
         let bad_proposal = Proposal::new_add(0, 999, bob_pk, b"bob".to_vec());
 
         let result = group.add_proposal(bad_proposal);
-        
+
         assert!(
             matches!(result, Err(MlsError::EpochMismatch { .. })),
             "Proposal with wrong epoch must be rejected"
@@ -964,7 +965,7 @@ mod integration_tests {
         let (bob_pk, _) = test_keypair("bob");
         let proposal = Proposal::new_add(0, 0, bob_pk, b"bob".to_vec());
         group.add_proposal(proposal).unwrap();
-        
+
         let (commit, _) = group.commit(None).unwrap();
 
         // Wrap commit in envelope for router
@@ -998,7 +999,7 @@ mod integration_tests {
         // Verify identity is bound correctly
         assert_eq!(group.metadata.members.len(), 1);
         assert_eq!(group.metadata.members[0].identity, b"alice@example.com");
-        
+
         // In production, identity subsystem would validate:
         // - Identity signature
         // - Certificate chain
@@ -1023,7 +1024,7 @@ mod integration_tests {
         let (bob_pk, bob_sk) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         let (commit1, welcomes) = alice.commit().unwrap();
-        
+
         let bob = MlsHandle::join_group(&welcomes[0], 1, &bob_sk, test_config()).unwrap();
 
         // Both at epoch 1
@@ -1044,10 +1045,10 @@ mod integration_tests {
         let (charlie_pk, charlie_sk) = test_keypair("charlie");
         alice.propose_add(charlie_pk, b"charlie".to_vec()).unwrap();
         let (commit2, welcomes2) = alice.commit().unwrap();
-        
+
         // Bob receives commit
         bob.receive_commit(&commit2).unwrap();
-        
+
         let charlie = MlsHandle::join_group(&welcomes2[0], 2, &charlie_sk, test_config()).unwrap();
 
         // All at epoch 2
@@ -1076,7 +1077,7 @@ mod integration_tests {
         let (bob_pk, bob_sk) = test_keypair("bob");
         alice.propose_add(bob_pk, b"bob".to_vec()).unwrap();
         let (_, welcomes) = alice.commit().unwrap();
-        
+
         let bob = MlsHandle::join_group(&welcomes[0], 1, &bob_sk, test_config()).unwrap();
 
         // Alice proposes adding Charlie

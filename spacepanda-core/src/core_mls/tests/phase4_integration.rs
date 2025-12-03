@@ -6,7 +6,7 @@
 #[cfg(test)]
 mod openmls_integration_tests {
     use crate::core_mls::engine::openmls_engine::OpenMlsEngine;
-    use crate::core_mls::types::{MlsConfig, GroupId};
+    use crate::core_mls::types::{GroupId, MlsConfig};
 
     /// Test creating a new group with OpenMLS engine
     #[tokio::test]
@@ -15,14 +15,10 @@ mod openmls_integration_tests {
         let group_id = GroupId::random();
         let identity = b"alice@example.com".to_vec();
 
-        let result = OpenMlsEngine::create_group(
-            group_id,
-            identity,
-            config,
-        ).await;
+        let result = OpenMlsEngine::create_group(group_id, identity, config).await;
 
         assert!(result.is_ok(), "Should create group successfully");
-        
+
         let engine = result.unwrap();
         let epoch = engine.epoch().await;
         assert_eq!(epoch, 0, "New group should start at epoch 0");
@@ -40,7 +36,7 @@ mod openmls_integration_tests {
             .expect("Failed to create group");
 
         let metadata = engine.metadata().await.expect("Failed to get metadata");
-        
+
         // Should have exactly one member (the creator)
         assert_eq!(metadata.members.len(), 1, "Group should have 1 member");
         assert_eq!(metadata.epoch, 0, "Should be at epoch 0");
@@ -58,7 +54,7 @@ mod openmls_integration_tests {
         let engine1 = OpenMlsEngine::create_group(group_id1.clone(), identity1, config.clone())
             .await
             .expect("Failed to create group 1");
-        
+
         let engine2 = OpenMlsEngine::create_group(group_id2.clone(), identity2, config)
             .await
             .expect("Failed to create group 2");
@@ -69,7 +65,7 @@ mod openmls_integration_tests {
         // IDs should match what we provided
         assert_eq!(id1, group_id1, "Group 1 ID should match");
         assert_eq!(id2, group_id2, "Group 2 ID should match");
-        
+
         // Different groups should have different IDs
         assert_ne!(id1, id2, "Different groups should have different IDs");
     }
@@ -88,7 +84,7 @@ mod openmls_integration_tests {
         // Test that we can encrypt messages
         let plaintext = b"Hello, World!";
         let result = engine.send_message(plaintext).await;
-        
+
         // Should succeed in creating encrypted message
         assert!(result.is_ok(), "Should encrypt message successfully");
         let ciphertext = result.unwrap();
@@ -122,16 +118,16 @@ mod openmls_integration_tests {
     #[tokio::test]
     async fn test_multiple_groups() {
         let config = MlsConfig::default();
-        
+
         let mut engines = Vec::new();
         for i in 0..5 {
             let group_id = GroupId::random();
             let identity = format!("user{}@example.com", i).into_bytes();
-            
+
             let engine = OpenMlsEngine::create_group(group_id.clone(), identity, config.clone())
                 .await
                 .expect("Failed to create group");
-            
+
             engines.push((group_id.clone(), engine));
         }
 
@@ -139,7 +135,7 @@ mod openmls_integration_tests {
         for (expected_id, engine) in &engines {
             let actual_id = engine.group_id().await;
             assert_eq!(&actual_id, expected_id, "Group ID should match");
-            
+
             let epoch = engine.epoch().await;
             assert_eq!(epoch, 0, "New group should be at epoch 0");
         }
@@ -197,7 +193,7 @@ mod openmls_integration_tests {
     }
 
     /// Test message encryption succeeds
-    /// 
+    ///
     /// Note: This tests message creation. In OpenMLS, a sender cannot decrypt their own
     /// messages (this is RFC 9420 compliant behavior). Multi-member message testing requires
     /// proper key package exchange and Welcome message handling, which will be added when
@@ -206,22 +202,21 @@ mod openmls_integration_tests {
     async fn test_message_send_receive() {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
-        
+
         // Create Alice's group
         let alice_identity = b"alice@example.com".to_vec();
-        let alice_engine = OpenMlsEngine::create_group(group_id.clone(), alice_identity, config.clone())
-            .await
-            .expect("Failed to create Alice's group");
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id.clone(), alice_identity, config.clone())
+                .await
+                .expect("Failed to create Alice's group");
 
         // Alice sends a message
         let plaintext = b"Hello, World!";
-        let encrypted = alice_engine.send_message(plaintext)
-            .await
-            .expect("Failed to send message");
-        
+        let encrypted = alice_engine.send_message(plaintext).await.expect("Failed to send message");
+
         assert!(!encrypted.is_empty(), "Encrypted message should not be empty");
         assert_ne!(&encrypted[..], plaintext, "Encrypted message should differ from plaintext");
-        
+
         // Note: Actual message send→receive testing requires two distinct members,
         // which needs the full key package exchange flow implemented in group_ops.rs
     }
@@ -240,8 +235,8 @@ mod openmls_integration_tests {
 /// - Member removal and state consistency
 #[cfg(test)]
 mod e2e_integration_tests {
-    use crate::core_mls::engine::{OpenMlsEngine, GroupOperations};
-    use crate::core_mls::types::{MlsConfig, GroupId};
+    use crate::core_mls::engine::{GroupOperations, OpenMlsEngine};
+    use crate::core_mls::types::{GroupId, MlsConfig};
     use openmls::prelude::*;
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
@@ -251,15 +246,14 @@ mod e2e_integration_tests {
     async fn create_key_package(identity: &[u8]) -> KeyPackage {
         let provider = OpenMlsRustCrypto::default();
         let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
-        
+
         // Generate signature keys
         let signature_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm())
             .expect("Failed to generate signature keys");
-        
+
         // Store keys
-        signature_keys.store(provider.storage())
-            .expect("Failed to store keys");
-        
+        signature_keys.store(provider.storage()).expect("Failed to store keys");
+
         // Create credential
         let basic_credential = BasicCredential::new(identity.to_vec());
         let credential_with_key = CredentialWithKey {
@@ -269,12 +263,7 @@ mod e2e_integration_tests {
 
         // Create key package - returns KeyPackageBundle
         let key_package_bundle = KeyPackage::builder()
-            .build(
-                ciphersuite,
-                &provider,
-                &signature_keys,
-                credential_with_key,
-            )
+            .build(ciphersuite, &provider, &signature_keys, credential_with_key)
             .expect("Failed to build key package");
 
         // Extract the KeyPackage from the bundle
@@ -283,8 +272,7 @@ mod e2e_integration_tests {
 
     /// Serialize a key package to bytes
     fn serialize_key_package(kp: &KeyPackage) -> Vec<u8> {
-        kp.tls_serialize_detached()
-            .expect("Failed to serialize key package")
+        kp.tls_serialize_detached().expect("Failed to serialize key package")
     }
 
     /// E2E Test 1: Two-member group with key package exchange
@@ -295,13 +283,10 @@ mod e2e_integration_tests {
 
         // Alice creates the group
         let alice_identity = b"alice@example.com".to_vec();
-        let alice_engine = OpenMlsEngine::create_group(
-            group_id.clone(),
-            alice_identity.clone(),
-            config.clone()
-        )
-        .await
-        .expect("Failed to create Alice's group");
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id.clone(), alice_identity.clone(), config.clone())
+                .await
+                .expect("Failed to create Alice's group");
 
         // Verify Alice is the only member
         let metadata = alice_engine.metadata().await.expect("Failed to get metadata");
@@ -313,7 +298,8 @@ mod e2e_integration_tests {
         let bob_key_package_bytes = serialize_key_package(&bob_key_package);
 
         // Alice adds Bob to the group
-        let (add_commit_bytes, welcome_bytes) = alice_engine.add_members(vec![bob_key_package_bytes])
+        let (add_commit_bytes, welcome_bytes) = alice_engine
+            .add_members(vec![bob_key_package_bytes])
             .await
             .expect("Failed to add Bob");
 
@@ -335,22 +321,18 @@ mod e2e_integration_tests {
 
         // Alice creates the group
         let alice_identity = b"alice@example.com".to_vec();
-        let alice_engine = OpenMlsEngine::create_group(
-            group_id.clone(),
-            alice_identity,
-            config.clone()
-        )
-        .await
-        .expect("Failed to create Alice's group");
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id.clone(), alice_identity, config.clone())
+                .await
+                .expect("Failed to create Alice's group");
 
         // Bob generates key package
         let bob_key_package = create_key_package(b"bob@example.com").await;
         let bob_kp_bytes = serialize_key_package(&bob_key_package);
 
         // Alice adds Bob and gets Welcome message
-        let (_add_commit, welcome_bytes) = alice_engine.add_members(vec![bob_kp_bytes])
-            .await
-            .expect("Failed to add Bob");
+        let (_add_commit, welcome_bytes) =
+            alice_engine.add_members(vec![bob_kp_bytes]).await.expect("Failed to add Bob");
 
         // Verify Welcome message was created
         assert!(welcome_bytes.is_some(), "Welcome message should be created for new member");
@@ -376,7 +358,7 @@ mod e2e_integration_tests {
         let alice_engine = OpenMlsEngine::create_group(
             group_id.clone(),
             b"alice@example.com".to_vec(),
-            config.clone()
+            config.clone(),
         )
         .await
         .expect("Failed to create group");
@@ -386,15 +368,12 @@ mod e2e_integration_tests {
         let bob_kp_bytes = serialize_key_package(&bob_kp);
 
         // Add Bob to the group
-        let (_commit, _welcome) = alice_engine.add_members(vec![bob_kp_bytes])
-            .await
-            .expect("Failed to add Bob");
+        let (_commit, _welcome) =
+            alice_engine.add_members(vec![bob_kp_bytes]).await.expect("Failed to add Bob");
 
         // Alice sends a message
         let plaintext = b"Hello Bob!";
-        let encrypted = alice_engine.send_message(plaintext)
-            .await
-            .expect("Failed to send message");
+        let encrypted = alice_engine.send_message(plaintext).await.expect("Failed to send message");
 
         assert!(!encrypted.is_empty(), "Encrypted message should not be empty");
         assert_ne!(&encrypted[..], plaintext, "Should be encrypted");
@@ -403,7 +382,7 @@ mod e2e_integration_tests {
         let result = alice_engine.process_message(&encrypted).await;
         // Note: Alice cannot decrypt her own messages in MLS (RFC 9420 compliant)
         // This is expected behavior - only Bob could decrypt this
-        
+
         let metadata = alice_engine.metadata().await.unwrap();
         assert_eq!(metadata.epoch, 1, "Should be at epoch 1");
     }
@@ -415,20 +394,15 @@ mod e2e_integration_tests {
         let group_id = GroupId::random();
 
         // Alice creates group
-        let alice_engine = OpenMlsEngine::create_group(
-            group_id,
-            b"alice@example.com".to_vec(),
-            config.clone()
-        )
-        .await
-        .expect("Failed to create group");
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id, b"alice@example.com".to_vec(), config.clone())
+                .await
+                .expect("Failed to create group");
 
         // Add Bob
         let bob_kp = create_key_package(b"bob@example.com").await;
         let bob_kp_bytes = serialize_key_package(&bob_kp);
-        alice_engine.add_members(vec![bob_kp_bytes])
-            .await
-            .expect("Failed to add Bob");
+        alice_engine.add_members(vec![bob_kp_bytes]).await.expect("Failed to add Bob");
 
         let metadata_before = alice_engine.metadata().await.unwrap();
         assert_eq!(metadata_before.members.len(), 2, "Should have 2 members");
@@ -437,7 +411,8 @@ mod e2e_integration_tests {
         // Add Charlie
         let charlie_kp = create_key_package(b"charlie@example.com").await;
         let charlie_kp_bytes = serialize_key_package(&charlie_kp);
-        alice_engine.add_members(vec![charlie_kp_bytes])
+        alice_engine
+            .add_members(vec![charlie_kp_bytes])
             .await
             .expect("Failed to add Charlie");
 
@@ -446,9 +421,8 @@ mod e2e_integration_tests {
         assert_eq!(metadata_mid.epoch, 2, "Epoch 2 after second add");
 
         // Remove Bob (leaf index 1)
-        let remove_commit = alice_engine.remove_members(vec![1])
-            .await
-            .expect("Failed to remove Bob");
+        let remove_commit =
+            alice_engine.remove_members(vec![1]).await.expect("Failed to remove Bob");
 
         assert!(!remove_commit.is_empty(), "Remove commit should produce bytes");
 
@@ -463,13 +437,10 @@ mod e2e_integration_tests {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
 
-        let alice_engine = OpenMlsEngine::create_group(
-            group_id,
-            b"alice@example.com".to_vec(),
-            config.clone()
-        )
-        .await
-        .expect("Failed to create group");
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id, b"alice@example.com".to_vec(), config.clone())
+                .await
+                .expect("Failed to create group");
 
         // Initial state
         let meta0 = alice_engine.metadata().await.unwrap();
@@ -478,16 +449,17 @@ mod e2e_integration_tests {
 
         // Add Bob
         let bob_kp = create_key_package(b"bob@example.com").await;
-        alice_engine.add_members(vec![serialize_key_package(&bob_kp)])
-            .await.unwrap();
+        alice_engine.add_members(vec![serialize_key_package(&bob_kp)]).await.unwrap();
 
         // Send message
         alice_engine.send_message(b"Message 1").await.unwrap();
 
         // Add Charlie
         let charlie_kp = create_key_package(b"charlie@example.com").await;
-        alice_engine.add_members(vec![serialize_key_package(&charlie_kp)])
-            .await.unwrap();
+        alice_engine
+            .add_members(vec![serialize_key_package(&charlie_kp)])
+            .await
+            .unwrap();
 
         // Send another message
         alice_engine.send_message(b"Message 2").await.unwrap();
@@ -507,13 +479,10 @@ mod e2e_integration_tests {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
 
-        let alice_engine = OpenMlsEngine::create_group(
-            group_id,
-            b"alice@example.com".to_vec(),
-            config
-        )
-        .await
-        .expect("Failed to create group");
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id, b"alice@example.com".to_vec(), config)
+                .await
+                .expect("Failed to create group");
 
         // Generate multiple key packages
         let mut key_packages = Vec::new();
@@ -524,7 +493,8 @@ mod e2e_integration_tests {
         }
 
         // Add all members in one commit
-        alice_engine.add_members(key_packages)
+        alice_engine
+            .add_members(key_packages)
             .await
             .expect("Failed to add batch members");
 
@@ -539,34 +509,31 @@ mod e2e_integration_tests {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
 
-        let alice_engine = OpenMlsEngine::create_group(
-            group_id,
-            b"alice@example.com".to_vec(),
-            config
-        )
-        .await
-        .unwrap();
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id, b"alice@example.com".to_vec(), config)
+                .await
+                .unwrap();
 
         // Track epochs through operations
         let mut epochs = vec![alice_engine.epoch().await];
 
         // Add member
         let bob_kp = create_key_package(b"bob@example.com").await;
-        alice_engine.add_members(vec![serialize_key_package(&bob_kp)])
-            .await.unwrap();
+        alice_engine.add_members(vec![serialize_key_package(&bob_kp)]).await.unwrap();
         epochs.push(alice_engine.epoch().await);
 
         // Send messages (should not change epoch)
         for i in 0..3 {
-            alice_engine.send_message(format!("Message {}", i).as_bytes())
-                .await.unwrap();
+            alice_engine.send_message(format!("Message {}", i).as_bytes()).await.unwrap();
             epochs.push(alice_engine.epoch().await);
         }
 
         // Another add
         let charlie_kp = create_key_package(b"charlie@example.com").await;
-        alice_engine.add_members(vec![serialize_key_package(&charlie_kp)])
-            .await.unwrap();
+        alice_engine
+            .add_members(vec![serialize_key_package(&charlie_kp)])
+            .await
+            .unwrap();
         epochs.push(alice_engine.epoch().await);
 
         // Verify epoch progression
@@ -584,18 +551,15 @@ mod e2e_integration_tests {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
 
-        let alice_engine = OpenMlsEngine::create_group(
-            group_id.clone(),
-            b"alice@example.com".to_vec(),
-            config
-        )
-        .await
-        .unwrap();
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id.clone(), b"alice@example.com".to_vec(), config)
+                .await
+                .unwrap();
 
         // Perform various operations
         let bob_kp = create_key_package(b"bob@example.com").await;
-        let (_commit, _welcome) = alice_engine.add_members(vec![serialize_key_package(&bob_kp)])
-            .await.unwrap();
+        let (_commit, _welcome) =
+            alice_engine.add_members(vec![serialize_key_package(&bob_kp)]).await.unwrap();
 
         // Check state consistency
         let meta1 = alice_engine.metadata().await.unwrap();

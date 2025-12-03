@@ -53,9 +53,8 @@ impl Commit {
         path: Option<UpdatePath>,
     ) -> Self {
         // Generate proposal refs for backwards compatibility
-        let proposal_refs: Vec<ProposalRef> = (0..proposals.len())
-            .map(|i| ProposalRef::Index(i as u32))
-            .collect();
+        let proposal_refs: Vec<ProposalRef> =
+            (0..proposals.len()).map(|i| ProposalRef::Index(i as u32)).collect();
 
         Self {
             group_id,
@@ -65,7 +64,7 @@ impl Commit {
             proposal_refs,
             path,
             confirmation_tag: Vec::new(), // Set after computing
-            signature: Vec::new(),         // Set after signing
+            signature: Vec::new(),        // Set after signing
         }
     }
 
@@ -113,9 +112,7 @@ impl Commit {
         if self.confirmation_tag == expected {
             Ok(())
         } else {
-            Err(MlsError::VerifyFailed(
-                "Confirmation tag mismatch".to_string(),
-            ))
+            Err(MlsError::VerifyFailed("Confirmation tag mismatch".to_string()))
         }
     }
 
@@ -175,10 +172,7 @@ pub struct CommitValidator {
 impl CommitValidator {
     /// Create new validator
     pub fn new(current_epoch: u64, valid_senders: Vec<u32>) -> Self {
-        Self {
-            current_epoch,
-            valid_senders,
-        }
+        Self { current_epoch, valid_senders }
     }
 
     /// Validate commit epoch
@@ -225,9 +219,9 @@ impl CommitValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core_mls::types::GroupId;
+    use crate::core_mls::crypto::{sign_with_key, verify_with_key, MlsSigningKey};
     use crate::core_mls::proposals::{Proposal, ProposalContent};
-    use crate::core_mls::crypto::{MlsSigningKey, sign_with_key, verify_with_key};
+    use crate::core_mls::types::GroupId;
 
     fn test_signing_key() -> MlsSigningKey {
         // Use deterministic key for tests
@@ -255,9 +249,7 @@ mod tests {
     fn dummy_proposal(sender: u32, epoch: u64) -> Proposal {
         Proposal {
             proposal_type: crate::core_mls::proposals::ProposalType::Update,
-            content: ProposalContent::Update {
-                public_key: b"test_key".to_vec(),
-            },
+            content: ProposalContent::Update { public_key: b"test_key".to_vec() },
             sender,
             epoch,
             signature: vec![],
@@ -343,13 +335,7 @@ mod tests {
     #[test]
     fn test_commit_serialization() {
         let group_id = test_group_id();
-        let mut commit = Commit::new(
-            group_id.clone(),
-            1,
-            0,
-            vec![dummy_proposal(0, 1)],
-            None,
-        );
+        let mut commit = Commit::new(group_id.clone(), 1, 0, vec![dummy_proposal(0, 1)], None);
         commit.sign(dummy_sign).unwrap();
 
         let bytes = commit.to_bytes().unwrap();
@@ -406,16 +392,13 @@ mod tests {
         let validator = CommitValidator::new(1, vec![0]);
 
         let group_id = test_group_id();
-        
+
         // Valid: has proposals
         let valid_commit = Commit::new(group_id.clone(), 1, 0, vec![dummy_proposal(0, 1)], None);
         assert!(validator.validate_proposals(&valid_commit).is_ok());
 
         // Valid: has path update
-        let path = UpdatePath {
-            leaf_public_key: b"key".to_vec(),
-            encrypted_path_secrets: vec![],
-        };
+        let path = UpdatePath { leaf_public_key: b"key".to_vec(), encrypted_path_secrets: vec![] };
         let valid_commit2 = Commit::new(group_id.clone(), 1, 0, vec![], Some(path));
         assert!(validator.validate_proposals(&valid_commit2).is_ok());
 
@@ -439,7 +422,7 @@ mod tests {
         let validator = CommitValidator::new(1, vec![0, 1]);
 
         let group_id = test_group_id();
-        
+
         // Wrong epoch
         let commit1 = Commit::new(group_id.clone(), 2, 0, vec![dummy_proposal(0, 2)], None);
         assert!(validator.validate(&commit1).is_err());

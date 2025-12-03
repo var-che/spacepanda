@@ -12,12 +12,14 @@
 use super::api::MlsHandle;
 use super::commit::{Commit, CommitValidator};
 use super::crypto::MlsSigningKey;
-use super::encryption::{encrypt_message, decrypt_message, EncryptedMessage, KeySchedule, SenderData};
+use super::encryption::{
+    decrypt_message, encrypt_message, EncryptedMessage, KeySchedule, SenderData,
+};
 use super::errors::{MlsError, MlsResult};
 use super::group::MlsGroup;
 use super::persistence::{
     decrypt_group_state, encrypt_group_state, load_group_from_file, save_group_to_file,
-    PersistedGroupState, GroupSecrets,
+    GroupSecrets, PersistedGroupState,
 };
 use super::proposals::{Proposal, ProposalContent};
 use super::transport::{MlsEnvelope, MlsMessageType};
@@ -179,11 +181,7 @@ mod ratchet_tree_tests {
 
         // Assert
         assert_eq!(leaf_idx, 0, "First member should be at leaf 0");
-        assert_ne!(
-            tree.root_hash(),
-            old_root,
-            "Tree root must change when a new leaf is added"
-        );
+        assert_ne!(tree.root_hash(), old_root, "Tree root must change when a new leaf is added");
         assert_eq!(tree.leaf_count(), 1);
     }
 
@@ -203,10 +201,7 @@ mod ratchet_tree_tests {
         let after_hash = tree.root_hash();
 
         // Assert: Tree hash changes
-        assert_ne!(
-            before_hash, after_hash,
-            "Root hash must change after leaf update"
-        );
+        assert_ne!(before_hash, after_hash, "Root hash must change after leaf update");
     }
 
     #[test]
@@ -228,16 +223,12 @@ mod ratchet_tree_tests {
         let node = tree.get_node(MlsTree::leaf_to_node_index(1));
         assert!(node.is_some());
         assert!(node.unwrap().is_blank(), "Removed leaf should be blank");
-        
+
         // Note: leaf_count doesn't decrease (structure preserved)
         assert_eq!(tree.leaf_count(), before_count, "Leaf count structure preserved");
-        
+
         // Root hash changes
-        assert_ne!(
-            tree.root_hash(),
-            before_hash,
-            "Root hash must change after removal"
-        );
+        assert_ne!(tree.root_hash(), before_hash, "Root hash must change after removal");
     }
 
     #[test]
@@ -385,11 +376,7 @@ mod commit_processing_tests {
 
         // Assert: Epoch and tree changed
         assert_eq!(alice.epoch, old_epoch + 1, "Epoch must increment");
-        assert_ne!(
-            alice.tree.root_hash(),
-            old_tree,
-            "Tree hash must change after commit"
-        );
+        assert_ne!(alice.tree.root_hash(), old_tree, "Tree hash must change after commit");
         assert_eq!(alice.member_count(), 2, "Member count must be 2");
     }
 
@@ -408,10 +395,7 @@ mod commit_processing_tests {
 
         // Act & Assert: Commit with no proposals fails
         let result = group.commit(None);
-        assert!(
-            result.is_err(),
-            "Commit must fail when no proposals exist"
-        );
+        assert!(result.is_err(), "Commit must fail when no proposals exist");
     }
 
     #[test]
@@ -607,10 +591,7 @@ mod storage_integration_tests {
             bincode::deserialize(&serialized).expect("deserialization must succeed");
 
         // Assert: Equality
-        assert_eq!(
-            deserialized.metadata.group_id,
-            original_state.metadata.group_id
-        );
+        assert_eq!(deserialized.metadata.group_id, original_state.metadata.group_id);
         assert_eq!(deserialized.metadata.epoch, original_state.metadata.epoch);
         assert_eq!(deserialized.secrets.epoch, original_state.secrets.epoch);
     }
@@ -640,8 +621,10 @@ mod storage_integration_tests {
         let passphrase = "secure-pass-123";
 
         // Act: Encrypt and decrypt
-        let encrypted = encrypt_group_state(&state, Some(passphrase)).expect("encryption must succeed");
-        let decrypted = decrypt_group_state(&encrypted, Some(passphrase)).expect("decryption must succeed");
+        let encrypted =
+            encrypt_group_state(&state, Some(passphrase)).expect("encryption must succeed");
+        let decrypted =
+            decrypt_group_state(&encrypted, Some(passphrase)).expect("decryption must succeed");
 
         // Assert
         assert_eq!(decrypted.metadata.group_id, state.metadata.group_id);
@@ -707,7 +690,8 @@ mod storage_integration_tests {
             },
         };
 
-        let encrypted = encrypt_group_state(&state, Some("correct-pass")).expect("encryption must succeed");
+        let encrypted =
+            encrypt_group_state(&state, Some("correct-pass")).expect("encryption must succeed");
 
         // Act & Assert: Wrong passphrase fails
         let result = decrypt_group_state(&encrypted, Some("wrong-pass"));
@@ -807,10 +791,7 @@ mod security_failure_tests {
 
         // Act & Assert
         let result = group.open_message(&fake_msg);
-        assert!(
-            result.is_err(),
-            "Message from invalid sender must be rejected"
-        );
+        assert!(result.is_err(), "Message from invalid sender must be rejected");
     }
 
     #[test]
@@ -865,12 +846,12 @@ mod security_failure_tests {
     }
 
     /// CRITICAL SECURITY TEST: Forward Secrecy + Post-Compromise Security
-    /// 
+    ///
     /// This test validates that old messages CANNOT decrypt after an epoch change.
     /// This is fundamental to MLS's security guarantees:
     /// - Forward Secrecy: Compromise of old keys cannot reveal new messages
     /// - Post-Compromise Security: Even if attacker had old epoch keys, new epoch messages stay safe
-    /// 
+    ///
     /// Common bugs this catches:
     /// - Accidentally reusing old epoch keys
     /// - Incorrect key derivation or key caching
@@ -960,7 +941,7 @@ mod security_failure_tests {
     }
 
     /// Test that out-of-order commits are rejected
-    /// 
+    ///
     /// This catches "commit skipping" bugs that silently corrupt group state.
     /// If Alice applies Commit #2 before Commit #1, the system must reject it.
     #[test]
@@ -995,10 +976,7 @@ mod security_failure_tests {
         // Alice incorrectly tries to apply commit #2 first (skips commit #1)
         let result = alice.receive_commit(&commit2);
 
-        assert!(
-            result.is_err(),
-            "❌ Out-of-order commit must be rejected"
-        );
+        assert!(result.is_err(), "❌ Out-of-order commit must be rejected");
 
         // Verify error is epoch-related
         if let Err(e) = result {
@@ -1018,7 +996,7 @@ mod security_failure_tests {
     }
 
     /// Test that commits with tampered data are rejected
-    /// 
+    ///
     /// This ensures integrity of commit messages through confirmation tags.
     /// Note: Full signature validation would be added in production MLS.
     #[test]
@@ -1063,19 +1041,18 @@ mod security_failure_tests {
 
         // Add same member to get matching state
         let (bob_pk3, _) = test_keypair("bob");
-        alice_group2.add_proposal(Proposal::new_add(0, 0, bob_pk3, b"bob".to_vec())).unwrap();
+        alice_group2
+            .add_proposal(Proposal::new_add(0, 0, bob_pk3, b"bob".to_vec()))
+            .unwrap();
 
         // Try to apply tampered commit
         let result = alice_group2.apply_commit(&tampered_commit);
 
-        assert!(
-            result.is_err(),
-            "❌ Commit with tampered confirmation tag must be rejected"
-        );
+        assert!(result.is_err(), "❌ Commit with tampered confirmation tag must be rejected");
     }
 
     /// Test that corrupted Welcome HPKE ciphertext is rejected
-    /// 
+    ///
     /// Protects against attacker corrupting Welcome → HPKE decrypt fails.
     #[test]
     fn test_reject_corrupted_welcome_hpke_ciphertext() {
@@ -1096,8 +1073,8 @@ mod security_failure_tests {
         let (_, mut welcomes) = alice_group.commit(None).unwrap();
 
         // Corrupt the encrypted secrets in Welcome
-        if !welcomes[0].encrypted_secrets.is_empty() 
-            && !welcomes[0].encrypted_secrets[0].encrypted_payload.is_empty() 
+        if !welcomes[0].encrypted_secrets.is_empty()
+            && !welcomes[0].encrypted_secrets[0].encrypted_payload.is_empty()
         {
             welcomes[0].encrypted_secrets[0].encrypted_payload[5] ^= 0x55; // Flip bits in ciphertext
         }
@@ -1105,14 +1082,11 @@ mod security_failure_tests {
         // Bob tries to join with corrupted Welcome
         let result = MlsGroup::from_welcome(&welcomes[0], 1, &bob_sk);
 
-        assert!(
-            result.is_err(),
-            "❌ Corrupted HPKE ciphertext in Welcome must be rejected"
-        );
+        assert!(result.is_err(), "❌ Corrupted HPKE ciphertext in Welcome must be rejected");
     }
 
     /// Test that tree hash changes after any update
-    /// 
+    ///
     /// Verifies parent hash correctness and tree integrity.
     #[test]
     fn test_tree_hash_changes_after_update() {
@@ -1154,7 +1128,7 @@ mod security_failure_tests {
     }
 
     /// Test that removed member cannot decrypt future messages
-    /// 
+    ///
     /// Critical security property: removal must invalidate member's keys.
     #[test]
     fn test_removed_member_cannot_decrypt_messages() {
@@ -1194,14 +1168,11 @@ mod security_failure_tests {
         // Carol tries to decrypt with her old state
         let result = carol.receive_message(&ciphertext);
 
-        assert!(
-            result.is_err(),
-            "❌ Removed member must not decrypt messages after removal"
-        );
+        assert!(result.is_err(), "❌ Removed member must not decrypt messages after removal");
     }
 
     /// Test that Welcome with invalid/mismatched GroupInfo is rejected
-    /// 
+    ///
     /// Verifies that Welcome messages with inconsistent data are rejected.
     /// Production MLS would also validate cryptographic signatures on GroupInfo.
     #[test]
@@ -1236,13 +1207,13 @@ mod security_failure_tests {
             welcomes[0].group_id, original_group_id,
             "Welcome was successfully tampered for test purposes"
         );
-        
+
         // Note: In production, result.is_err() should be true
         // This test documents the expected behavior for future implementation
     }
 
     /// Test that path secrets are never reused across commits
-    /// 
+    ///
     /// Protects against multi-epoch secret reuse, a subtle but severe bug.
     #[test]
     fn test_no_path_secret_reuse() {
@@ -1289,7 +1260,7 @@ mod security_failure_tests {
     }
 
     /// Test that epoch increases after update commit
-    /// 
+    ///
     /// Basic correctness check for epoch advancement.
     #[test]
     fn test_epoch_increases_after_update() {
@@ -1330,7 +1301,7 @@ mod security_failure_tests {
     }
 
     /// Test that commit with incorrect confirmation tag fails
-    /// 
+    ///
     /// Detects tampering with commit integrity (parent hash equivalent).
     #[test]
     fn test_invalid_confirmation_tag_rejected() {
@@ -1374,19 +1345,18 @@ mod security_failure_tests {
 
         // Add same proposal
         let (bob_pk3, _) = test_keypair("bob");
-        alice_group2.add_proposal(Proposal::new_add(0, 0, bob_pk3, b"bob".to_vec())).unwrap();
+        alice_group2
+            .add_proposal(Proposal::new_add(0, 0, bob_pk3, b"bob".to_vec()))
+            .unwrap();
 
         // Try to apply tampered commit
         let result = alice_group2.apply_commit(&tampered_commit);
 
-        assert!(
-            result.is_err(),
-            "❌ Commit with invalid confirmation tag must be rejected"
-        );
+        assert!(result.is_err(), "❌ Commit with invalid confirmation tag must be rejected");
     }
 
     /// Test that commits are validated for correct sender
-    /// 
+    ///
     /// Ensures commits come from valid group members.
     #[test]
     fn test_commit_from_invalid_sender_rejected() {
@@ -1414,10 +1384,7 @@ mod security_failure_tests {
         let validator = CommitValidator::new(alice_group.epoch, valid_senders);
         let result = validator.validate(&commit);
 
-        assert!(
-            result.is_err(),
-            "❌ Commit from invalid sender must be rejected"
-        );
+        assert!(result.is_err(), "❌ Commit from invalid sender must be rejected");
     }
 }
 
@@ -1503,10 +1470,7 @@ mod property_tests {
             group.add_proposal(proposal).unwrap();
             group.commit(None).unwrap();
 
-            assert!(
-                group.epoch > prev_epoch,
-                "Epoch must strictly increase after commit"
-            );
+            assert!(group.epoch > prev_epoch, "Epoch must strictly increase after commit");
             prev_epoch = group.epoch;
         }
     }
@@ -1574,7 +1538,8 @@ mod stress_tests {
         // Act: Add 50 members
         for i in 0..50 {
             let (pk, _) = test_keypair(&format!("member{}", i));
-            let proposal = Proposal::new_add(0, group.epoch, pk, format!("member{}", i).as_bytes().to_vec());
+            let proposal =
+                Proposal::new_add(0, group.epoch, pk, format!("member{}", i).as_bytes().to_vec());
             group.add_proposal(proposal).unwrap();
             group.commit(None).unwrap();
         }
