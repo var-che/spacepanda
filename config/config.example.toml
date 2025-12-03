@@ -1,0 +1,54 @@
+# Example configuration for SpacePanda Core
+# Copy to config.toml and customize for your deployment
+
+[server]
+bind_address = "0.0.0.0:8080"
+max_connections = 10000
+connection_timeout = "30s"
+shutdown_timeout = "30s"
+enable_tls = false
+# tls_cert_path = "/app/config/cert.pem"
+# tls_key_path = "/app/config/key.pem"
+
+[dht]
+bucket_count = 256
+bucket_size = 20
+replication_factor = 3
+sync_interval = "60s"
+peer_timeout = "300s"
+bootstrap_peers = []
+
+[store]
+data_dir = "/app/data"
+enable_wal = true
+snapshot_interval = "300s"
+max_snapshot_size = 104857600  # 100 MB
+enable_compression = true
+tombstone_cleanup_interval = "3600s"
+
+[logging]
+level = "info"
+json_format = true
+with_timestamp = true
+with_target = true
+# log_file = "/app/logs/spacepanda.log"
+
+[metrics]
+enabled = true
+bind_address = "0.0.0.0:9090"
+collection_interval = "15s"
+enable_prometheus = true
+enable_opentelemetry = false
+# otlp_endpoint = "http://localhost:4317"
+
+[features]
+experimental = false
+dht_replication = true
+store_snapshots = true
+compression = true
+rate_limiting = true
+circuit_breaker = true
+
+# Custom feature flags
+[features.custom]
+# enable_experimental_feature = false

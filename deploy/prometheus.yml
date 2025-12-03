@@ -1,0 +1,31 @@
+# Prometheus configuration for SpacePanda
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'spacepanda'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Scrape configurations
+scrape_configs:
+  # SpacePanda Core metrics
+  - job_name: 'spacepanda-core'
+    static_configs:
+      - targets: ['spacepanda:9090']
+        labels:
+          service: 'spacepanda-core'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

@@ -42,12 +42,17 @@
 // Privacy warnings - intentional module design decisions
 #![allow(private_interfaces)]
 
+pub mod config;
 pub mod core_dht;
 pub mod core_identity;
 pub mod core_mls;
 pub mod core_router;
 pub mod core_store;
+pub mod health;
 pub mod logging;
+pub mod metrics;
+pub mod shutdown;
+pub mod tracing;
 
 #[cfg(test)]
 pub mod test_utils;

@@ -1,0 +1,250 @@
+# Kubernetes deployment for SpacePanda Core
+# For production Kubernetes deployment
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spacepanda
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spacepanda-config
+  namespace: spacepanda
+data:
+  config.toml: |
+    [server]
+    bind_address = "0.0.0.0:8080"
+    max_connections = 10000
+    connection_timeout = "30s"
+    shutdown_timeout = "30s"
+    enable_tls = false
+    
+    [dht]
+    bucket_count = 256
+    bucket_size = 20
+    replication_factor = 3
+    sync_interval = "60s"
+    peer_timeout = "300s"
+    bootstrap_peers = []
+    
+    [store]
+    data_dir = "/app/data"
+    enable_wal = true
+    snapshot_interval = "300s"
+    max_snapshot_size = 104857600
+    enable_compression = true
+    tombstone_cleanup_interval = "3600s"
+    
+    [logging]
+    level = "info"
+    json_format = true
+    with_timestamp = true
+    with_target = true
+    
+    [metrics]
+    enabled = true
+    bind_address = "0.0.0.0:9090"
+    collection_interval = "15s"
+    enable_prometheus = true
+    enable_opentelemetry = false
+    
+    [features]
+    experimental = false
+    dht_replication = true
+    store_snapshots = true
+    compression = true
+    rate_limiting = true
+    circuit_breaker = true
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: spacepanda-data
+  namespace: spacepanda
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spacepanda-core
+  namespace: spacepanda
+  labels:
+    app: spacepanda-core
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: spacepanda-core
+  template:
+    metadata:
+      labels:
+        app: spacepanda-core
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: spacepanda-core
+        image: spacepanda/core:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 9090
+          protocol: TCP
+        env:
+        - name: SPACEPANDA_LOG_LEVEL
+          value: "info"
+        - name: SPACEPANDA_LOG_JSON
+          value: "true"
+        - name: SPACEPANDA_METRICS_ENABLED
+          value: "true"
+        - name: SPACEPANDA_SERVER_BIND_ADDRESS
+          value: "0.0.0.0:8080"
+        - name: SPACEPANDA_METRICS_BIND_ADDRESS
+          value: "0.0.0.0:9090"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        - name: data
+          mountPath: /app/data
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: config
+        configMap:
+          name: spacepanda-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: spacepanda-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spacepanda-core
+  namespace: spacepanda
+  labels:
+    app: spacepanda-core
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  selector:
+    app: spacepanda-core
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spacepanda-metrics
+  namespace: spacepanda
+  labels:
+    app: spacepanda-core
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  selector:
+    app: spacepanda-core
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spacepanda-ingress
+  namespace: spacepanda
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+  - hosts:
+    - spacepanda.example.com
+    secretName: spacepanda-tls
+  rules:
+  - host: spacepanda.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: spacepanda-core
+            port:
+              number: 8080
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: spacepanda-hpa
+  namespace: spacepanda
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: spacepanda-core
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

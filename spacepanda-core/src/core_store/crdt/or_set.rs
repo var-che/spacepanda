@@ -160,30 +160,30 @@ impl<T: Clone + Eq + std::hash::Hash + Send + Sync> Crdt for ORSet<T> {
         // Merge elements
         for (element, other_adds) in &other.elements {
             let entry = self.elements.entry(element.clone()).or_insert_with(HashSet::new);
+            
+            // Reserve capacity upfront to reduce allocations
+            entry.reserve(other_adds.len());
+            
             for add_id in other_adds {
                 // Only add if not tombstoned
                 if !self.tombstones.contains(&(element.clone(), add_id.clone())) {
                     entry.insert(add_id.clone());
                 }
             }
-            // Clean up empty entries
-            if entry.is_empty() {
-                self.elements.remove(element);
-            }
         }
 
-        // Merge tombstones
+        // Merge tombstones and apply them
         for tombstone in &other.tombstones {
             self.tombstones.insert(tombstone.clone());
 
             // Remove from elements if tombstoned
             if let Some(adds) = self.elements.get_mut(&tombstone.0) {
                 adds.remove(&tombstone.1);
-                if adds.is_empty() {
-                    self.elements.remove(&tombstone.0);
-                }
             }
         }
+
+        // Clean up empty entries in one pass
+        self.elements.retain(|_, adds| !adds.is_empty());
 
         // Merge vector clocks
         self.vector_clock.merge(&other.vector_clock);
