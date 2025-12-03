@@ -17,6 +17,7 @@ This document records the decision to use **OpenMLS** as the canonical, producti
 SpacePanda's `core_mls` module currently contains two MLS implementations:
 
 1. **Custom Implementation** (Legacy)
+
    - Files: `api.rs`, `transport.rs`, `group.rs`, `tree.rs`, `commit.rs`, `proposals.rs`, `welcome.rs`, `encryption.rs`
    - Purpose: Educational, RFC 9420 conformance testing
    - Status: ⚠️ DEPRECATED (marked for removal in v0.3.0)
@@ -35,18 +36,21 @@ SpacePanda's `core_mls` module currently contains two MLS implementations:
 ### Rationale
 
 1. **Security & Correctness**
+
    - OpenMLS is battle-tested, audited, and actively maintained
    - RFC 9420 compliant with extensive test coverage
    - Cryptographic correctness validated by security experts
    - Regular security updates and vulnerability patches
 
 2. **Maintenance Burden**
+
    - Maintaining two implementations is error-prone
    - Custom implementation requires cryptographic expertise
    - OpenMLS handles protocol evolution (e.g., future RFC updates)
    - Community support and bug fixes
 
 3. **Feature Completeness**
+
    - OpenMLS supports full MLS protocol suite
    - Extensions and advanced features available
    - Better HPKE, key schedule, and tree management
@@ -114,12 +118,14 @@ pub mod group;
 ### ✅ Completed
 
 1. All production code uses OpenMLS:
+
    - `engine/openmls_engine.rs` - Core engine
    - `engine/group_ops.rs` - Group operations trait
    - `providers/openmls_provider.rs` - Provider implementation
    - `messages/outbound.rs` - Message building with OpenMLS
 
 2. Legacy modules marked deprecated:
+
    - `api.rs` - `#![allow(deprecated)]`
    - `transport.rs` - `#![allow(deprecated)]`
    - Module docs warn: "This module will be removed in v0.3.0"
@@ -192,12 +198,14 @@ If you're using the legacy `api::MlsHandle`:
 ### OpenMLS Advantages
 
 1. **Cryptographic Correctness**
+
    - Professionally audited cryptographic implementation
    - Uses `openmls_rust_crypto` with proven algorithms
    - HPKE (RFC 9180) implementation by experts
    - Constant-time operations where needed
 
 2. **Protocol Compliance**
+
    - RFC 9420 compliance verified by test vectors
    - Interoperability with other MLS implementations
    - Correct epoch handling and key rotation
@@ -212,11 +220,13 @@ If you're using the legacy `api::MlsHandle`:
 ### Legacy Implementation Risks
 
 1. **Unaudited Cryptography**
+
    - Custom crypto code not reviewed by experts
    - Potential timing side-channels
    - May not handle edge cases correctly
 
 2. **Maintenance Burden**
+
    - Requires keeping up with protocol changes
    - No external security updates
    - Duplicate bug fixes needed
@@ -272,10 +282,10 @@ Future benchmarks (TASK 2.4) will baseline OpenMLS performance.
 
 ## Version History
 
-| Date | Version | Change |
-|------|---------|--------|
-| 2025-12-03 | 0.1.0 | Initial decision document |
-| 2025-12-03 | 0.1.0 | OpenMLS chosen as canonical implementation |
+| Date       | Version | Change                                     |
+| ---------- | ------- | ------------------------------------------ |
+| 2025-12-03 | 0.1.0   | Initial decision document                  |
+| 2025-12-03 | 0.1.0   | OpenMLS chosen as canonical implementation |
 
 ---
 

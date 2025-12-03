@@ -17,7 +17,7 @@ use argon2::password_hash::{PasswordHasher as _, SaltString};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Current blob format version
 const CURRENT_VERSION: u16 = 1;
@@ -194,7 +194,8 @@ impl EncryptedGroupBlob {
 }
 
 /// Derive encryption key from passphrase using Argon2id
-fn derive_key_from_passphrase(passphrase: &str, salt: &[u8]) -> MlsResult<Vec<u8>> {
+/// Returns a Zeroizing wrapper to ensure the key is wiped from memory
+fn derive_key_from_passphrase(passphrase: &str, salt: &[u8]) -> MlsResult<Zeroizing<Vec<u8>>> {
     let params = Params::new(
         ARGON2_MEM_COST,
         ARGON2_TIME_COST,
@@ -223,7 +224,7 @@ fn derive_key_from_passphrase(passphrase: &str, salt: &[u8]) -> MlsResult<Vec<u8
     let hash_bytes = hash.hash
         .ok_or_else(|| MlsError::CryptoError("No hash output".to_string()))?;
     
-    Ok(hash_bytes.as_bytes().to_vec())
+    Ok(Zeroizing::new(hash_bytes.as_bytes().to_vec()))
 }
 
 /// Encrypt group state with AEAD
@@ -234,7 +235,7 @@ pub fn encrypt_group_state(
     // Serialize the state
     let plaintext = bincode::serialize(state)?;
     
-    // Generate or derive encryption key
+    // Generate or derive encryption key (wrapped in Zeroizing for secure cleanup)
     let (key_bytes, salt) = if let Some(pass) = passphrase {
         // Generate random salt for passphrase-based encryption
         let mut salt_vec = vec![0u8; 16];
@@ -243,9 +244,9 @@ pub fn encrypt_group_state(
         (key, Some(salt_vec))
     } else {
         // Use random key (would come from master key in production)
-        let mut key = vec![0u8; KEY_SIZE];
-        rand::thread_rng().fill_bytes(&mut key);
-        (key, None)
+        let mut key_vec = vec![0u8; KEY_SIZE];
+        rand::thread_rng().fill_bytes(&mut key_vec);
+        (Zeroizing::new(key_vec), None)
     };
     
     // Create cipher
