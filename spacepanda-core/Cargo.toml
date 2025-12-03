@@ -7,9 +7,8 @@ repository.workspace = true
 authors.workspace = true
 
 [features]
-default = ["openmls-engine"]
-openmls-engine = []  # Use OpenMLS for MLS operations (recommended)
-legacy-mls = []      # Use legacy custom MLS implementation
+default = []
+# OpenMLS is now the only supported MLS implementation
 
 [dependencies]
 tracing.workspace = true

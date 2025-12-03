@@ -107,7 +107,11 @@ pub use proposals::{
 pub use commit::{Commit, UpdatePath, CommitResult, CommitValidator};
 pub use group::MlsGroup;
 pub use transport::{MlsTransport, MlsEnvelope, MlsMessageType};
-pub use api::MlsHandle;
+
+// Primary MLS handle (OpenMLS-based)
+pub use handle::MlsHandle;
+
+// Discovery and crypto
 pub use discovery::{GroupPublicInfo, DiscoveryQuery};
 pub use crypto::{MlsSigningKey, MlsVerifyingKey, sign_with_key, verify_with_key};
 
@@ -118,12 +122,8 @@ pub use engine::{
     group_ops::ProcessedMessage,
 };
 
-// Feature-gated exports
-#[cfg(feature = "openmls-engine")]
-pub use handle::MlsHandle as MlsHandleV2;  // New OpenMLS-based handle
-
-#[cfg(feature = "legacy-mls")]
-pub use api::MlsHandle as MlsHandleLegacy;  // Original implementation
+// Note: api::MlsHandle (legacy) is deprecated and not re-exported to avoid ambiguity.
+// Tests in api.rs can still use it directly via `use super::api::MlsHandle`.
 
 /// Default ciphersuite for SpacePanda MLS
 ///

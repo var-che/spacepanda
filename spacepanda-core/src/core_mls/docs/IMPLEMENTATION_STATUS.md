@@ -1,5 +1,48 @@
 # OpenMLS Integration - Implementation Status
 
+## 🧹 **LATEST UPDATE: Legacy Code Cleanup (Dec 3, 2025)**
+
+**Status**: ✅ **COMPLETE**
+
+We have removed the legacy-mls feature flag and deprecated the custom MLS implementation:
+
+### Changes Made:
+
+1. **Cargo.toml**: Removed `legacy-mls` feature flag
+
+   - Only OpenMLS is now supported (no feature flags needed)
+   - Simplified from dual-implementation to single OpenMLS path
+
+2. **handle.rs**: Simplified to single implementation
+
+   - Removed feature gates (`#[cfg(feature = "openmls-engine")]` and `#[cfg(feature = "legacy-mls")]`)
+   - Direct export: `pub use crate::core_mls::engine::OpenMlsHandleAdapter as MlsHandle;`
+
+3. **Deprecated Legacy Modules**:
+
+   - `api.rs`: Marked as deprecated (⚠️ will be removed in v0.3.0)
+   - `transport.rs`: Marked as deprecated (⚠️ will be removed in v0.3.0)
+   - Added deprecation warnings to module documentation
+
+4. **mod.rs**: Cleaned up exports
+
+   - Primary export: `handle::MlsHandle` (OpenMLS-based)
+   - Removed ambiguous `MlsHandleLegacy` export
+   - Legacy `api::MlsHandle` available only for existing tests
+
+5. **Tests**: Fixed import ambiguity
+   - RFC conformance tests now use explicit `use crate::core_mls::api::MlsHandle`
+   - Integration/TDD tests already using `use super::api::MlsHandle`
+   - All 1005 tests passing
+
+### Migration Path:
+
+- **Current**: Both implementations coexist (legacy deprecated)
+- **v0.3.0**: Legacy modules (`api.rs`, `transport.rs`, `group.rs`, etc.) will be removed
+- **Recommended**: All new code should use `handle::MlsHandle` (OpenMLS-based)
+
+---
+
 ## ✅ What We've Done RIGHT (Following UPDATED_GOALS.md Recommendations)
 
 ### Architecture ✅ CORRECT
@@ -230,14 +273,30 @@ Key features:
 
 ### Priority 4: API Completion (MEDIUM)
 
-#### 4.1 Complete Public API in `api.rs`
+#### 4.1 Complete Public API
 
-**File**: `src/core_mls/api.rs`
-**Status**: ⚠️ PARTIAL (basic structure, needs full trait impl)
-**Missing**:
+**Files**:
 
-- `propose_add()`, `propose_remove()`, `propose_update()`
-- Snapshot save/load helpers
+- `src/core_mls/api.rs` (legacy MlsHandle)
+- `src/core_mls/engine/adapter.rs` (OpenMlsHandleAdapter - active)
+
+**Status**: ✅ **COMPLETE**
+
+**Implementation**:
+
+**Proposal Methods** (already existed in api.rs):
+
+- ✅ `propose_add()` - creates Add proposal
+- ✅ `propose_remove()` - creates Remove proposal
+- ✅ `propose_update()` - creates Update proposal
+
+**Snapshot Helpers** (added to adapter.rs):
+
+- ✅ `export_snapshot()` - async method to export GroupSnapshot
+- ✅ `save_snapshot()` - exports and serializes to bytes
+- ✅ `load_snapshot()` - deserializes GroupSnapshot from bytes
+
+**Tests**: 1005 tests passing (5 adapter tests including 2 new snapshot tests)
 
 #### 4.2 Event System Implementation
 

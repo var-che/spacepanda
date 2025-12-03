@@ -1,5 +1,8 @@
 //! MLS High-Level API - MlsHandle facade
 //!
+//! ⚠️ **DEPRECATED**: This module contains the legacy custom MLS implementation.
+//! Use `handle::MlsHandle` (OpenMLS-based) instead. This module will be removed in v0.3.0.
+//!
 //! This module provides a clean, ergonomic API for MLS operations:
 //! - Group creation and joining
 //! - Member management (add/remove)
@@ -24,6 +27,8 @@
 //! // Send message
 //! let envelope = handle.send_message(b"Hello!")?;
 //! ```
+
+#![allow(deprecated)]
 
 use super::errors::{MlsError, MlsResult};
 use super::group::MlsGroup;

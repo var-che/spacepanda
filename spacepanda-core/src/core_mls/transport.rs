@@ -1,5 +1,8 @@
 //! MLS Transport - Wire MLS messages to Router/RPC layer
 //!
+//! ⚠️ **DEPRECATED**: This module contains the legacy custom MLS transport.
+//! Use OpenMLS message handling instead. This module will be removed in v0.3.0.
+//!
 //! This module provides:
 //! - Message envelope format for MLS over Router
 //! - Integration with SessionCommand for delivery
@@ -12,6 +15,8 @@
 //! 2. MlsTransport wraps them in envelopes
 //! 3. Router delivers to recipients
 //! 4. Recipients unwrap and process
+
+#![allow(deprecated)]
 
 use super::commit::Commit;
 use super::encryption::EncryptedMessage;

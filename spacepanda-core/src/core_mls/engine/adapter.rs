@@ -7,6 +7,7 @@ use crate::core_mls::{
     errors::{MlsError, MlsResult},
     types::{GroupId, GroupMetadata, MlsConfig},
     engine::openmls_engine::OpenMlsEngine,
+    state::GroupSnapshot,
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -91,6 +92,43 @@ impl OpenMlsHandleAdapter {
     pub fn engine(&self) -> Arc<RwLock<OpenMlsEngine>> {
         Arc::clone(&self.engine)
     }
+
+    /// Export group state as snapshot
+    ///
+    /// Creates an atomic snapshot of the current group state,
+    /// suitable for backup, disaster recovery, or CRDT integration.
+    ///
+    /// # Returns
+    /// * `GroupSnapshot` - Complete group state at current epoch
+    pub async fn export_snapshot(&self) -> MlsResult<GroupSnapshot> {
+        let engine = self.engine.read().await;
+        engine.export_snapshot().await
+    }
+
+    /// Save snapshot to bytes
+    ///
+    /// Convenience method that exports snapshot and serializes to bytes.
+    ///
+    /// # Returns
+    /// * Serialized snapshot bytes suitable for storage
+    pub async fn save_snapshot(&self) -> MlsResult<Vec<u8>> {
+        let snapshot = self.export_snapshot().await?;
+        snapshot.to_bytes()
+    }
+
+    /// Load snapshot from bytes
+    ///
+    /// Deserializes a snapshot from bytes. Note: This only deserializes,
+    /// it does not restore the group state into the engine.
+    ///
+    /// # Arguments
+    /// * `bytes` - Serialized snapshot bytes
+    ///
+    /// # Returns
+    /// * `GroupSnapshot` - Deserialized snapshot
+    pub fn load_snapshot(bytes: &[u8]) -> MlsResult<GroupSnapshot> {
+        GroupSnapshot::from_bytes(bytes)
+    }
 }
 
 #[cfg(test)]
@@ -155,5 +193,48 @@ mod tests {
         let id2 = adapter2.group_id().await;
 
         assert_ne!(id1, id2, "Different adapters should have different group IDs");
+    }
+
+    #[tokio::test]
+    async fn test_adapter_snapshot_export() {
+        let config = MlsConfig::default();
+        let identity = b"alice@example.com".to_vec();
+
+        let adapter = OpenMlsHandleAdapter::create_group(None, identity, config)
+            .await
+            .expect("Failed to create group");
+
+        // Export snapshot
+        let snapshot = adapter.export_snapshot().await.expect("Failed to export snapshot");
+
+        // Verify snapshot contents
+        assert_eq!(snapshot.epoch(), 0);
+        assert_eq!(snapshot.members().len(), 1);
+        assert!(!snapshot.ratchet_tree_bytes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_adapter_snapshot_save_load() {
+        let config = MlsConfig::default();
+        let identity = b"bob@example.com".to_vec();
+
+        let adapter = OpenMlsHandleAdapter::create_group(None, identity, config)
+            .await
+            .expect("Failed to create group");
+
+        let group_id = adapter.group_id().await;
+
+        // Save snapshot to bytes
+        let bytes = adapter.save_snapshot().await.expect("Failed to save snapshot");
+        assert!(!bytes.is_empty());
+
+        // Load snapshot from bytes
+        let loaded = OpenMlsHandleAdapter::load_snapshot(&bytes)
+            .expect("Failed to load snapshot");
+
+        // Verify loaded snapshot matches
+        assert_eq!(loaded.group_id(), &group_id);
+        assert_eq!(loaded.epoch(), 0);
+        assert_eq!(loaded.members().len(), 1);
     }
 }

@@ -19,7 +19,6 @@
 ///
 /// Total: 104 comprehensive conformance tests
 
-use crate::core_mls::*;
 use crate::core_mls::types::*;
 use crate::core_mls::errors::*;
 use crate::core_mls::group::*;
@@ -28,7 +27,8 @@ use crate::core_mls::commit::*;
 use crate::core_mls::tree::*;
 use crate::core_mls::welcome::*;
 use crate::core_mls::encryption::*;
-use crate::core_mls::api::*;
+use crate::core_mls::crypto::MlsSigningKey; // Crypto primitives
+use crate::core_mls::api::MlsHandle; // Legacy MLS implementation used in these tests
 
 // ============================================================================
 // TEST HARNESS & HELPER FUNCTIONS
