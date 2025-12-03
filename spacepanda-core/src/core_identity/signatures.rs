@@ -64,10 +64,7 @@ impl IdentitySignature {
         identity_kp: &Keypair,
     ) -> Self {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
         let nonce = generate_nonce();
 
@@ -80,22 +77,13 @@ impl IdentitySignature {
 
         let signature = identity_kp.sign(&payload);
 
-        IdentitySignature::DeviceOwnership {
-            device_id,
-            user_id,
-            timestamp,
-            nonce,
-            signature,
-        }
+        IdentitySignature::DeviceOwnership { device_id, user_id, timestamp, nonce, signature }
     }
 
     /// Create a space ownership signature
     pub fn sign_space_ownership(space_id: String, user_id: UserId, identity_kp: &Keypair) -> Self {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
         let nonce = generate_nonce();
 
@@ -108,13 +96,7 @@ impl IdentitySignature {
 
         let signature = identity_kp.sign(&payload);
 
-        IdentitySignature::SpaceOwnership {
-            space_id,
-            user_id,
-            timestamp,
-            nonce,
-            signature,
-        }
+        IdentitySignature::SpaceOwnership { space_id, user_id, timestamp, nonce, signature }
     }
 
     /// Create a channel creation signature
@@ -124,10 +106,7 @@ impl IdentitySignature {
         identity_kp: &Keypair,
     ) -> Self {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
         let nonce = generate_nonce();
 
@@ -140,13 +119,7 @@ impl IdentitySignature {
 
         let signature = identity_kp.sign(&payload);
 
-        IdentitySignature::ChannelCreation {
-            channel_id,
-            user_id,
-            timestamp,
-            nonce,
-            signature,
-        }
+        IdentitySignature::ChannelCreation { channel_id, user_id, timestamp, nonce, signature }
     }
 
     /// Create a key package binding signature
@@ -157,10 +130,7 @@ impl IdentitySignature {
         identity_kp: &Keypair,
     ) -> Self {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
         let nonce = generate_nonce();
 
@@ -187,10 +157,7 @@ impl IdentitySignature {
     /// Create an identity proof signature
     pub fn sign_identity_proof(user_id: UserId, identity_kp: &Keypair) -> Self {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
         let nonce = generate_nonce();
         let pubkey = identity_kp.public_key().to_vec();
@@ -204,13 +171,7 @@ impl IdentitySignature {
 
         let signature = identity_kp.sign(&payload);
 
-        IdentitySignature::IdentityProof {
-            user_id,
-            pubkey,
-            timestamp,
-            nonce,
-            signature,
-        }
+        IdentitySignature::IdentityProof { user_id, pubkey, timestamp, nonce, signature }
     }
 
     /// Verify this signature
@@ -311,7 +272,7 @@ impl IdentitySignature {
 /// Generate a random nonce for replay protection
 fn generate_nonce() -> Vec<u8> {
     use rand::Rng;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     (0..16).map(|_| rng.random()).collect()
 }
 
@@ -326,11 +287,7 @@ mod tests {
         let device_id = DeviceId::generate();
         let user_id = UserId::from_public_key(identity_kp.public_key());
 
-        let sig = IdentitySignature::sign_device_ownership(
-            device_id,
-            user_id,
-            &identity_kp,
-        );
+        let sig = IdentitySignature::sign_device_ownership(device_id, user_id, &identity_kp);
 
         assert!(sig.verify(identity_kp.public_key()));
     }
@@ -340,11 +297,8 @@ mod tests {
         let identity_kp = Keypair::generate(KeyType::Ed25519);
         let user_id = UserId::from_public_key(identity_kp.public_key());
 
-        let sig = IdentitySignature::sign_space_ownership(
-            "space123".to_string(),
-            user_id,
-            &identity_kp,
-        );
+        let sig =
+            IdentitySignature::sign_space_ownership("space123".to_string(), user_id, &identity_kp);
 
         assert!(sig.verify(identity_kp.public_key()));
     }
@@ -355,10 +309,10 @@ mod tests {
         let user_id = UserId::from_public_key(identity_kp.public_key());
 
         let sig1 = IdentitySignature::sign_identity_proof(user_id.clone(), &identity_kp);
-        
+
         // Sleep briefly to ensure different timestamp
         std::thread::sleep(std::time::Duration::from_millis(10));
-        
+
         let sig2 = IdentitySignature::sign_identity_proof(user_id, &identity_kp);
 
         // Different nonces and timestamps mean different signatures possible

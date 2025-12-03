@@ -3,9 +3,9 @@
 //! Utilities for testing asynchronous code, including channel helpers,
 //! timeout utilities, and task management.
 
+use std::future::Future;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{timeout, Duration};
-use std::future::Future;
 
 /// Helper for receiving from a channel with a timeout
 pub async fn recv_timeout<T>(
@@ -80,9 +80,7 @@ pub async fn with_timeout<F, T>(duration: Duration, future: F) -> Result<T, Time
 where
     F: Future<Output = T>,
 {
-    timeout(duration, future)
-        .await
-        .map_err(|_| TimeoutError::Elapsed)
+    timeout(duration, future).await.map_err(|_| TimeoutError::Elapsed)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,7 +203,7 @@ mod tests {
     async fn test_recv_timeout_success() {
         let (tx, mut rx) = test_channel(1);
         tx.send(42).await.unwrap();
-        
+
         let result = recv_timeout(&mut rx, DEFAULT_TEST_TIMEOUT).await;
         assert_eq!(result.unwrap(), 42);
     }
@@ -213,7 +211,7 @@ mod tests {
     #[tokio::test]
     async fn test_recv_timeout_times_out() {
         let (_tx, mut rx) = test_channel::<i32>(1);
-        
+
         let result = recv_timeout(&mut rx, SHORT_TEST_TIMEOUT).await;
         assert_eq!(result.unwrap_err(), RecvTimeoutError::Timeout);
     }
@@ -222,7 +220,7 @@ mod tests {
     async fn test_recv_timeout_closed() {
         let (tx, mut rx) = test_channel::<i32>(1);
         drop(tx);
-        
+
         let result = recv_timeout(&mut rx, DEFAULT_TEST_TIMEOUT).await;
         assert_eq!(result.unwrap_err(), RecvTimeoutError::Closed);
     }
@@ -230,11 +228,11 @@ mod tests {
     #[tokio::test]
     async fn test_collect_n() {
         let (tx, mut rx) = test_channel(10);
-        
+
         for i in 0..5 {
             tx.send(i).await.unwrap();
         }
-        
+
         let results = collect_n(&mut rx, 5, DEFAULT_TEST_TIMEOUT).await.unwrap();
         assert_eq!(results, vec![0, 1, 2, 3, 4]);
     }
@@ -242,14 +240,14 @@ mod tests {
     #[tokio::test]
     async fn test_try_drain() {
         let (tx, mut rx) = test_channel(10);
-        
+
         for i in 0..5 {
             tx.send(i).await.unwrap();
         }
-        
+
         // Give messages time to arrive
         tokio::time::sleep(Duration::from_millis(10)).await;
-        
+
         let results = try_drain(&mut rx);
         assert_eq!(results.len(), 5);
     }
@@ -260,7 +258,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(10)).await;
             42
         };
-        
+
         let result = assert_completes_within(Duration::from_millis(100), future).await;
         assert_eq!(result, 42);
     }
@@ -270,18 +268,18 @@ mod tests {
         let future = async {
             tokio::time::sleep(Duration::from_secs(10)).await;
         };
-        
+
         assert_times_out(Duration::from_millis(10), future).await;
     }
 
     #[tokio::test]
     async fn test_spawn_test_task() {
         let (tx, mut rx) = test_channel(1);
-        
+
         let _handle = spawn_test_task(async move {
             tx.send(42).await.unwrap();
         });
-        
+
         let result = recv_timeout(&mut rx, DEFAULT_TEST_TIMEOUT).await.unwrap();
         assert_eq!(result, 42);
     }

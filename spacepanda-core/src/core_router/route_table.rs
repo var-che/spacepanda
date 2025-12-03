@@ -16,7 +16,7 @@
 
     Outputs:
       - Queries like "get_best_route_for(peer_id)" or "pick_diverse_relays(k)"
-    
+
     Notes:
 
     PeerInfo structure includes:
@@ -135,31 +135,17 @@ pub enum RouteTableCommand {
     /// Insert or update a peer
     InsertPeer(PeerInfo),
     /// Update peer statistics
-    UpdatePeerStats {
-        peer_id: PeerId,
-        stats: PeerStats,
-    },
+    UpdatePeerStats { peer_id: PeerId, stats: PeerStats },
     /// Pick k diverse relays for onion routing
-    PickDiverseRelays {
-        k: usize,
-        response_tx: oneshot::Sender<Vec<PeerInfo>>,
-    },
+    PickDiverseRelays { k: usize, response_tx: oneshot::Sender<Vec<PeerInfo>> },
     /// Get a specific peer's info
-    GetPeer {
-        peer_id: PeerId,
-        response_tx: oneshot::Sender<Option<PeerInfo>>,
-    },
+    GetPeer { peer_id: PeerId, response_tx: oneshot::Sender<Option<PeerInfo>> },
     /// List all peers with a specific capability
-    ListPeersByCapability {
-        capability: Capability,
-        response_tx: oneshot::Sender<Vec<PeerInfo>>,
-    },
+    ListPeersByCapability { capability: Capability, response_tx: oneshot::Sender<Vec<PeerInfo>> },
     /// Remove a peer
     RemovePeer(PeerId),
     /// Get all known peers
-    GetAllPeers {
-        response_tx: oneshot::Sender<Vec<PeerInfo>>,
-    },
+    GetAllPeers { response_tx: oneshot::Sender<Vec<PeerInfo>> },
 }
 
 /// RouteTable managing peer metadata
@@ -170,9 +156,7 @@ pub struct RouteTable {
 impl RouteTable {
     /// Create a new RouteTable
     pub fn new() -> Self {
-        RouteTable {
-            peers: Arc::new(Mutex::new(HashMap::new())),
-        }
+        RouteTable { peers: Arc::new(Mutex::new(HashMap::new())) }
     }
 
     /// Handle a command
@@ -188,17 +172,11 @@ impl RouteTable {
                 let relays = self.pick_diverse_relays(k).await;
                 let _ = response_tx.send(relays);
             }
-            RouteTableCommand::GetPeer {
-                peer_id,
-                response_tx,
-            } => {
+            RouteTableCommand::GetPeer { peer_id, response_tx } => {
                 let peer = self.get_peer(&peer_id).await;
                 let _ = response_tx.send(peer);
             }
-            RouteTableCommand::ListPeersByCapability {
-                capability,
-                response_tx,
-            } => {
+            RouteTableCommand::ListPeersByCapability { capability, response_tx } => {
                 let peers = self.list_peers_by_capability(&capability).await;
                 let _ = response_tx.send(peers);
             }
@@ -222,18 +200,18 @@ impl RouteTable {
     /// Update peer statistics
     async fn update_peer_stats(&self, peer_id: PeerId, stats: PeerStats) -> Result<(), String> {
         let mut peers = self.peers.lock().await;
-        
+
         if let Some(peer) = peers.get_mut(&peer_id) {
             if let Some(latency) = stats.latency {
                 peer.latency = Some(latency);
             }
-            
+
             // Update failure count (can go negative but floor at 0)
             let new_count = (peer.failure_count as i32) + stats.failure_count_delta;
             peer.failure_count = new_count.max(0) as u32;
-            
+
             peer.last_seen = stats.last_seen;
-            
+
             Ok(())
         } else {
             Err(format!("Peer {:?} not found", peer_id))
@@ -272,7 +250,7 @@ impl RouteTable {
     /// Prioritizes diversity in ASN, geo location, and low latency
     async fn pick_diverse_relays(&self, k: usize) -> Vec<PeerInfo> {
         let peers = self.peers.lock().await;
-        
+
         // Filter to healthy relay-capable peers
         let mut candidates: Vec<PeerInfo> = peers
             .values()
@@ -293,7 +271,7 @@ impl RouteTable {
         // Pick diverse relays
         let mut selected = Vec::new();
         let mut used_asns = Vec::new();
-        
+
         for peer in candidates.iter() {
             if selected.len() >= k {
                 break;
@@ -341,10 +319,8 @@ mod tests {
     use super::*;
 
     fn create_test_peer(id: u8, asn: Option<u32>, latency_ms: Option<u64>) -> PeerInfo {
-        let mut peer = PeerInfo::new(
-            PeerId::from_bytes(vec![id]),
-            vec![format!("127.0.0.1:{}00", id)],
-        );
+        let mut peer =
+            PeerInfo::new(PeerId::from_bytes(vec![id]), vec![format!("127.0.0.1:{}00", id)]);
         peer.capabilities.push(Capability::Relay);
         peer.asn = asn;
         peer.latency = latency_ms.map(Duration::from_millis);
@@ -367,7 +343,7 @@ mod tests {
     async fn test_update_peer_stats() {
         let route_table = RouteTable::new();
         let peer = create_test_peer(1, Some(1234), Some(50));
-        
+
         route_table.insert_peer(peer.clone()).await;
 
         let stats = PeerStats {
@@ -376,10 +352,7 @@ mod tests {
             last_seen: SystemTime::now(),
         };
 
-        route_table
-            .update_peer_stats(peer.peer_id.clone(), stats)
-            .await
-            .unwrap();
+        route_table.update_peer_stats(peer.peer_id.clone(), stats).await.unwrap();
 
         let updated = route_table.get_peer(&peer.peer_id).await.unwrap();
         assert_eq!(updated.latency.unwrap().as_millis(), 100);
@@ -401,13 +374,13 @@ mod tests {
     #[tokio::test]
     async fn test_list_peers_by_capability() {
         let route_table = RouteTable::new();
-        
+
         let mut peer1 = create_test_peer(1, Some(1234), Some(50));
         peer1.capabilities.push(Capability::DhtNode);
-        
+
         let peer2 = create_test_peer(2, Some(5678), Some(75));
         // peer2 only has Relay from create_test_peer
-        
+
         let mut peer3 = create_test_peer(3, Some(9012), Some(100));
         peer3.capabilities.push(Capability::DhtNode);
 
@@ -445,10 +418,7 @@ mod tests {
 
         let (tx, rx) = oneshot::channel();
         route_table
-            .handle_command(RouteTableCommand::PickDiverseRelays {
-                k: 3,
-                response_tx: tx,
-            })
+            .handle_command(RouteTableCommand::PickDiverseRelays { k: 3, response_tx: tx })
             .await
             .unwrap();
 
@@ -477,10 +447,7 @@ mod tests {
 
         let (tx, rx) = oneshot::channel();
         route_table
-            .handle_command(RouteTableCommand::PickDiverseRelays {
-                k: 3,
-                response_tx: tx,
-            })
+            .handle_command(RouteTableCommand::PickDiverseRelays { k: 3, response_tx: tx })
             .await
             .unwrap();
 

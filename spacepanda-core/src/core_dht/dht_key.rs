@@ -42,7 +42,7 @@ impl DhtKey {
     /// Hash arbitrary data using Blake3 and use full 256 bits
     pub fn hash(data: &[u8]) -> Self {
         let hash = blake3::hash(data);
-        
+
         // Blake3 produces 32 bytes (256 bits) by default
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(hash.as_bytes());
@@ -92,7 +92,7 @@ impl DhtKey {
     pub fn bucket_index(&self, reference: &DhtKey) -> usize {
         let distance = self.distance(reference);
         let leading = distance.leading_zeros();
-        
+
         // Bucket index is 255 - leading_zeros (for 256-bit keys)
         if leading >= 256 {
             0 // Same key
@@ -165,7 +165,7 @@ mod tests {
     fn test_dht_key_from_slice() {
         let data = vec![1, 2, 3, 4, 5];
         let key = DhtKey::from_slice(&data);
-        
+
         let bytes = key.as_bytes();
         assert_eq!(bytes[0], 1);
         assert_eq!(bytes[1], 2);
@@ -178,10 +178,10 @@ mod tests {
         let data = b"hello world";
         let key1 = DhtKey::hash(data);
         let key2 = DhtKey::hash(data);
-        
+
         // Same input produces same hash
         assert_eq!(key1, key2);
-        
+
         let key3 = DhtKey::hash(b"different");
         assert_ne!(key1, key3);
     }
@@ -191,7 +191,7 @@ mod tests {
         let key1 = DhtKey::hash_string("alice");
         let key2 = DhtKey::hash_string("alice");
         let key3 = DhtKey::hash_string("bob");
-        
+
         assert_eq!(key1, key2);
         assert_ne!(key1, key3);
     }
@@ -201,7 +201,7 @@ mod tests {
         let key1 = DhtKey::from_bytes([0xFF; 32]);
         let key2 = DhtKey::from_bytes([0x00; 32]);
         let distance = key1.distance(&key2);
-        
+
         assert_eq!(distance.as_bytes(), &[0xFF; 32]);
     }
 
@@ -209,10 +209,10 @@ mod tests {
     fn test_dht_key_distance_symmetric() {
         let key1 = DhtKey::hash_string("alice");
         let key2 = DhtKey::hash_string("bob");
-        
+
         let dist1 = key1.distance(&key2);
         let dist2 = key2.distance(&key1);
-        
+
         assert_eq!(dist1, dist2);
     }
 
@@ -220,7 +220,7 @@ mod tests {
     fn test_dht_key_distance_self_is_zero() {
         let key = DhtKey::hash_string("test");
         let distance = key.distance(&key);
-        
+
         assert_eq!(distance.as_bytes(), &[0u8; 32]);
     }
 
@@ -228,12 +228,12 @@ mod tests {
     fn test_dht_key_leading_zeros() {
         let key1 = DhtKey::from_bytes([0; 32]);
         assert_eq!(key1.leading_zeros(), 256);
-        
+
         let mut bytes = [0u8; 32];
         bytes[0] = 0b10000000;
         let key2 = DhtKey::from_bytes(bytes);
         assert_eq!(key2.leading_zeros(), 0);
-        
+
         let mut bytes = [0u8; 32];
         bytes[0] = 0b00100000;
         let key3 = DhtKey::from_bytes(bytes);
@@ -243,12 +243,12 @@ mod tests {
     #[test]
     fn test_dht_key_bucket_index() {
         let reference = DhtKey::from_bytes([0; 32]);
-        
+
         let mut bytes = [0u8; 32];
         bytes[0] = 0b10000000; // First bit differs
         let key1 = DhtKey::from_bytes(bytes);
         assert_eq!(key1.bucket_index(&reference), 255);
-        
+
         let mut bytes = [0u8; 32];
         bytes[31] = 0b00000001; // Last bit differs
         let key2 = DhtKey::from_bytes(bytes);
@@ -260,7 +260,7 @@ mod tests {
         let target = DhtKey::from_bytes([0xFF; 32]);
         let key1 = DhtKey::from_bytes([0xFE; 32]);
         let key2 = DhtKey::from_bytes([0x00; 32]);
-        
+
         assert!(key1.is_closer(&key2, &target));
         assert!(!key2.is_closer(&key1, &target));
     }
@@ -269,7 +269,7 @@ mod tests {
     fn test_dht_key_ordering() {
         let key1 = DhtKey::from_bytes([1; 32]);
         let key2 = DhtKey::from_bytes([2; 32]);
-        
+
         assert!(key1 < key2);
         assert!(key2 > key1);
         assert_eq!(key1, key1);
@@ -279,7 +279,7 @@ mod tests {
     fn test_dht_key_display() {
         let key = DhtKey::from_bytes([0xAB; 32]);
         let display = format!("{}", key);
-        
+
         // Should show first 8 bytes as hex
         assert!(display.starts_with("abababab"));
     }
@@ -287,10 +287,10 @@ mod tests {
     #[test]
     fn test_dht_key_serialization() {
         let key = DhtKey::hash_string("test_key");
-        
+
         let serialized = serde_json::to_string(&key).unwrap();
         let deserialized: DhtKey = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(key, deserialized);
     }
 }

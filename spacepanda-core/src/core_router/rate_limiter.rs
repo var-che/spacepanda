@@ -1,6 +1,6 @@
 /*
     Rate Limiter - Per-peer rate limiting with token bucket algorithm
-    
+
     Prevents DoS attacks from malicious peers flooding the system with requests.
     Uses token bucket for smooth rate limiting and circuit breaker for failing peers.
 */
@@ -9,10 +9,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use tracing::{debug, warn, info, trace};
+use tracing::{debug, info, trace, warn};
 
-use super::session_manager::PeerId;
 use super::metrics;
+use super::session_manager::PeerId;
 
 /// Configuration for rate limiting
 #[derive(Debug, Clone)]
@@ -30,9 +30,9 @@ pub struct RateLimiterConfig {
 impl Default for RateLimiterConfig {
     fn default() -> Self {
         RateLimiterConfig {
-            max_requests_per_sec: 100,      // 100 req/s sustained
-            burst_size: 200,                 // Allow bursts up to 200
-            circuit_breaker_threshold: 10,   // 10 consecutive failures
+            max_requests_per_sec: 100,     // 100 req/s sustained
+            burst_size: 200,               // Allow bursts up to 200
+            circuit_breaker_threshold: 10, // 10 consecutive failures
             circuit_breaker_timeout: Duration::from_secs(30),
         }
     }
@@ -54,7 +54,7 @@ struct TokenBucket {
 impl TokenBucket {
     fn new(capacity: u32, refill_rate: u32) -> Self {
         TokenBucket {
-            tokens: capacity as f64,  // Start with full bucket
+            tokens: capacity as f64, // Start with full bucket
             capacity: capacity as f64,
             refill_rate: refill_rate as f64,
             last_refill: Instant::now(),
@@ -65,7 +65,7 @@ impl TokenBucket {
     fn refill(&mut self) {
         let now = Instant::now();
         let elapsed = now.duration_since(self.last_refill).as_secs_f64();
-        
+
         // Add tokens based on refill rate and elapsed time
         let new_tokens = elapsed * self.refill_rate;
         self.tokens = (self.tokens + new_tokens).min(self.capacity);
@@ -75,7 +75,7 @@ impl TokenBucket {
     /// Try to consume tokens. Returns true if successful, false if insufficient tokens.
     fn try_consume(&mut self, tokens: f64) -> bool {
         self.refill();
-        
+
         if self.tokens >= tokens {
             self.tokens -= tokens;
             true
@@ -134,7 +134,7 @@ impl CircuitBreaker {
             CircuitState::Closed => true,
             CircuitState::HalfOpen => {
                 trace!("Circuit breaker in half-open state, allowing test request");
-                true  // Allow test request
+                true // Allow test request
             }
             CircuitState::Open => {
                 // Check if timeout has elapsed
@@ -152,7 +152,7 @@ impl CircuitBreaker {
                         true
                     } else {
                         trace!("Circuit breaker open, blocking request");
-                        false  // Still in timeout
+                        false // Still in timeout
                     }
                 } else {
                     false
@@ -176,7 +176,9 @@ impl CircuitBreaker {
             }
             CircuitState::HalfOpen => {
                 // Success in half-open state -> close circuit
-                info!("Circuit breaker: recovery successful, transitioning from HALF-OPEN to CLOSED");
+                info!(
+                    "Circuit breaker: recovery successful, transitioning from HALF-OPEN to CLOSED"
+                );
                 metrics::circuit_breaker_transition("halfopen_to_closed");
                 self.state = CircuitState::Closed;
                 self.consecutive_failures = 0;
@@ -283,23 +285,18 @@ impl RateLimiter {
 
     /// Create a new rate limiter with custom config
     pub fn new_with_config(config: RateLimiterConfig) -> Self {
-        RateLimiter {
-            config,
-            limiters: Arc::new(Mutex::new(HashMap::new())),
-        }
+        RateLimiter { config, limiters: Arc::new(Mutex::new(HashMap::new())) }
     }
 
     /// Check if a request from a peer should be allowed
     pub async fn check_request(&self, peer_id: &PeerId) -> RateLimitResult {
         let mut limiters = self.limiters.lock().await;
-        
+
         // Get or create limiter for this peer
-        let limiter = limiters
-            .entry(peer_id.clone())
-            .or_insert_with(|| {
-                debug!(peer_id = ?peer_id, "Creating new rate limiter for peer");
-                PeerLimiter::new(&self.config)
-            });
+        let limiter = limiters.entry(peer_id.clone()).or_insert_with(|| {
+            debug!(peer_id = ?peer_id, "Creating new rate limiter for peer");
+            PeerLimiter::new(&self.config)
+        });
 
         // Check circuit breaker first
         if !limiter.circuit_breaker.allow_request() {
@@ -335,7 +332,7 @@ impl RateLimiter {
     /// Record a successful request (for circuit breaker)
     pub async fn record_success(&self, peer_id: &PeerId) {
         let mut limiters = self.limiters.lock().await;
-        
+
         if let Some(limiter) = limiters.get_mut(peer_id) {
             limiter.circuit_breaker.record_success();
         }
@@ -344,7 +341,7 @@ impl RateLimiter {
     /// Record a failed request (for circuit breaker)
     pub async fn record_failure(&self, peer_id: &PeerId) {
         let mut limiters = self.limiters.lock().await;
-        
+
         // Get or create limiter for this peer
         let limiter = limiters
             .entry(peer_id.clone())
@@ -409,16 +406,13 @@ mod tests {
         }
 
         // 11th request should be rate limited
-        assert_eq!(
-            limiter.check_request(&peer).await,
-            RateLimitResult::RateLimitExceeded
-        );
+        assert_eq!(limiter.check_request(&peer).await, RateLimitResult::RateLimitExceeded);
     }
 
     #[tokio::test]
     async fn test_rate_limiter_refills_tokens() {
         let config = RateLimiterConfig {
-            max_requests_per_sec: 10,  // 10 tokens/sec
+            max_requests_per_sec: 10, // 10 tokens/sec
             burst_size: 5,
             circuit_breaker_threshold: 5,
             circuit_breaker_timeout: Duration::from_secs(1),
@@ -430,10 +424,7 @@ mod tests {
         for _ in 0..5 {
             assert_eq!(limiter.check_request(&peer).await, RateLimitResult::Allowed);
         }
-        assert_eq!(
-            limiter.check_request(&peer).await,
-            RateLimitResult::RateLimitExceeded
-        );
+        assert_eq!(limiter.check_request(&peer).await, RateLimitResult::RateLimitExceeded);
 
         // Wait for refill (100ms = 1 token at 10 tokens/sec)
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -447,7 +438,7 @@ mod tests {
         let config = RateLimiterConfig {
             max_requests_per_sec: 100,
             burst_size: 100,
-            circuit_breaker_threshold: 3,  // Open after 3 failures
+            circuit_breaker_threshold: 3, // Open after 3 failures
             circuit_breaker_timeout: Duration::from_secs(10),
         };
         let limiter = RateLimiter::new_with_config(config);
@@ -462,14 +453,8 @@ mod tests {
         }
 
         // Circuit should be open now
-        assert_eq!(
-            limiter.check_request(&peer).await,
-            RateLimitResult::CircuitBreakerOpen
-        );
-        assert_eq!(
-            limiter.get_circuit_state(&peer).await,
-            Some(CircuitState::Open)
-        );
+        assert_eq!(limiter.check_request(&peer).await, RateLimitResult::CircuitBreakerOpen);
+        assert_eq!(limiter.get_circuit_state(&peer).await, Some(CircuitState::Open));
     }
 
     #[tokio::test]
@@ -478,7 +463,7 @@ mod tests {
             max_requests_per_sec: 100,
             burst_size: 100,
             circuit_breaker_threshold: 2,
-            circuit_breaker_timeout: Duration::from_millis(100),  // Short timeout
+            circuit_breaker_timeout: Duration::from_millis(100), // Short timeout
         };
         let limiter = RateLimiter::new_with_config(config);
         let peer = test_peer_id(1);
@@ -486,27 +471,18 @@ mod tests {
         // Open circuit
         limiter.record_failure(&peer).await;
         limiter.record_failure(&peer).await;
-        assert_eq!(
-            limiter.check_request(&peer).await,
-            RateLimitResult::CircuitBreakerOpen
-        );
+        assert_eq!(limiter.check_request(&peer).await, RateLimitResult::CircuitBreakerOpen);
 
         // Wait for timeout
         tokio::time::sleep(Duration::from_millis(150)).await;
 
         // Should transition to half-open and allow test request
         assert_eq!(limiter.check_request(&peer).await, RateLimitResult::Allowed);
-        assert_eq!(
-            limiter.get_circuit_state(&peer).await,
-            Some(CircuitState::HalfOpen)
-        );
+        assert_eq!(limiter.get_circuit_state(&peer).await, Some(CircuitState::HalfOpen));
 
         // Record success -> circuit closes
         limiter.record_success(&peer).await;
-        assert_eq!(
-            limiter.get_circuit_state(&peer).await,
-            Some(CircuitState::Closed)
-        );
+        assert_eq!(limiter.get_circuit_state(&peer).await, Some(CircuitState::Closed));
     }
 
     #[tokio::test]
@@ -530,10 +506,7 @@ mod tests {
 
         // Record failure in half-open state -> reopens
         limiter.record_failure(&peer).await;
-        assert_eq!(
-            limiter.get_circuit_state(&peer).await,
-            Some(CircuitState::Open)
-        );
+        assert_eq!(limiter.get_circuit_state(&peer).await, Some(CircuitState::Open));
     }
 
     #[tokio::test]
@@ -552,10 +525,7 @@ mod tests {
         for _ in 0..5 {
             assert_eq!(limiter.check_request(&peer1).await, RateLimitResult::Allowed);
         }
-        assert_eq!(
-            limiter.check_request(&peer1).await,
-            RateLimitResult::RateLimitExceeded
-        );
+        assert_eq!(limiter.check_request(&peer1).await, RateLimitResult::RateLimitExceeded);
 
         // Peer2 should still have tokens
         for _ in 0..5 {
@@ -599,16 +569,13 @@ mod tests {
         limiter.record_failure(&peer).await;
         limiter.record_failure(&peer).await;
 
-        assert_eq!(
-            limiter.get_circuit_state(&peer).await,
-            Some(CircuitState::Closed)
-        );
+        assert_eq!(limiter.get_circuit_state(&peer).await, Some(CircuitState::Closed));
     }
 
     #[tokio::test]
     async fn test_token_bucket_capacity_bounds() {
         let config = RateLimiterConfig {
-            max_requests_per_sec: 1000,  // Fast refill
+            max_requests_per_sec: 1000, // Fast refill
             burst_size: 10,
             circuit_breaker_threshold: 10,
             circuit_breaker_timeout: Duration::from_secs(1),
@@ -625,7 +592,6 @@ mod tests {
         // Should be capped at burst_size (10), not exceed capacity
         let tokens = limiter.get_available_tokens(&peer).await.unwrap();
         assert!(tokens <= 10.0);
-        assert!(tokens >= 9.0);  // Allow some timing variance (consumed 1 initially)
+        assert!(tokens >= 9.0); // Allow some timing variance (consumed 1 initially)
     }
 }
-

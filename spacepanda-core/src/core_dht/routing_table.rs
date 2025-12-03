@@ -19,6 +19,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Get current Unix timestamp in seconds
+/// Returns 0 if system clock is before UNIX epoch (should never happen on modern systems)
+fn current_timestamp() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
 use super::dht_key::DhtKey;
 
 /// Peer information stored in routing table
@@ -36,25 +42,14 @@ pub struct PeerContact {
 
 impl PeerContact {
     pub fn new(id: DhtKey, address: String) -> Self {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
-        
-        PeerContact {
-            id,
-            address,
-            last_seen: now,
-            failed_rpcs: 0,
-        }
+        let now = current_timestamp();
+
+        PeerContact { id, address, last_seen: now, failed_rpcs: 0 }
     }
 
     /// Update last seen timestamp
     pub fn touch(&mut self) {
-        self.last_seen = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
+        self.last_seen = current_timestamp();
         self.failed_rpcs = 0;
     }
 
@@ -65,11 +60,8 @@ impl PeerContact {
 
     /// Check if peer is considered stale (no response in threshold seconds)
     pub fn is_stale(&self, threshold_secs: u64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
-        
+        let now = current_timestamp();
+
         (now - self.last_seen) > threshold_secs || self.failed_rpcs >= 3
     }
 }
@@ -87,14 +79,7 @@ struct KBucket {
 
 impl KBucket {
     fn new(k: usize) -> Self {
-        KBucket {
-            peers: Vec::new(),
-            k,
-            last_refresh: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("System clock is before UNIX epoch")
-                .as_secs(),
-        }
+        KBucket { peers: Vec::new(), k, last_refresh: current_timestamp() }
     }
 
     /// Try to insert a peer into the bucket
@@ -138,19 +123,13 @@ impl KBucket {
 
     /// Mark bucket as refreshed
     fn touch(&mut self) {
-        self.last_refresh = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
+        self.last_refresh = current_timestamp();
     }
 
     /// Check if bucket needs refresh
     fn needs_refresh(&self, interval_secs: u64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
-        
+        let now = current_timestamp();
+
         (now - self.last_refresh) > interval_secs
     }
 }
@@ -168,11 +147,7 @@ pub struct RoutingTable {
 impl RoutingTable {
     /// Create a new routing table
     pub fn new(local_id: DhtKey, k: usize) -> Self {
-        RoutingTable {
-            local_id,
-            buckets: HashMap::new(),
-            k,
-        }
+        RoutingTable { local_id, buckets: HashMap::new(), k }
     }
 
     /// Get the bucket index for a given peer ID
@@ -189,14 +164,14 @@ impl RoutingTable {
 
         let idx = self.bucket_index(&peer.id);
         let bucket = self.buckets.entry(idx).or_insert_with(|| KBucket::new(self.k));
-        
+
         bucket.insert(peer)
     }
 
     /// Remove a peer from the routing table
     pub fn remove(&mut self, id: &DhtKey) -> bool {
         let idx = self.bucket_index(id);
-        
+
         if let Some(bucket) = self.buckets.get_mut(&idx) {
             bucket.remove(id)
         } else {
@@ -207,8 +182,9 @@ impl RoutingTable {
     /// Get a peer by ID
     pub fn get(&self, id: &DhtKey) -> Option<PeerContact> {
         let idx = self.bucket_index(id);
-        
-        self.buckets.get(&idx)
+
+        self.buckets
+            .get(&idx)
             .and_then(|bucket| bucket.peers().iter().find(|p| &p.id == id))
             .cloned()
     }
@@ -216,7 +192,7 @@ impl RoutingTable {
     /// Update a peer's last seen timestamp
     pub fn touch(&mut self, id: &DhtKey) {
         let idx = self.bucket_index(id);
-        
+
         if let Some(bucket) = self.buckets.get_mut(&idx) {
             if let Some(peer) = bucket.peers.iter_mut().find(|p| &p.id == id) {
                 peer.touch();
@@ -227,7 +203,7 @@ impl RoutingTable {
     /// Mark a peer as having failed an RPC
     pub fn mark_failed(&mut self, id: &DhtKey) {
         let idx = self.bucket_index(id);
-        
+
         if let Some(bucket) = self.buckets.get_mut(&idx) {
             if let Some(peer) = bucket.peers.iter_mut().find(|p| &p.id == id) {
                 peer.mark_failed();
@@ -237,14 +213,15 @@ impl RoutingTable {
 
     /// Find the k closest peers to a target key
     pub fn find_closest(&self, target: &DhtKey, count: usize) -> Vec<PeerContact> {
-        let mut all_peers: Vec<PeerContact> = self.buckets
+        let mut all_peers: Vec<PeerContact> = self
+            .buckets
             .values()
             .flat_map(|bucket| bucket.peers().iter().cloned())
             .collect();
 
         // Sort by XOR distance to target
         all_peers.sort_by_key(|peer| peer.id.distance(target));
-        
+
         // Return up to count closest peers
         all_peers.into_iter().take(count).collect()
     }
@@ -281,13 +258,13 @@ impl RoutingTable {
     /// Remove stale peers
     pub fn remove_stale_peers(&mut self, threshold_secs: u64) -> usize {
         let mut removed_count = 0;
-        
+
         for bucket in self.buckets.values_mut() {
             let before = bucket.peers.len();
             bucket.peers.retain(|p| !p.is_stale(threshold_secs));
             removed_count += before - bucket.peers.len();
         }
-        
+
         removed_count
     }
 
@@ -305,7 +282,7 @@ mod tests {
     fn test_peer_contact_creation() {
         let id = DhtKey::hash(b"peer1");
         let peer = PeerContact::new(id, "127.0.0.1:8080".to_string());
-        
+
         assert_eq!(peer.id, id);
         assert_eq!(peer.address, "127.0.0.1:8080");
         assert_eq!(peer.failed_rpcs, 0);
@@ -315,13 +292,13 @@ mod tests {
     fn test_peer_touch() {
         let id = DhtKey::hash(b"peer1");
         let mut peer = PeerContact::new(id, "127.0.0.1:8080".to_string());
-        
+
         let before = peer.last_seen;
         peer.failed_rpcs = 5;
-        
+
         std::thread::sleep(std::time::Duration::from_millis(1001));
         peer.touch();
-        
+
         assert!(peer.last_seen > before);
         assert_eq!(peer.failed_rpcs, 0);
     }
@@ -330,12 +307,12 @@ mod tests {
     fn test_peer_failed() {
         let id = DhtKey::hash(b"peer1");
         let mut peer = PeerContact::new(id, "127.0.0.1:8080".to_string());
-        
+
         assert_eq!(peer.failed_rpcs, 0);
-        
+
         peer.mark_failed();
         assert_eq!(peer.failed_rpcs, 1);
-        
+
         peer.mark_failed();
         peer.mark_failed();
         assert_eq!(peer.failed_rpcs, 3);
@@ -345,10 +322,10 @@ mod tests {
     fn test_peer_is_stale() {
         let id = DhtKey::hash(b"peer1");
         let mut peer = PeerContact::new(id, "127.0.0.1:8080".to_string());
-        
+
         // Fresh peer is not stale
         assert!(!peer.is_stale(3600));
-        
+
         // Peer with 3+ failed RPCs is stale
         peer.mark_failed();
         peer.mark_failed();
@@ -360,13 +337,13 @@ mod tests {
     fn test_routing_table_insert() {
         let local_id = DhtKey::hash(b"local");
         let mut table = RoutingTable::new(local_id, 20);
-        
+
         let peer1 = PeerContact::new(DhtKey::hash(b"peer1"), "127.0.0.1:8001".to_string());
         let peer2 = PeerContact::new(DhtKey::hash(b"peer2"), "127.0.0.1:8002".to_string());
-        
+
         assert!(table.insert(peer1.clone()).is_ok());
         assert!(table.insert(peer2.clone()).is_ok());
-        
+
         assert_eq!(table.size(), 2);
     }
 
@@ -374,9 +351,9 @@ mod tests {
     fn test_routing_table_no_self_insert() {
         let local_id = DhtKey::hash(b"local");
         let mut table = RoutingTable::new(local_id, 20);
-        
+
         let self_peer = PeerContact::new(local_id, "127.0.0.1:8000".to_string());
-        
+
         assert!(table.insert(self_peer).is_err());
         assert_eq!(table.size(), 0);
     }
@@ -385,12 +362,12 @@ mod tests {
     fn test_routing_table_get() {
         let local_id = DhtKey::hash(b"local");
         let mut table = RoutingTable::new(local_id, 20);
-        
+
         let peer_id = DhtKey::hash(b"peer1");
         let peer = PeerContact::new(peer_id, "127.0.0.1:8001".to_string());
-        
+
         table.insert(peer.clone()).unwrap();
-        
+
         let retrieved = table.get(&peer_id).unwrap();
         assert_eq!(retrieved.id, peer_id);
         assert_eq!(retrieved.address, "127.0.0.1:8001");
@@ -400,13 +377,13 @@ mod tests {
     fn test_routing_table_remove() {
         let local_id = DhtKey::hash(b"local");
         let mut table = RoutingTable::new(local_id, 20);
-        
+
         let peer_id = DhtKey::hash(b"peer1");
         let peer = PeerContact::new(peer_id, "127.0.0.1:8001".to_string());
-        
+
         table.insert(peer).unwrap();
         assert_eq!(table.size(), 1);
-        
+
         assert!(table.remove(&peer_id));
         assert_eq!(table.size(), 0);
         assert!(table.get(&peer_id).is_none());
@@ -416,19 +393,19 @@ mod tests {
     fn test_routing_table_find_closest() {
         let local_id = DhtKey::hash(b"local");
         let mut table = RoutingTable::new(local_id, 20);
-        
+
         // Insert multiple peers
         for i in 0..10 {
             let peer_id = DhtKey::hash(format!("peer{}", i).as_bytes());
             let peer = PeerContact::new(peer_id, format!("127.0.0.1:800{}", i));
             table.insert(peer).unwrap();
         }
-        
+
         let target = DhtKey::hash(b"target");
         let closest = table.find_closest(&target, 5);
-        
+
         assert_eq!(closest.len(), 5);
-        
+
         // Verify they are sorted by distance
         for i in 0..closest.len() - 1 {
             let dist1 = closest[i].id.distance(&target);
@@ -441,16 +418,16 @@ mod tests {
     fn test_routing_table_touch() {
         let local_id = DhtKey::hash(b"local");
         let mut table = RoutingTable::new(local_id, 20);
-        
+
         let peer_id = DhtKey::hash(b"peer1");
         let mut peer = PeerContact::new(peer_id, "127.0.0.1:8001".to_string());
         peer.failed_rpcs = 3;
-        
+
         table.insert(peer).unwrap();
-        
+
         std::thread::sleep(std::time::Duration::from_millis(10));
         table.touch(&peer_id);
-        
+
         let updated = table.get(&peer_id).unwrap();
         assert_eq!(updated.failed_rpcs, 0);
     }
@@ -459,15 +436,15 @@ mod tests {
     fn test_routing_table_mark_failed() {
         let local_id = DhtKey::hash(b"local");
         let mut table = RoutingTable::new(local_id, 20);
-        
+
         let peer_id = DhtKey::hash(b"peer1");
         let peer = PeerContact::new(peer_id, "127.0.0.1:8001".to_string());
-        
+
         table.insert(peer).unwrap();
-        
+
         table.mark_failed(&peer_id);
         table.mark_failed(&peer_id);
-        
+
         let updated = table.get(&peer_id).unwrap();
         assert_eq!(updated.failed_rpcs, 2);
     }
@@ -476,13 +453,13 @@ mod tests {
     fn test_routing_table_all_peers() {
         let local_id = DhtKey::hash(b"local");
         let mut table = RoutingTable::new(local_id, 20);
-        
+
         for i in 0..5 {
             let peer_id = DhtKey::hash(format!("peer{}", i).as_bytes());
             let peer = PeerContact::new(peer_id, format!("127.0.0.1:800{}", i));
             table.insert(peer).unwrap();
         }
-        
+
         let all = table.all_peers();
         assert_eq!(all.len(), 5);
     }
@@ -491,7 +468,7 @@ mod tests {
     fn test_k_bucket_size_limit() {
         let local_id = DhtKey::hash(b"local");
         let mut table = RoutingTable::new(local_id, 3); // k=3
-        
+
         // Try to insert 5 peers into the same bucket (very unlikely with real hash but force it)
         // For this test, we'll just test that table respects k
         let mut inserted = 0;
@@ -502,7 +479,7 @@ mod tests {
                 inserted += 1;
             }
         }
-        
+
         // Should insert all 10 since they likely go to different buckets
         // But size should still be manageable
         assert!(table.size() <= 10);
@@ -512,19 +489,19 @@ mod tests {
     fn test_routing_table_update_existing_peer() {
         let local_id = DhtKey::hash(b"local");
         let mut table = RoutingTable::new(local_id, 20);
-        
+
         let peer_id = DhtKey::hash(b"peer1");
         let peer1 = PeerContact::new(peer_id, "127.0.0.1:8001".to_string());
-        
+
         table.insert(peer1).unwrap();
-        
+
         // Insert again with different address
         let peer2 = PeerContact::new(peer_id, "127.0.0.1:9999".to_string());
         table.insert(peer2).unwrap();
-        
+
         // Should still have only one peer
         assert_eq!(table.size(), 1);
-        
+
         // Address should be updated
         let retrieved = table.get(&peer_id).unwrap();
         assert_eq!(retrieved.address, "127.0.0.1:9999");
@@ -534,24 +511,24 @@ mod tests {
     fn test_remove_stale_peers() {
         let local_id = DhtKey::hash(b"local");
         let mut table = RoutingTable::new(local_id, 20);
-        
+
         // Insert peers and mark some as failed
         for i in 0..5 {
             let peer_id = DhtKey::hash(format!("peer{}", i).as_bytes());
             let mut peer = PeerContact::new(peer_id, format!("127.0.0.1:800{}", i));
-            
+
             if i < 2 {
                 // Mark first 2 peers as stale
                 peer.mark_failed();
                 peer.mark_failed();
                 peer.mark_failed();
             }
-            
+
             table.insert(peer).unwrap();
         }
-        
+
         assert_eq!(table.size(), 5);
-        
+
         let removed = table.remove_stale_peers(3600);
         assert_eq!(removed, 2);
         assert_eq!(table.size(), 3);

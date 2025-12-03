@@ -6,6 +6,10 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+default = []
+# OpenMLS is now the only supported MLS implementation
+
 [dependencies]
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["json"] }
@@ -15,8 +19,10 @@ anyhow.workspace = true
 openmls = "0.7.1"
 openmls_rust_crypto = "0.4"
 openmls_basic_credential = "0.4"
+openmls_traits = "0.3"
 rustls = "0.23"
 tokio.workspace = true
+async-trait = "0.1"
 snow = "0.9"  # Noise protocol implementation
 chacha20poly1305 = "0.10"  # AEAD cipher
 blake3 = "1.5"  # Modern, faster hashing (upgraded from blake2)
@@ -40,6 +46,8 @@ x25519-dalek = { version = "2.0", features = ["serde", "static_secrets"] }
 hkdf = "0.12"
 sha2 = "0.10"
 curve25519-dalek = "4.1"
+hpke = "0.12"  # RFC 9180 compliant HPKE
+hpke-rs-crypto = "0.2"  # Crypto backend for hpke
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
@@ -49,6 +57,7 @@ criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 rand_core = "0.6"
 num_cpus = "1.16"
 chrono = "0.4"
+proptest = "1.4"
 
 [[bench]]
 name = "rpc_protocol"

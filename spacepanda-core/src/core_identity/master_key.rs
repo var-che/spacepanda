@@ -7,9 +7,9 @@
 //! - Signs identity proofs
 //! - Never rotates (user identity anchor)
 
-use crate::core_identity::keypair::{Keypair, KeyType};
-use serde::{Deserialize, Serialize};
+use crate::core_identity::keypair::{KeyType, Keypair};
 use hkdf::Hkdf;
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
 /// Master identity key - the user's long-term identity
@@ -22,9 +22,7 @@ pub struct MasterKey {
 impl MasterKey {
     /// Generate a new master key
     pub fn generate() -> Self {
-        MasterKey {
-            keypair: Keypair::generate(KeyType::Ed25519),
-        }
+        MasterKey { keypair: Keypair::generate(KeyType::Ed25519) }
     }
 
     /// Get public key bytes
@@ -48,7 +46,7 @@ impl MasterKey {
     }
 
     /// Derive a channel pseudonym using HKDF
-    /// 
+    ///
     /// This creates unlinkable pseudonyms per channel:
     /// - Deterministic (same channel → same pseudonym)
     /// - Unlinkable (different channels → unrelated pseudonyms)
@@ -56,13 +54,12 @@ impl MasterKey {
     pub fn derive_pseudonym(&self, channel_id: &str) -> Vec<u8> {
         let hk = Hkdf::<Sha256>::new(
             Some(b"spacepanda-channel-pseudonym-v1"),
-            self.keypair.secret_key()
+            self.keypair.secret_key(),
         );
-        
+
         let mut okm = vec![0u8; 32];
-        hk.expand(channel_id.as_bytes(), &mut okm)
-            .expect("HKDF expand failed");
-        
+        hk.expand(channel_id.as_bytes(), &mut okm).expect("HKDF expand failed");
+
         okm
     }
 
@@ -73,9 +70,7 @@ impl MasterKey {
 
     /// Deserialize from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        Ok(MasterKey {
-            keypair: Keypair::deserialize(bytes)?,
-        })
+        Ok(MasterKey { keypair: Keypair::deserialize(bytes)? })
     }
 
     /// Export as JSON (for backup/export)
@@ -88,11 +83,11 @@ impl MasterKey {
     pub fn from_json(json: &str) -> Result<Self, String> {
         let keypair: Keypair = serde_json::from_str(json)
             .map_err(|e| format!("JSON deserialization failed: {}", e))?;
-        
+
         if keypair.key_type != KeyType::Ed25519 {
             return Err("Master key must be Ed25519".to_string());
         }
-        
+
         Ok(MasterKey { keypair })
     }
 }
@@ -120,7 +115,7 @@ mod tests {
         let mk = MasterKey::generate();
         let msg = b"test message";
         let sig = mk.sign(msg);
-        
+
         assert!(mk.verify(msg, &sig));
         assert!(!mk.verify(b"wrong message", &sig));
     }
@@ -130,7 +125,7 @@ mod tests {
         let mk = MasterKey::generate();
         let p1 = mk.derive_pseudonym("channel-123");
         let p2 = mk.derive_pseudonym("channel-123");
-        
+
         assert_eq!(p1, p2);
     }
 
@@ -139,7 +134,7 @@ mod tests {
         let mk = MasterKey::generate();
         let p1 = mk.derive_pseudonym("channel-1");
         let p2 = mk.derive_pseudonym("channel-2");
-        
+
         assert_ne!(p1, p2);
     }
 
@@ -147,10 +142,10 @@ mod tests {
     fn test_pseudonym_unique_per_user() {
         let mk1 = MasterKey::generate();
         let mk2 = MasterKey::generate();
-        
+
         let p1 = mk1.derive_pseudonym("room-1337");
         let p2 = mk2.derive_pseudonym("room-1337");
-        
+
         assert_ne!(p1, p2);
     }
 
@@ -159,9 +154,9 @@ mod tests {
         let mk = MasterKey::generate();
         let json = mk.to_json().unwrap();
         let restored = MasterKey::from_json(&json).unwrap();
-        
+
         assert_eq!(mk.public_key(), restored.public_key());
-        
+
         // Verify signing works identically
         let msg = b"test";
         let sig = mk.sign(msg);

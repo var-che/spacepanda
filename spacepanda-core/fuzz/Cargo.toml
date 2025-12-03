@@ -1,0 +1,45 @@
+[package]
+name = "spacepanda-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[workspace]
+# Empty workspace to prevent inheriting parent workspace
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.spacepanda-core]
+path = ".."
+
+[[bin]]
+name = "fuzz_target_1"
+path = "fuzz_targets/fuzz_target_1.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_mls_message_parsing"
+path = "fuzz_targets/fuzz_mls_message_parsing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_group_blob_parsing"
+path = "fuzz_targets/fuzz_group_blob_parsing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_snapshot_parsing"
+path = "fuzz_targets/fuzz_snapshot_parsing.rs"
+test = false
+doc = false
+bench = false

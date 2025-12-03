@@ -98,19 +98,14 @@ pub fn validate_identity_bundle(bundle: &IdentityBundle) -> Result<(), Validatio
     // Check user ID derivation
     let derived_user_id = UserId::from_public_key(&bundle.public_key);
     if derived_user_id.as_bytes() != &bundle.user_id {
-        return Err(ValidationError::BadFormat(
-            "User ID doesn't match public key".to_string(),
-        ));
+        return Err(ValidationError::BadFormat("User ID doesn't match public key".to_string()));
     }
 
     Ok(())
 }
 
 /// Validate an identity signature
-pub fn validate_signature(
-    sig: &IdentitySignature,
-    pubkey: &[u8],
-) -> Result<(), ValidationError> {
+pub fn validate_signature(sig: &IdentitySignature, pubkey: &[u8]) -> Result<(), ValidationError> {
     // Verify cryptographic signature
     if !sig.verify(pubkey) {
         return Err(ValidationError::InvalidSignature);
@@ -126,10 +121,7 @@ pub fn validate_signature(
 pub fn validate_timestamp(timestamp: u64) -> Result<(), ValidationError> {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
     // Check if timestamp is too far in the future
     if timestamp > now + MAX_TIMESTAMP_SKEW {
@@ -140,9 +132,7 @@ pub fn validate_timestamp(timestamp: u64) -> Result<(), ValidationError> {
 
     // Check if timestamp is too far in the past
     if timestamp + MAX_TIMESTAMP_SKEW < now {
-        return Err(ValidationError::TimestampOutOfRange(
-            "Timestamp too old".to_string(),
-        ));
+        return Err(ValidationError::TimestampOutOfRange("Timestamp too old".to_string()));
     }
 
     Ok(())
@@ -156,9 +146,7 @@ pub struct ReplayProtection {
 
 impl ReplayProtection {
     pub fn new() -> Self {
-        ReplayProtection {
-            seen_signatures: std::collections::HashSet::new(),
-        }
+        ReplayProtection { seen_signatures: std::collections::HashSet::new() }
     }
 
     /// Check if signature has been seen before
@@ -183,7 +171,7 @@ mod tests {
     use super::*;
     use crate::core_identity::bundles::KeyPackage;
     use crate::core_identity::device_id::DeviceId;
-    use crate::core_identity::keypair::{Keypair, KeyType};
+    use crate::core_identity::keypair::{KeyType, Keypair};
     use crate::core_identity::metadata::DeviceMetadata;
     use crate::core_identity::signatures::IdentitySignature;
 
@@ -226,10 +214,7 @@ mod tests {
     fn test_timestamp_validation() {
         use std::time::{SystemTime, UNIX_EPOCH};
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
         // Current time should be valid
         assert!(validate_timestamp(now).is_ok());

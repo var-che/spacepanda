@@ -16,8 +16,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
-use argon2::{Argon2, Params, PasswordHasher};
-use argon2::password_hash::{PasswordHash, SaltString};
+use argon2::{Argon2, Params};
 use rand::RngCore;
 use std::fs;
 use std::path::PathBuf;
@@ -52,10 +51,7 @@ impl FileKeystore {
         // Create directory if it doesn't exist
         fs::create_dir_all(&base_path)?;
 
-        Ok(FileKeystore {
-            base_path,
-            password: password.map(|s| Zeroizing::new(s.to_string())),
-        })
+        Ok(FileKeystore { base_path, password: password.map(|s| Zeroizing::new(s.to_string())) })
     }
 
     /// Get path for identity keypair
@@ -65,35 +61,34 @@ impl FileKeystore {
 
     /// Get path for device keypair
     fn device_path(&self, device_id: &DeviceId) -> PathBuf {
-        self.base_path
-            .join(format!("device-{}.bin.enc", device_id.to_string()))
+        self.base_path.join(format!("device-{}.bin.enc", device_id.to_string()))
     }
 
     /// Encrypt data with AEAD (AES-256-GCM)
-    /// 
+    ///
     /// Returns: [magic][version][salt][nonce][ciphertext+tag]
     fn encrypt(&self, data: &[u8]) -> Result<Vec<u8>, KeystoreError> {
         if let Some(password) = &self.password {
             // Generate random salt for this encryption
             let mut salt = [0u8; SALT_LEN];
-            rand::thread_rng().fill_bytes(&mut salt);
-            
+            rand::rng().fill_bytes(&mut salt);
+
             // Derive key from password using Argon2
             let key = derive_key_from_password(password, &salt)?;
-            
+
             // Generate random nonce
             let mut nonce_bytes = [0u8; NONCE_LEN];
-            rand::thread_rng().fill_bytes(&mut nonce_bytes);
+            rand::rng().fill_bytes(&mut nonce_bytes);
             let nonce = Nonce::from_slice(&nonce_bytes);
-            
+
             // Encrypt with AES-256-GCM (provides both confidentiality and integrity)
             let cipher = Aes256Gcm::new_from_slice(&key)
                 .map_err(|e| KeystoreError::Encryption(format!("Invalid key: {}", e)))?;
-            
+
             let ciphertext = cipher
                 .encrypt(nonce, data)
                 .map_err(|e| KeystoreError::Encryption(format!("Encryption failed: {}", e)))?;
-            
+
             // Build encrypted file format: [magic][version][salt][nonce][ciphertext+tag]
             let mut result = Vec::with_capacity(HEADER_SIZE + ciphertext.len());
             result.extend_from_slice(MAGIC_HEADER);
@@ -101,7 +96,7 @@ impl FileKeystore {
             result.extend_from_slice(&salt);
             result.extend_from_slice(&nonce_bytes);
             result.extend_from_slice(&ciphertext);
-            
+
             Ok(result)
         } else {
             // No encryption if no password - still add unencrypted marker header
@@ -114,71 +109,66 @@ impl FileKeystore {
     }
 
     /// Decrypt data with AEAD (AES-256-GCM)
-    /// 
+    ///
     /// Expects: [magic][version][salt][nonce][ciphertext+tag]
     fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>, KeystoreError> {
         // Check minimum size
         if data.len() < 9 {
             return Err(KeystoreError::Decryption("File too short".to_string()));
         }
-        
+
         // Check if this is unencrypted format
         if &data[0..8] == b"SPKS_RAW" {
             if self.password.is_some() {
                 return Err(KeystoreError::Decryption(
-                    "Encrypted keystore expected, found unencrypted".to_string()
+                    "Encrypted keystore expected, found unencrypted".to_string(),
                 ));
             }
             // Skip header and return plaintext
             return Ok(data[9..].to_vec());
         }
-        
+
         // Verify magic header
         if &data[0..8] != MAGIC_HEADER {
             return Err(KeystoreError::Decryption("Invalid magic header".to_string()));
         }
-        
+
         // Verify version
         let version = data[8];
         if version != FORMAT_VERSION {
-            return Err(KeystoreError::Decryption(
-                format!("Unsupported version: {}", version)
-            ));
+            return Err(KeystoreError::Decryption(format!("Unsupported version: {}", version)));
         }
-        
+
         // Check minimum encrypted size
         if data.len() < HEADER_SIZE + 16 {
             // 16 is minimum: AEAD tag size
             return Err(KeystoreError::Decryption("Truncated file".to_string()));
         }
-        
+
         if let Some(password) = &self.password {
             // Extract salt
-            let salt = &data[9..9+SALT_LEN];
-            
+            let salt = &data[9..9 + SALT_LEN];
+
             // Extract nonce
-            let nonce_bytes = &data[9+SALT_LEN..9+SALT_LEN+NONCE_LEN];
+            let nonce_bytes = &data[9 + SALT_LEN..9 + SALT_LEN + NONCE_LEN];
             let nonce = Nonce::from_slice(nonce_bytes);
-            
+
             // Extract ciphertext (includes AEAD tag)
             let ciphertext = &data[HEADER_SIZE..];
-            
+
             // Derive key from password and salt
             let key = derive_key_from_password(password, salt)?;
-            
+
             // Decrypt with AES-256-GCM (verifies integrity via AEAD tag)
             let cipher = Aes256Gcm::new_from_slice(&key)
                 .map_err(|e| KeystoreError::Decryption(format!("Invalid key: {}", e)))?;
-            
-            let plaintext = cipher
-                .decrypt(nonce, ciphertext)
-                .map_err(|_| KeystoreError::InvalidPassword)?; // AEAD tag mismatch = wrong password or corrupted
-            
+
+            let plaintext =
+                cipher.decrypt(nonce, ciphertext).map_err(|_| KeystoreError::InvalidPassword)?; // AEAD tag mismatch = wrong password or corrupted
+
             Ok(plaintext)
         } else {
-            Err(KeystoreError::Decryption(
-                "Password required to decrypt".to_string()
-            ))
+            Err(KeystoreError::Decryption("Password required to decrypt".to_string()))
         }
     }
 
@@ -200,8 +190,7 @@ impl Keystore for FileKeystore {
 
         let encrypted = fs::read(&path)?;
         let decrypted = self.decrypt(&encrypted)?;
-        Keypair::deserialize(&decrypted)
-            .map_err(|e| KeystoreError::Serialization(e))
+        Keypair::deserialize(&decrypted).map_err(|e| KeystoreError::Serialization(e))
     }
 
     fn save_identity_keypair(&self, kp: &Keypair) -> Result<(), KeystoreError> {
@@ -222,15 +211,10 @@ impl Keystore for FileKeystore {
 
         let encrypted = fs::read(&path)?;
         let decrypted = self.decrypt(&encrypted)?;
-        Keypair::deserialize(&decrypted)
-            .map_err(|e| KeystoreError::Serialization(e))
+        Keypair::deserialize(&decrypted).map_err(|e| KeystoreError::Serialization(e))
     }
 
-    fn save_device_keypair(
-        &self,
-        device_id: &DeviceId,
-        kp: &Keypair,
-    ) -> Result<(), KeystoreError> {
+    fn save_device_keypair(&self, device_id: &DeviceId, kp: &Keypair) -> Result<(), KeystoreError> {
         let serialized = kp.serialize();
         let encrypted = self.encrypt(&serialized)?;
         let path = self.device_path(device_id);
@@ -267,36 +251,34 @@ impl Keystore for FileKeystore {
         // 2. Derive new master key from new password
         // 3. Re-encrypt all keys with new master key
         // 4. Write back to disk atomically
-        Err(KeystoreError::Encryption(
-            "Key rotation not yet implemented".to_string(),
-        ))
+        Err(KeystoreError::Encryption("Key rotation not yet implemented".to_string()))
     }
 }
 
 /// Derive 256-bit encryption key from password using Argon2id
 /// Derive encryption key from password using Argon2id
 /// Returns a Zeroizing wrapper to ensure key is zeroized on drop
-fn derive_key_from_password(password: &str, salt: &[u8]) -> Result<Zeroizing<Vec<u8>>, KeystoreError> {
+fn derive_key_from_password(
+    password: &str,
+    salt: &[u8],
+) -> Result<Zeroizing<Vec<u8>>, KeystoreError> {
     // Use Argon2id with secure parameters
     let params = Params::new(
-        19 * 1024,  // 19 MiB memory cost
-        2,          // 2 iterations
-        1,          // 1 thread (for determinism)
-        Some(32),   // 32-byte output (256 bits for AES-256)
-    ).map_err(|e| KeystoreError::Encryption(format!("Invalid Argon2 params: {}", e)))?;
-    
-    let argon2 = Argon2::new(
-        argon2::Algorithm::Argon2id,
-        argon2::Version::V0x13,
-        params,
-    );
-    
+        19 * 1024, // 19 MiB memory cost
+        2,         // 2 iterations
+        1,         // 1 thread (for determinism)
+        Some(32),  // 32-byte output (256 bits for AES-256)
+    )
+    .map_err(|e| KeystoreError::Encryption(format!("Invalid Argon2 params: {}", e)))?;
+
+    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+
     // Hash password with salt (key will be zeroized on drop)
     let mut key = Zeroizing::new(vec![0u8; 32]);
     argon2
         .hash_password_into(password.as_bytes(), salt, &mut key)
         .map_err(|e| KeystoreError::Encryption(format!("Key derivation failed: {}", e)))?;
-    
+
     Ok(key)
 }
 
@@ -309,8 +291,8 @@ mod tests {
     #[test]
     fn test_create_and_load_identity_keypair() {
         let temp_dir = TempDir::new().unwrap();
-        let keystore = FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123"))
-            .unwrap();
+        let keystore =
+            FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123")).unwrap();
 
         let kp = Keypair::generate(KeyType::Ed25519);
         keystore.save_identity_keypair(&kp).unwrap();
@@ -364,8 +346,8 @@ mod tests {
     #[test]
     fn test_corrupted_aead_tag() {
         let temp_dir = TempDir::new().unwrap();
-        let keystore = FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123"))
-            .unwrap();
+        let keystore =
+            FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123")).unwrap();
 
         let kp = Keypair::generate(KeyType::Ed25519);
         keystore.save_identity_keypair(&kp).unwrap();
@@ -384,7 +366,7 @@ mod tests {
         // Attempt to load should fail due to AEAD tag verification
         let result = keystore.load_identity_keypair();
         assert!(result.is_err());
-        
+
         // Should report as invalid password (AEAD failure)
         match result {
             Err(KeystoreError::InvalidPassword) => {
@@ -397,8 +379,8 @@ mod tests {
     #[test]
     fn test_corrupted_ciphertext() {
         let temp_dir = TempDir::new().unwrap();
-        let keystore = FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123"))
-            .unwrap();
+        let keystore =
+            FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123")).unwrap();
 
         let kp = Keypair::generate(KeyType::Ed25519);
         keystore.save_identity_keypair(&kp).unwrap();
@@ -427,15 +409,15 @@ mod tests {
     #[test]
     fn test_wrong_passphrase() {
         let temp_dir = TempDir::new().unwrap();
-        let keystore1 = FileKeystore::new(temp_dir.path().to_path_buf(), Some("correct_password"))
-            .unwrap();
+        let keystore1 =
+            FileKeystore::new(temp_dir.path().to_path_buf(), Some("correct_password")).unwrap();
 
         let kp = Keypair::generate(KeyType::Ed25519);
         keystore1.save_identity_keypair(&kp).unwrap();
 
         // Try to load with wrong password
-        let keystore2 = FileKeystore::new(temp_dir.path().to_path_buf(), Some("wrong_password"))
-            .unwrap();
+        let keystore2 =
+            FileKeystore::new(temp_dir.path().to_path_buf(), Some("wrong_password")).unwrap();
 
         let result = keystore2.load_identity_keypair();
         assert!(result.is_err());
@@ -450,8 +432,8 @@ mod tests {
     #[test]
     fn test_truncated_file() {
         let temp_dir = TempDir::new().unwrap();
-        let keystore = FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123"))
-            .unwrap();
+        let keystore =
+            FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123")).unwrap();
 
         let kp = Keypair::generate(KeyType::Ed25519);
         keystore.save_identity_keypair(&kp).unwrap();
@@ -475,8 +457,8 @@ mod tests {
     #[test]
     fn test_invalid_magic_header() {
         let temp_dir = TempDir::new().unwrap();
-        let keystore = FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123"))
-            .unwrap();
+        let keystore =
+            FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123")).unwrap();
 
         let kp = Keypair::generate(KeyType::Ed25519);
         keystore.save_identity_keypair(&kp).unwrap();
@@ -502,8 +484,8 @@ mod tests {
     #[test]
     fn test_unsupported_version() {
         let temp_dir = TempDir::new().unwrap();
-        let keystore = FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123"))
-            .unwrap();
+        let keystore =
+            FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123")).unwrap();
 
         let kp = Keypair::generate(KeyType::Ed25519);
         keystore.save_identity_keypair(&kp).unwrap();
@@ -530,16 +512,16 @@ mod tests {
     fn test_nonce_uniqueness() {
         // Encrypt same data multiple times, verify nonces are different
         let temp_dir = TempDir::new().unwrap();
-        let keystore = FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123"))
-            .unwrap();
+        let keystore =
+            FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123")).unwrap();
 
         let data = b"test data";
         let encrypted1 = keystore.encrypt(data).unwrap();
         let encrypted2 = keystore.encrypt(data).unwrap();
 
         // Nonces should be different (bytes 25-37)
-        let nonce1 = &encrypted1[9+SALT_LEN..9+SALT_LEN+NONCE_LEN];
-        let nonce2 = &encrypted2[9+SALT_LEN..9+SALT_LEN+NONCE_LEN];
+        let nonce1 = &encrypted1[9 + SALT_LEN..9 + SALT_LEN + NONCE_LEN];
+        let nonce2 = &encrypted2[9 + SALT_LEN..9 + SALT_LEN + NONCE_LEN];
 
         assert_ne!(nonce1, nonce2, "Nonces must be unique for each encryption");
 
@@ -551,16 +533,16 @@ mod tests {
     fn test_salt_uniqueness() {
         // Encrypt same data multiple times, verify salts are different
         let temp_dir = TempDir::new().unwrap();
-        let keystore = FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123"))
-            .unwrap();
+        let keystore =
+            FileKeystore::new(temp_dir.path().to_path_buf(), Some("password123")).unwrap();
 
         let data = b"test data";
         let encrypted1 = keystore.encrypt(data).unwrap();
         let encrypted2 = keystore.encrypt(data).unwrap();
 
         // Salts should be different (bytes 9-25)
-        let salt1 = &encrypted1[9..9+SALT_LEN];
-        let salt2 = &encrypted2[9..9+SALT_LEN];
+        let salt1 = &encrypted1[9..9 + SALT_LEN];
+        let salt2 = &encrypted2[9..9 + SALT_LEN];
 
         assert_ne!(salt1, salt2, "Salts must be unique for each encryption");
     }
@@ -585,16 +567,15 @@ mod tests {
     #[test]
     fn test_encrypted_keystore_rejects_unencrypted_file() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         // Save with no password
         let keystore1 = FileKeystore::new(temp_dir.path().to_path_buf(), None).unwrap();
         let kp = Keypair::generate(KeyType::Ed25519);
         keystore1.save_identity_keypair(&kp).unwrap();
 
         // Try to load with password
-        let keystore2 = FileKeystore::new(temp_dir.path().to_path_buf(), Some("password"))
-            .unwrap();
-        
+        let keystore2 = FileKeystore::new(temp_dir.path().to_path_buf(), Some("password")).unwrap();
+
         let result = keystore2.load_identity_keypair();
         assert!(result.is_err());
         match result {

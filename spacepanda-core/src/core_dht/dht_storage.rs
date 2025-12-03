@@ -29,6 +29,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Get current Unix timestamp in seconds
+/// Returns 0 if system clock is before UNIX epoch (should never happen on modern systems)
+fn current_timestamp() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
 use super::dht_key::DhtKey;
 use super::dht_value::DhtValue;
 
@@ -45,16 +51,9 @@ struct StorageEntry {
 
 impl StorageEntry {
     fn new(value: DhtValue) -> Self {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
-        
-        StorageEntry {
-            value,
-            stored_at: now,
-            replica_peers: Vec::new(),
-        }
+        let now = current_timestamp();
+
+        StorageEntry { value, stored_at: now, replica_peers: Vec::new() }
     }
 
     /// Check if this entry has expired
@@ -85,15 +84,13 @@ pub struct DhtStorage {
 impl DhtStorage {
     /// Create a new DHT storage
     pub fn new() -> Self {
-        DhtStorage {
-            store: Arc::new(RwLock::new(HashMap::new())),
-        }
+        DhtStorage { store: Arc::new(RwLock::new(HashMap::new())) }
     }
 
     /// Store a value
     pub fn put(&self, key: DhtKey, value: DhtValue) -> Result<(), String> {
-        let mut store = self.store.write()
-            .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+        let mut store =
+            self.store.write().map_err(|e| format!("Failed to acquire write lock: {}", e))?;
 
         // Check if we already have this key
         if let Some(existing) = store.get(&key) {
@@ -112,8 +109,7 @@ impl DhtStorage {
 
     /// Get a value
     pub fn get(&self, key: &DhtKey) -> Result<DhtValue, String> {
-        let store = self.store.read()
-            .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+        let store = self.store.read().map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
         match store.get(key) {
             Some(entry) => {
@@ -129,8 +125,8 @@ impl DhtStorage {
 
     /// Delete a value
     pub fn delete(&self, key: &DhtKey) -> Result<(), String> {
-        let mut store = self.store.write()
-            .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+        let mut store =
+            self.store.write().map_err(|e| format!("Failed to acquire write lock: {}", e))?;
 
         if store.remove(key).is_some() {
             Ok(())
@@ -141,8 +137,8 @@ impl DhtStorage {
 
     /// Refresh a key (extend its TTL)
     pub fn refresh(&self, key: &DhtKey, new_ttl: u64) -> Result<(), String> {
-        let mut store = self.store.write()
-            .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+        let mut store =
+            self.store.write().map_err(|e| format!("Failed to acquire write lock: {}", e))?;
 
         match store.get_mut(key) {
             Some(entry) => {
@@ -159,15 +155,13 @@ impl DhtStorage {
 
     /// Get all keys in storage
     pub fn keys(&self) -> Result<Vec<DhtKey>, String> {
-        let store = self.store.read()
-            .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+        let store = self.store.read().map_err(|e| format!("Failed to acquire read lock: {}", e))?;
         Ok(store.keys().copied().collect())
     }
 
     /// Get all non-expired keys
     pub fn active_keys(&self) -> Result<Vec<DhtKey>, String> {
-        let store = self.store.read()
-            .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+        let store = self.store.read().map_err(|e| format!("Failed to acquire read lock: {}", e))?;
         Ok(store
             .iter()
             .filter(|(_, entry)| !entry.is_expired())
@@ -177,19 +171,19 @@ impl DhtStorage {
 
     /// Remove all expired entries
     pub fn cleanup_expired(&self) -> Result<usize, String> {
-        let mut store = self.store.write()
-            .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+        let mut store =
+            self.store.write().map_err(|e| format!("Failed to acquire write lock: {}", e))?;
         let before_count = store.len();
-        
+
         store.retain(|_, entry| !entry.is_expired());
-        
+
         Ok(before_count - store.len())
     }
 
     /// Add a replica peer for a key
     pub fn add_replica(&self, key: &DhtKey, peer: DhtKey) -> Result<(), String> {
-        let mut store = self.store.write()
-            .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+        let mut store =
+            self.store.write().map_err(|e| format!("Failed to acquire write lock: {}", e))?;
 
         match store.get_mut(key) {
             Some(entry) => {
@@ -202,8 +196,8 @@ impl DhtStorage {
 
     /// Remove a replica peer for a key
     pub fn remove_replica(&self, key: &DhtKey, peer: &DhtKey) -> Result<(), String> {
-        let mut store = self.store.write()
-            .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+        let mut store =
+            self.store.write().map_err(|e| format!("Failed to acquire write lock: {}", e))?;
 
         match store.get_mut(key) {
             Some(entry) => {
@@ -216,8 +210,7 @@ impl DhtStorage {
 
     /// Get replica peers for a key
     pub fn get_replicas(&self, key: &DhtKey) -> Result<Vec<DhtKey>, String> {
-        let store = self.store.read()
-            .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+        let store = self.store.read().map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
         match store.get(key) {
             Some(entry) => Ok(entry.replica_peers.clone()),
@@ -227,14 +220,17 @@ impl DhtStorage {
 
     /// Get total number of stored entries
     pub fn size(&self) -> Result<usize, String> {
-        Ok(self.store.read()
+        Ok(self
+            .store
+            .read()
             .map_err(|e| format!("Failed to acquire read lock: {}", e))?
             .len())
     }
 
     /// Clear all entries
     pub fn clear(&self) -> Result<(), String> {
-        self.store.write()
+        self.store
+            .write()
             .map_err(|e| format!("Failed to acquire write lock: {}", e))?
             .clear();
         Ok(())
@@ -242,12 +238,8 @@ impl DhtStorage {
 
     /// Get all entries (for debugging/testing)
     pub fn entries(&self) -> Result<Vec<(DhtKey, DhtValue)>, String> {
-        let store = self.store.read()
-            .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-        Ok(store
-            .iter()
-            .map(|(key, entry)| (*key, entry.value.clone()))
-            .collect())
+        let store = self.store.read().map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+        Ok(store.iter().map(|(key, entry)| (*key, entry.value.clone())).collect())
     }
 }
 
@@ -296,10 +288,10 @@ mod tests {
     fn test_storage_sequence_conflict() {
         let storage = DhtStorage::new();
         let key = DhtKey::hash(b"test_key");
-        
+
         let mut value1 = DhtValue::new(b"data1".to_vec()).with_ttl(3600);
         value1.sequence = 10;
-        
+
         let mut value2 = DhtValue::new(b"data2".to_vec()).with_ttl(3600);
         value2.sequence = 5;
 
@@ -319,10 +311,10 @@ mod tests {
     fn test_storage_sequence_update() {
         let storage = DhtStorage::new();
         let key = DhtKey::hash(b"test_key");
-        
+
         let mut value1 = DhtValue::new(b"data1".to_vec()).with_ttl(3600);
         value1.sequence = 10;
-        
+
         let mut value2 = DhtValue::new(b"data2".to_vec()).with_ttl(3600);
         value2.sequence = 20;
 
@@ -342,12 +334,12 @@ mod tests {
     fn test_storage_expired_values() {
         let storage = DhtStorage::new();
         let key = DhtKey::hash(b"test_key");
-        
+
         // Create value with 0 TTL (already expired)
         let value = DhtValue::new(b"test_data".to_vec()).with_ttl(0);
-        
+
         storage.put(key, value).unwrap();
-        
+
         // Should fail to retrieve expired value
         assert!(storage.get(&key).is_err());
     }
@@ -355,25 +347,25 @@ mod tests {
     #[test]
     fn test_storage_cleanup_expired() {
         let storage = DhtStorage::new();
-        
+
         let key1 = DhtKey::hash(b"key1");
         let key2 = DhtKey::hash(b"key2");
         let key3 = DhtKey::hash(b"key3");
-        
+
         // Store with long TTL
         storage.put(key1, DhtValue::new(b"data1".to_vec()).with_ttl(3600)).unwrap();
-        
+
         // Store with 0 TTL (expired)
         storage.put(key2, DhtValue::new(b"data2".to_vec()).with_ttl(0)).unwrap();
         storage.put(key3, DhtValue::new(b"data3".to_vec()).with_ttl(0)).unwrap();
-        
+
         assert_eq!(storage.size().unwrap(), 3);
-        
+
         // Cleanup expired
         let removed = storage.cleanup_expired().unwrap();
         assert_eq!(removed, 2);
         assert_eq!(storage.size().unwrap(), 1);
-        
+
         // Only key1 should remain
         assert!(storage.get(&key1).is_ok());
         assert!(storage.get(&key2).is_err());
@@ -385,18 +377,18 @@ mod tests {
         let storage = DhtStorage::new();
         let key = DhtKey::hash(b"test_key");
         let value = DhtValue::new(b"test_data".to_vec()).with_ttl(100);
-        
+
         storage.put(key, value.clone()).unwrap();
-        
+
         let before = storage.get(&key).unwrap();
         let before_timestamp = before.timestamp;
-        
+
         // Wait a moment
         std::thread::sleep(std::time::Duration::from_millis(10));
-        
+
         // Refresh with new TTL
         storage.refresh(&key, 200).unwrap();
-        
+
         let after = storage.get(&key).unwrap();
         assert_eq!(after.ttl, 200);
         assert!(after.timestamp >= before_timestamp);
@@ -407,27 +399,27 @@ mod tests {
         let storage = DhtStorage::new();
         let key = DhtKey::hash(b"test_key");
         let value = DhtValue::new(b"test_data".to_vec()).with_ttl(3600);
-        
+
         storage.put(key, value).unwrap();
-        
+
         let peer1 = DhtKey::hash(b"peer1");
         let peer2 = DhtKey::hash(b"peer2");
         let peer3 = DhtKey::hash(b"peer3");
-        
+
         // Add replicas
         storage.add_replica(&key, peer1).unwrap();
         storage.add_replica(&key, peer2).unwrap();
         storage.add_replica(&key, peer3).unwrap();
-        
+
         let replicas = storage.get_replicas(&key).unwrap();
         assert_eq!(replicas.len(), 3);
         assert!(replicas.contains(&peer1));
         assert!(replicas.contains(&peer2));
         assert!(replicas.contains(&peer3));
-        
+
         // Remove a replica
         storage.remove_replica(&key, &peer2).unwrap();
-        
+
         let replicas = storage.get_replicas(&key).unwrap();
         assert_eq!(replicas.len(), 2);
         assert!(replicas.contains(&peer1));
@@ -438,18 +430,18 @@ mod tests {
     #[test]
     fn test_storage_keys() {
         let storage = DhtStorage::new();
-        
+
         let key1 = DhtKey::hash(b"key1");
         let key2 = DhtKey::hash(b"key2");
         let key3 = DhtKey::hash(b"key3");
-        
+
         storage.put(key1, DhtValue::new(b"data1".to_vec()).with_ttl(3600)).unwrap();
         storage.put(key2, DhtValue::new(b"data2".to_vec()).with_ttl(3600)).unwrap();
         storage.put(key3, DhtValue::new(b"data3".to_vec()).with_ttl(0)).unwrap();
-        
+
         let all_keys = storage.keys().unwrap();
         assert_eq!(all_keys.len(), 3);
-        
+
         let active_keys = storage.active_keys().unwrap();
         assert_eq!(active_keys.len(), 2);
         assert!(active_keys.contains(&key1));
@@ -460,12 +452,16 @@ mod tests {
     #[test]
     fn test_storage_clear() {
         let storage = DhtStorage::new();
-        
-        storage.put(DhtKey::hash(b"key1"), DhtValue::new(b"data1".to_vec()).with_ttl(3600)).unwrap();
-        storage.put(DhtKey::hash(b"key2"), DhtValue::new(b"data2".to_vec()).with_ttl(3600)).unwrap();
-        
+
+        storage
+            .put(DhtKey::hash(b"key1"), DhtValue::new(b"data1".to_vec()).with_ttl(3600))
+            .unwrap();
+        storage
+            .put(DhtKey::hash(b"key2"), DhtValue::new(b"data2".to_vec()).with_ttl(3600))
+            .unwrap();
+
         assert_eq!(storage.size().unwrap(), 2);
-        
+
         storage.clear().unwrap();
         assert_eq!(storage.size().unwrap(), 0);
     }
@@ -474,10 +470,10 @@ mod tests {
     fn test_storage_concurrent_access() {
         use std::sync::Arc;
         use std::thread;
-        
+
         let storage = Arc::new(DhtStorage::new());
         let mut handles = vec![];
-        
+
         // Spawn multiple threads writing different keys
         for i in 0..10 {
             let storage_clone = storage.clone();
@@ -488,11 +484,11 @@ mod tests {
             });
             handles.push(handle);
         }
-        
+
         for handle in handles {
             handle.join().unwrap();
         }
-        
+
         assert_eq!(storage.size().unwrap(), 10);
     }
 }

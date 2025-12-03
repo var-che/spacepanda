@@ -22,7 +22,7 @@ impl DeviceId {
     /// Create a DeviceId from random bytes
     pub fn generate() -> Self {
         use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let bytes: Vec<u8> = (0..16).map(|_| rng.random()).collect();
         DeviceId(bytes)
     }
@@ -38,21 +38,19 @@ impl DeviceId {
     }
 
     /// Convert to hex string for display
-    pub fn to_string(&self) -> String {
+    pub fn as_hex(&self) -> String {
         hex::encode(&self.0)
     }
 
     /// Parse from hex string
     pub fn from_string(s: &str) -> Result<Self, String> {
-        hex::decode(s)
-            .map(DeviceId)
-            .map_err(|e| format!("Invalid hex: {}", e))
+        hex::decode(s).map(DeviceId).map_err(|e| format!("Invalid hex: {}", e))
     }
 }
 
 impl fmt::Display for DeviceId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", self.as_hex())
     }
 }
 

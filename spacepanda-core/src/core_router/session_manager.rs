@@ -40,9 +40,9 @@
    ↓
 4. TransportManager.Send(7, bytes)
    → Writes to TCP socket #7
-   
+
    ... (messages flow back and forth) ...
-   
+
 5. Bob's handshake response arrives at TransportManager
    → Emits: TransportEvent::Data(7, handshake_bytes)
    ↓
@@ -64,16 +64,22 @@
   ```
 */
 
+use rand::Rng;
 use snow::{Builder, HandshakeState, TransportState};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{sleep, Duration};
-use rand::Rng;
 
-use super::transport_manager::{TransportCommand, TransportEvent};
 use super::metrics;
+use super::transport_manager::{TransportCommand, TransportEvent};
+
+/// Get current Unix timestamp in seconds
+/// Returns 0 if system clock is before UNIX epoch (should never happen on modern systems)
+fn current_timestamp() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
 
 /// Noise protocol pattern - using XX for mutual authentication
 const NOISE_PATTERN: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
@@ -134,39 +140,29 @@ struct HandshakeMetadata {
 
 impl HandshakeMetadata {
     fn new() -> Self {
-        let mut rng = rand::thread_rng();
-        let nonce = rng.gen::<u64>();
-        let started_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
-        
+        let mut rng = rand::rng();
+        let nonce: u64 = rng.random();
+        let started_at = current_timestamp();
+
         let mut seen_nonces = HashSet::new();
         seen_nonces.insert(nonce);
-        
-        HandshakeMetadata {
-            nonce,
-            started_at,
-            seen_nonces,
-        }
+
+        HandshakeMetadata { nonce, started_at, seen_nonces }
     }
-    
+
     /// Check if handshake has timed out
     fn is_expired(&self) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is before UNIX epoch")
-            .as_secs();
+        let now = current_timestamp();
         (now - self.started_at) > HANDSHAKE_TIMEOUT_SECS
     }
-    
+
     /// Check if nonce has been seen (replay detection)
     fn is_replay(&mut self, nonce: u64) -> bool {
         // Clean up old nonces if we have too many
         if self.seen_nonces.len() >= MAX_NONCES_PER_CONN {
             self.seen_nonces.clear();
         }
-        
+
         !self.seen_nonces.insert(nonce)
     }
 }
@@ -189,7 +185,7 @@ struct Session {
 pub struct SessionManager {
     sessions: Arc<Mutex<HashMap<u64, Session>>>, // conn_id -> Session
     peer_to_conn: Arc<Mutex<HashMap<PeerId, u64>>>, // peer_id -> conn_id
-    static_keypair: Vec<u8>, // Our long-term identity key
+    static_keypair: Vec<u8>,                     // Our long-term identity key
     transport_tx: mpsc::Sender<TransportCommand>,
     event_tx: mpsc::Sender<SessionEvent>,
 }
@@ -212,10 +208,12 @@ impl SessionManager {
 
     /// Generate a new static keypair for testing
     pub fn generate_keypair() -> Vec<u8> {
-        let builder = Builder::new(NOISE_PATTERN.parse()
-            .expect("Invalid noise pattern - this is a programming error"));
-        let keypair = builder.generate_keypair()
-            .expect("Failed to generate Noise keypair");
+        let builder = Builder::new(
+            NOISE_PATTERN
+                .parse()
+                .expect("Invalid noise pattern - this is a programming error"),
+        );
+        let keypair = builder.generate_keypair().expect("Failed to generate Noise keypair");
         keypair.private.to_vec()
     }
 
@@ -251,8 +249,11 @@ impl SessionManager {
     /// Initiate Noise handshake for a new connection
     async fn initiate_handshake(&self, conn_id: u64) -> Result<(), String> {
         // Build Noise handshake state (initiator role)
-        let builder = Builder::new(NOISE_PATTERN.parse()
-            .expect("Invalid noise pattern - this is a programming error"));
+        let builder = Builder::new(
+            NOISE_PATTERN
+                .parse()
+                .expect("Invalid noise pattern - this is a programming error"),
+        );
         let builder = builder.local_private_key(&self.static_keypair);
 
         let mut handshake = builder
@@ -270,10 +271,7 @@ impl SessionManager {
             .map_err(|e| format!("Failed to write handshake: {}", e))?;
 
         // Store handshake state with metadata
-        let session = Session {
-            conn_id,
-            state: SessionState::Handshaking(handshake, metadata),
-        };
+        let session = Session { conn_id, state: SessionState::Handshaking(handshake, metadata) };
         self.sessions.lock().await.insert(conn_id, session);
 
         // Spawn timeout task to cleanup stalled handshakes
@@ -281,7 +279,7 @@ impl SessionManager {
         let transport_tx = self.transport_tx.clone();
         tokio::spawn(async move {
             sleep(Duration::from_secs(HANDSHAKE_TIMEOUT_SECS)).await;
-            
+
             let mut sessions = sessions.lock().await;
             if let Some(session) = sessions.get(&conn_id) {
                 // Check if still in handshaking state
@@ -289,11 +287,11 @@ impl SessionManager {
                     if metadata.is_expired() {
                         // Record timeout metric
                         metrics::handshake_timeout();
-                        
+
                         // Remove expired handshake
                         sessions.remove(&conn_id);
                         drop(sessions);
-                        
+
                         // Close the connection
                         let _ = transport_tx.send(TransportCommand::Close(conn_id)).await;
                     }
@@ -338,10 +336,10 @@ impl SessionManager {
 
                 // Extract and validate nonce for replay detection
                 if len >= 8 {
-                    let nonce_bytes: [u8; 8] = buffer[..8].try_into()
-                        .expect("Buffer slice is exactly 8 bytes");
+                    let nonce_bytes: [u8; 8] =
+                        buffer[..8].try_into().expect("Buffer slice is exactly 8 bytes");
                     let nonce = u64::from_le_bytes(nonce_bytes);
-                    
+
                     // Check for replay attack
                     if metadata.is_replay(nonce) {
                         drop(sessions);
@@ -353,10 +351,8 @@ impl SessionManager {
                 // Check if handshake is complete
                 if handshake.is_handshake_finished() {
                     // Extract peer's static public key
-                    let remote_static = handshake
-                        .get_remote_static()
-                        .ok_or("No remote static key")?
-                        .to_vec();
+                    let remote_static =
+                        handshake.get_remote_static().ok_or("No remote static key")?.to_vec();
                     let peer_id = PeerId::from_bytes(remote_static);
 
                     // Take ownership and transition to transport mode
@@ -364,10 +360,13 @@ impl SessionManager {
                     let old_state = std::mem::replace(
                         &mut session.state,
                         SessionState::Handshaking(
-                            Builder::new(NOISE_PATTERN.parse()
-                                .expect("Invalid noise pattern - this is a programming error"))
-                                .build_initiator()
-                                .expect("Failed to build temporary initiator"),
+                            Builder::new(
+                                NOISE_PATTERN
+                                    .parse()
+                                    .expect("Invalid noise pattern - this is a programming error"),
+                            )
+                            .build_initiator()
+                            .expect("Failed to build temporary initiator"),
                             HandshakeMetadata::new(),
                         ),
                     );
@@ -381,10 +380,7 @@ impl SessionManager {
 
                     // Update peer mapping
                     drop(sessions);
-                    self.peer_to_conn
-                        .lock()
-                        .await
-                        .insert(peer_id.clone(), conn_id);
+                    self.peer_to_conn.lock().await.insert(peer_id.clone(), conn_id);
 
                     // Emit Established event
                     self.event_tx
@@ -432,9 +428,7 @@ impl SessionManager {
     /// Send plaintext to a peer (encrypts and sends)
     async fn send_plaintext(&self, peer_id: PeerId, plaintext: Vec<u8>) -> Result<(), String> {
         let peer_to_conn = self.peer_to_conn.lock().await;
-        let conn_id = peer_to_conn
-            .get(&peer_id)
-            .ok_or_else(|| format!("No session for peer"))?;
+        let conn_id = peer_to_conn.get(&peer_id).ok_or_else(|| format!("No session for peer"))?;
         let conn_id = *conn_id;
         drop(peer_to_conn);
 
@@ -486,9 +480,8 @@ impl SessionManager {
     /// Close a session with a peer
     async fn close_session(&self, peer_id: PeerId) -> Result<(), String> {
         let mut peer_to_conn = self.peer_to_conn.lock().await;
-        let conn_id = peer_to_conn
-            .remove(&peer_id)
-            .ok_or_else(|| format!("No session for peer"))?;
+        let conn_id =
+            peer_to_conn.remove(&peer_id).ok_or_else(|| format!("No session for peer"))?;
 
         drop(peer_to_conn);
 
@@ -577,11 +570,7 @@ mod tests {
 
         // Manually insert a session
         let conn_id = 42;
-        manager
-            .peer_to_conn
-            .lock()
-            .await
-            .insert(peer_id.clone(), conn_id);
+        manager.peer_to_conn.lock().await.insert(peer_id.clone(), conn_id);
 
         // Create a mock transport state by completing a handshake
         let builder = Builder::new(NOISE_PATTERN.parse().unwrap());
@@ -614,10 +603,8 @@ mod tests {
 
         let transport_state = handshake.into_transport_mode().unwrap();
 
-        let session = Session {
-            conn_id,
-            state: SessionState::Established(transport_state, peer_id.clone()),
-        };
+        let session =
+            Session { conn_id, state: SessionState::Established(transport_state, peer_id.clone()) };
         manager.sessions.lock().await.insert(conn_id, session);
 
         // Close the session
@@ -669,27 +656,22 @@ mod tests {
         let replayed_msg = msg1.clone();
 
         // First attempt should work (or at least not be rejected as replay)
-        let result1 = manager
-            .handle_transport_event(TransportEvent::Data(conn_id, msg1))
-            .await;
-        
+        let result1 = manager.handle_transport_event(TransportEvent::Data(conn_id, msg1)).await;
+
         // Second attempt with same message should be rejected as replay
         let result2 = manager
             .handle_transport_event(TransportEvent::Data(conn_id, replayed_msg))
             .await;
 
         // At least one should fail (the replay), or both if handshake validation fails
-        assert!(
-            result1.is_err() || result2.is_err(),
-            "Replay attack should be detected"
-        );
+        assert!(result1.is_err() || result2.is_err(), "Replay attack should be detected");
     }
 
     #[tokio::test]
     async fn test_handshake_timeout() {
         // This test verifies the timeout mechanism by checking metadata expiration
         // rather than waiting for actual timeout (which takes 30+ seconds)
-        
+
         let (transport_tx, _transport_rx) = mpsc::channel(100);
         let (event_tx, _event_rx) = mpsc::channel(100);
 
@@ -702,7 +684,7 @@ mod tests {
         let builder = Builder::new(NOISE_PATTERN.parse().unwrap());
         let builder = builder.local_private_key(&manager.static_keypair);
         let handshake = builder.build_initiator().unwrap();
-        
+
         let mut metadata = HandshakeMetadata::new();
         // Set timestamp to HANDSHAKE_TIMEOUT_SECS + 1 seconds ago
         metadata.started_at = SystemTime::now()
@@ -711,27 +693,19 @@ mod tests {
             .as_secs()
             .saturating_sub(HANDSHAKE_TIMEOUT_SECS + 1);
 
-        let session = Session {
-            conn_id,
-            state: SessionState::Handshaking(handshake, metadata.clone()),
-        };
+        let session =
+            Session { conn_id, state: SessionState::Handshaking(handshake, metadata.clone()) };
         manager.sessions.lock().await.insert(conn_id, session);
 
         // Verify metadata reports as expired
-        assert!(
-            metadata.is_expired(),
-            "Metadata should report as expired"
-        );
+        assert!(metadata.is_expired(), "Metadata should report as expired");
 
         // When we try to handle data on this expired handshake, it should be rejected
         let result = manager
             .handle_transport_event(TransportEvent::Data(conn_id, vec![1, 2, 3]))
             .await;
 
-        assert!(
-            result.is_err(),
-            "Expired handshake should be rejected"
-        );
+        assert!(result.is_err(), "Expired handshake should be rejected");
     }
 
     #[tokio::test]
@@ -748,15 +722,12 @@ mod tests {
         let builder = Builder::new(NOISE_PATTERN.parse().unwrap());
         let builder = builder.local_private_key(&manager.static_keypair);
         let handshake = builder.build_initiator().unwrap();
-        
+
         let mut metadata = HandshakeMetadata::new();
         // Manually set expired timestamp
         metadata.started_at = 0; // Unix epoch - definitely expired
 
-        let session = Session {
-            conn_id,
-            state: SessionState::Handshaking(handshake, metadata),
-        };
+        let session = Session { conn_id, state: SessionState::Handshaking(handshake, metadata) };
         manager.sessions.lock().await.insert(conn_id, session);
 
         // Try to process data on expired handshake
@@ -765,10 +736,7 @@ mod tests {
             .await;
 
         assert!(result.is_err(), "Expired handshake should be rejected");
-        assert!(
-            result.unwrap_err().contains("expired"),
-            "Error should mention expiration"
-        );
+        assert!(result.unwrap_err().contains("expired"), "Error should mention expiration");
     }
 
     #[tokio::test]
@@ -813,10 +781,7 @@ mod tests {
             let manager_clone = manager.clone();
             let handle = tokio::spawn(async move {
                 manager_clone
-                    .handle_transport_event(TransportEvent::Connected(
-                        i,
-                        format!("peer{}", i),
-                    ))
+                    .handle_transport_event(TransportEvent::Connected(i, format!("peer{}", i)))
                     .await
             });
             handles.push(handle);
@@ -830,7 +795,7 @@ mod tests {
         // Verify all sessions were created
         let sessions = manager.sessions.lock().await;
         assert_eq!(sessions.len(), 10, "All handshakes should be initiated");
-        
+
         // Verify all have unique nonces
         let mut nonces = HashSet::new();
         for session in sessions.values() {
@@ -870,17 +835,14 @@ mod tests {
             assert_eq!(sessions.len(), 1);
             let session = sessions.get(&conn_id).unwrap();
             assert!(matches!(session.state, SessionState::Handshaking(_, _)));
-            
+
             // Verify metadata has timestamp for timeout tracking
             if let SessionState::Handshaking(_, metadata) = &session.state {
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("System clock is before UNIX epoch")
                     .as_secs();
-                assert!(
-                    now - metadata.started_at < 5,
-                    "Handshake should be recently created"
-                );
+                assert!(now - metadata.started_at < 5, "Handshake should be recently created");
             }
         }
 
@@ -898,7 +860,7 @@ mod tests {
         let manager = Arc::new(SessionManager::new(keypair, transport_tx, event_tx));
 
         let conn_id = 1;
-        
+
         // Initiate handshake (sends first message)
         manager
             .handle_transport_event(TransportEvent::Connected(conn_id, "peer1".to_string()))
@@ -917,9 +879,7 @@ mod tests {
         // message again after handshake state changes is handled properly
 
         // Try to replay the first message - should be rejected or handled gracefully
-        let result = manager
-            .handle_transport_event(TransportEvent::Data(conn_id, first_msg))
-            .await;
+        let result = manager.handle_transport_event(TransportEvent::Data(conn_id, first_msg)).await;
 
         // The important thing is that it doesn't crash or create inconsistent state
         // It may return an error or silently ignore, but should not panic
@@ -953,19 +913,13 @@ mod tests {
 
         // Start first handshake
         manager
-            .handle_transport_event(TransportEvent::Connected(
-                conn_id_1,
-                "same_peer".to_string(),
-            ))
+            .handle_transport_event(TransportEvent::Connected(conn_id_1, "same_peer".to_string()))
             .await
             .expect("First handshake failed");
 
         // Start second handshake (same peer, different connection)
         manager
-            .handle_transport_event(TransportEvent::Connected(
-                conn_id_2,
-                "same_peer".to_string(),
-            ))
+            .handle_transport_event(TransportEvent::Connected(conn_id_2, "same_peer".to_string()))
             .await
             .expect("Second handshake failed");
 
@@ -986,11 +940,6 @@ mod tests {
 
         // For this test, we verify the system doesn't crash with concurrent handshakes
         let sessions = manager.sessions.lock().await;
-        assert!(
-            sessions.len() >= 1,
-            "At least one handshake should remain active"
-        );
+        assert!(sessions.len() >= 1, "At least one handshake should remain active");
     }
 }
-
-

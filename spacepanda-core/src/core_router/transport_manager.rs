@@ -7,7 +7,7 @@
   Workflow:
   Listens on configured addresses (TCP/UDP/QUIC) and spawns tasks to accept incoming connections.
   When dialing, it establishes a socket and returns conn_id.
-  
+
 
   Handles NAT traversal helpers (STUN/TURN) if configured.
 
@@ -157,11 +157,7 @@ impl TransportManager {
         self.connections.lock().await.insert(conn_id, socket);
 
         // Emit Connected event
-        if let Err(e) = self
-            .event_tx
-            .send(TransportEvent::Connected(conn_id, addr))
-            .await
-        {
+        if let Err(e) = self.event_tx.send(TransportEvent::Connected(conn_id, addr)).await {
             eprintln!("Failed to send Connected event: {}", e);
         }
 
@@ -226,9 +222,8 @@ mod tests {
         sleep(Duration::from_millis(50)).await;
 
         // Connect a client to the listener
-        let _client = TcpStream::connect(&listen_addr)
-            .await
-            .expect("Failed to connect to listener");
+        let _client =
+            TcpStream::connect(&listen_addr).await.expect("Failed to connect to listener");
 
         // Wait for the Connected event
         let event = tokio::time::timeout(Duration::from_secs(2), event_rx.recv())

@@ -6,7 +6,7 @@
     Workflow:
     1. Periodic tick:
       - call some peers with "peer_exchange" RPC to get new candidates
-      - validate returned peer descriptors 
+      - validate returned peer descriptors
       - ping the ones we don't have currently
       - if under capacity, try bootstrap list
     2. Feed new peers into route_table.rs and notify onion_router.rs for path selection updates
@@ -98,10 +98,8 @@ pub struct PeerDescriptor {
 impl PeerDescriptor {
     /// Convert to PeerInfo
     pub fn to_peer_info(&self) -> PeerInfo {
-        let mut peer_info = PeerInfo::new(
-            PeerId::from_bytes(self.peer_id_bytes.clone()),
-            self.addresses.clone(),
-        );
+        let mut peer_info =
+            PeerInfo::new(PeerId::from_bytes(self.peer_id_bytes.clone()), self.addresses.clone());
 
         // Parse capabilities
         for cap_str in &self.capabilities {
@@ -189,10 +187,7 @@ impl OverlayDiscovery {
     }
 
     /// Start the discovery loop
-    pub async fn run(
-        self: Arc<Self>,
-        mut command_rx: mpsc::Receiver<DiscoveryCommand>,
-    ) {
+    pub async fn run(self: Arc<Self>, mut command_rx: mpsc::Receiver<DiscoveryCommand>) {
         let mut tick_interval = interval(self.config.discovery_interval);
 
         loop {
@@ -243,10 +238,7 @@ impl OverlayDiscovery {
 
         // Emit relay pool update event
         let relay_count = self.count_relays().await;
-        let _ = self
-            .event_tx
-            .send(DiscoveryEvent::RelayPoolUpdated { relay_count })
-            .await;
+        let _ = self.event_tx.send(DiscoveryEvent::RelayPoolUpdated { relay_count }).await;
 
         Ok(())
     }
@@ -272,16 +264,14 @@ impl OverlayDiscovery {
             // In a real implementation, we would make RPC calls here
             // For now, we simulate by just logging
             // rpc_call(peer.peer_id, "peer_exchange", PeerExchangeRequest { count: self.config.peer_exchange_count })
-            
+
             // Simulate discovering the peer itself if not already known
             let mut discovered = self.discovered_peers.lock().await;
             if !discovered.contains(&peer.peer_id) {
                 discovered.insert(peer.peer_id.clone());
                 let _ = self
                     .event_tx
-                    .send(DiscoveryEvent::NewPeerFound {
-                        peer_id: peer.peer_id.clone(),
-                    })
+                    .send(DiscoveryEvent::NewPeerFound { peer_id: peer.peer_id.clone() })
                     .await;
             }
         }
@@ -297,10 +287,10 @@ impl OverlayDiscovery {
             // 2. Perform handshake
             // 3. Get peer info
             // 4. Add to route table
-            
+
             // For now, create a simulated bootstrap peer
             let peer_info = self.create_bootstrap_peer(addr);
-            
+
             self.route_table
                 .handle_command(RouteTableCommand::InsertPeer(peer_info.clone()))
                 .await?;
@@ -316,10 +306,8 @@ impl OverlayDiscovery {
     fn create_bootstrap_peer(&self, addr: &str) -> PeerInfo {
         // Hash the address to create a deterministic peer ID for testing
         let peer_id_bytes = addr.bytes().take(16).collect::<Vec<u8>>();
-        let mut peer_info = PeerInfo::new(
-            PeerId::from_bytes(peer_id_bytes),
-            vec![addr.to_string()],
-        );
+        let mut peer_info =
+            PeerInfo::new(PeerId::from_bytes(peer_id_bytes), vec![addr.to_string()]);
         peer_info.capabilities.push(Capability::Relay);
         peer_info.capabilities.push(Capability::LongLived);
         peer_info
@@ -343,9 +331,7 @@ impl OverlayDiscovery {
             discovered.insert(peer_info.peer_id.clone());
             let _ = self
                 .event_tx
-                .send(DiscoveryEvent::NewPeerFound {
-                    peer_id: peer_info.peer_id,
-                })
+                .send(DiscoveryEvent::NewPeerFound { peer_id: peer_info.peer_id })
                 .await;
         }
     }
@@ -369,9 +355,7 @@ impl OverlayDiscovery {
             // Mark as unreachable
             let _ = self
                 .event_tx
-                .send(DiscoveryEvent::PeerUnreachable {
-                    peer_id: peer_id.clone(),
-                })
+                .send(DiscoveryEvent::PeerUnreachable { peer_id: peer_id.clone() })
                 .await;
 
             // Increment failure count
@@ -426,10 +410,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_descriptor_conversion() {
-        let mut peer_info = PeerInfo::new(
-            PeerId::from_bytes(vec![1, 2, 3, 4]),
-            vec!["127.0.0.1:8080".to_string()],
-        );
+        let mut peer_info =
+            PeerInfo::new(PeerId::from_bytes(vec![1, 2, 3, 4]), vec!["127.0.0.1:8080".to_string()]);
         peer_info.capabilities.push(Capability::Relay);
         peer_info.capabilities.push(Capability::DhtNode);
         peer_info.asn = Some(1234);
@@ -516,9 +498,7 @@ mod tests {
             .unwrap();
 
         // Report as alive
-        discovery
-            .handle_liveness_result(peer_info.peer_id.clone(), true)
-            .await;
+        discovery.handle_liveness_result(peer_info.peer_id.clone(), true).await;
 
         // Check that failure count was reduced
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -555,9 +535,7 @@ mod tests {
             .unwrap();
 
         // Report as dead
-        discovery
-            .handle_liveness_result(peer_info.peer_id.clone(), false)
-            .await;
+        discovery.handle_liveness_result(peer_info.peer_id.clone(), false).await;
 
         // Check event was emitted
         let event = tokio::time::timeout(Duration::from_millis(100), event_rx.recv())
@@ -596,22 +574,15 @@ mod tests {
 
         // Add some relay peers
         for i in 1..=5 {
-            let mut peer = PeerInfo::new(
-                PeerId::from_bytes(vec![i]),
-                vec![format!("10.0.0.{}:8080", i)],
-            );
+            let mut peer =
+                PeerInfo::new(PeerId::from_bytes(vec![i]), vec![format!("10.0.0.{}:8080", i)]);
             peer.capabilities.push(Capability::Relay);
-            route_table
-                .handle_command(RouteTableCommand::InsertPeer(peer))
-                .await
-                .unwrap();
+            route_table.handle_command(RouteTableCommand::InsertPeer(peer)).await.unwrap();
         }
 
         // Add a non-relay peer
-        let non_relay = PeerInfo::new(
-            PeerId::from_bytes(vec![99]),
-            vec!["10.0.0.99:8080".to_string()],
-        );
+        let non_relay =
+            PeerInfo::new(PeerId::from_bytes(vec![99]), vec!["10.0.0.99:8080".to_string()]);
         route_table
             .handle_command(RouteTableCommand::InsertPeer(non_relay))
             .await
@@ -644,9 +615,7 @@ mod tests {
     async fn test_periodic_discovery_under_capacity() {
         let mut config = DiscoveryConfig::default();
         config.target_relay_count = 5;
-        config.bootstrap_peers = vec![
-            "bootstrap.example.com:8080".to_string(),
-        ];
+        config.bootstrap_peers = vec!["bootstrap.example.com:8080".to_string()];
 
         let route_table = Arc::new(RouteTable::new());
         let (event_tx, mut event_rx) = mpsc::channel(100);
@@ -680,11 +649,7 @@ mod tests {
         let (event_tx, mut event_rx) = mpsc::channel(100);
         let (cmd_tx, cmd_rx) = mpsc::channel(100);
 
-        let discovery = Arc::new(OverlayDiscovery::new(
-            config,
-            route_table.clone(),
-            event_tx,
-        ));
+        let discovery = Arc::new(OverlayDiscovery::new(config, route_table.clone(), event_tx));
 
         // Spawn discovery task
         let discovery_clone = discovery.clone();
@@ -693,10 +658,7 @@ mod tests {
         });
 
         // Trigger manual discovery
-        cmd_tx
-            .send(DiscoveryCommand::TriggerDiscovery)
-            .await
-            .unwrap();
+        cmd_tx.send(DiscoveryCommand::TriggerDiscovery).await.unwrap();
 
         // Should emit event
         let event = tokio::time::timeout(Duration::from_millis(200), event_rx.recv())

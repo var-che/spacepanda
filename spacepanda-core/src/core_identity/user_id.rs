@@ -30,7 +30,7 @@ impl UserId {
     }
 
     /// Convert to base58 string for display
-    pub fn to_string(&self) -> String {
+    pub fn as_base58(&self) -> String {
         bs58::encode(&self.0).into_string()
     }
 
@@ -45,7 +45,7 @@ impl UserId {
 
 impl fmt::Display for UserId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", self.as_base58())
     }
 }
 

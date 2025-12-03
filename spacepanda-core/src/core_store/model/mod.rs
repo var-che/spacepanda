@@ -2,16 +2,18 @@
     Model subsystem - Data structures for entities
 */
 
-pub mod types;
+#![allow(ambiguous_glob_reexports)]
+
 pub mod channel;
-pub mod space;
+pub mod identity_meta;
 pub mod message;
 pub mod mls_state;
-pub mod identity_meta;
+pub mod space;
+pub mod types;
 
-pub use types::*;
 pub use channel::*;
-pub use space::*;
+pub use identity_meta::*;
 pub use message::*;
 pub use mls_state::*;
-pub use identity_meta::*;
+pub use space::*;
+pub use types::*;
