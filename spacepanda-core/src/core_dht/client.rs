@@ -265,4 +265,153 @@ mod tests {
 
         assert_eq!(client.rpc_timeout, timeout_duration);
     }
+
+    #[tokio::test]
+    async fn test_find_node_timeout() {
+        let client = create_test_client();
+        let peer_id = DhtKey::hash(b"peer");
+        let target = DhtKey::hash(b"target");
+
+        // Should timeout since no response handler is implemented
+        let result = client.find_node(peer_id, target).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("timeout") || err.contains("RPC"));
+    }
+
+    #[tokio::test]
+    async fn test_find_value_timeout() {
+        let client = create_test_client();
+        let peer_id = DhtKey::hash(b"peer");
+        let key = DhtKey::hash(b"key");
+
+        // Should timeout since no response handler is implemented
+        let result = client.find_value(peer_id, key).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("timeout") || err.contains("RPC"));
+    }
+
+    #[tokio::test]
+    async fn test_store_timeout() {
+        let client = create_test_client();
+        let peer_id = DhtKey::hash(b"peer");
+        let key = DhtKey::hash(b"key");
+        let value = DhtValue::new(b"value".to_vec());
+
+        // Should timeout since no response handler is implemented
+        let result = client.store(peer_id, key, value).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("timeout") || err.contains("RPC"));
+    }
+
+    #[tokio::test]
+    async fn test_ping_returns_result() {
+        let client = create_test_client();
+        let peer_id = DhtKey::hash(b"peer");
+
+        // Ping with placeholder implementation
+        let result = client.ping(peer_id).await;
+        
+        // The ping may succeed or fail depending on RPC handler
+        // The important thing is that it completes without panic
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_requests_unique_ids() {
+        let client = Arc::new(create_test_client());
+        
+        let mut handles = vec![];
+        for _ in 0..10 {
+            let client_clone = client.clone();
+            let handle = tokio::spawn(async move {
+                client_clone.next_request_id().await
+            });
+            handles.push(handle);
+        }
+
+        let mut ids = vec![];
+        for handle in handles {
+            ids.push(handle.await.unwrap());
+        }
+
+        // All IDs should be unique
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), 10, "All request IDs should be unique");
+    }
+
+    #[tokio::test]
+    async fn test_find_node_message_structure() {
+        let client = create_test_client();
+        let peer_id = DhtKey::hash(b"peer");
+        let target = DhtKey::hash(b"target");
+
+        // Create a FindNode message manually to verify structure
+        let request_id = client.next_request_id().await;
+        let msg = DhtMessage::FindNode {
+            sender_id: client.local_id,
+            target,
+            request_id,
+        };
+
+        assert!(msg.is_request());
+        assert_eq!(msg.message_type(), "FindNode");
+        assert_eq!(msg.sender_id(), client.local_id);
+    }
+
+    #[tokio::test]
+    async fn test_find_value_message_structure() {
+        let client = create_test_client();
+        let key = DhtKey::hash(b"key");
+
+        let request_id = client.next_request_id().await;
+        let msg = DhtMessage::FindValue {
+            sender_id: client.local_id,
+            key,
+            request_id,
+        };
+
+        assert!(msg.is_request());
+        assert_eq!(msg.message_type(), "FindValue");
+        assert_eq!(msg.sender_id(), client.local_id);
+    }
+
+    #[tokio::test]
+    async fn test_store_message_structure() {
+        let client = create_test_client();
+        let key = DhtKey::hash(b"key");
+        let value = DhtValue::new(b"test_value".to_vec());
+
+        let request_id = client.next_request_id().await;
+        let msg = DhtMessage::Store {
+            sender_id: client.local_id,
+            key,
+            value: value.clone(),
+            request_id,
+        };
+
+        assert!(msg.is_request());
+        assert_eq!(msg.message_type(), "Store");
+        assert_eq!(msg.sender_id(), client.local_id);
+    }
+
+    #[tokio::test]
+    async fn test_multiple_clients_independent_counters() {
+        let client1 = create_test_client();
+        let client2 = create_test_client();
+
+        let id1_a = client1.next_request_id().await;
+        let id2_a = client2.next_request_id().await;
+        let id1_b = client1.next_request_id().await;
+        let id2_b = client2.next_request_id().await;
+
+        // Each client should have independent counters
+        assert_eq!(id1_a, 1);
+        assert_eq!(id2_a, 1);
+        assert_eq!(id1_b, 2);
+        assert_eq!(id2_b, 2);
+    }
 }

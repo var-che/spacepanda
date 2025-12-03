@@ -233,4 +233,179 @@ mod tests {
 
         assert!(channel.has_member(&new_member));
     }
+
+    #[test]
+    fn test_apply_local_update_topic() {
+        use std::thread;
+        use std::time::Duration;
+
+        let channel_id = ChannelId::generate();
+        let creator = UserId::generate();
+        let now = Timestamp::now();
+
+        let mut channel = Channel::new(
+            channel_id,
+            "Test".to_string(),
+            ChannelType::Text,
+            creator.clone(),
+            now,
+            "node1".to_string(),
+        );
+
+        thread::sleep(Duration::from_millis(2));
+
+        let mut ctx = LocalContext::new("node1".to_string(), creator);
+
+        let op = LocalOperation::UpdateChannelTopic {
+            channel_id: "test".to_string(),
+            new_topic: "New Topic".to_string(),
+        };
+
+        apply_local_to_channel(&mut channel, op, &mut ctx).unwrap();
+
+        assert_eq!(channel.get_topic(), Some(&"New Topic".to_string()));
+    }
+
+    #[test]
+    fn test_apply_local_remove_member() {
+        let channel_id = ChannelId::generate();
+        let creator = UserId::generate();
+        let member = UserId::generate();
+        let now = Timestamp::now();
+
+        let mut channel = Channel::new(
+            channel_id,
+            "Test".to_string(),
+            ChannelType::Text,
+            creator.clone(),
+            now,
+            "node1".to_string(),
+        );
+
+        let mut ctx = LocalContext::new("node1".to_string(), creator);
+
+        // Add member first
+        let add_op = LocalOperation::AddChannelMember {
+            channel_id: "test".to_string(),
+            user_id: member.clone(),
+        };
+        apply_local_to_channel(&mut channel, add_op, &mut ctx).unwrap();
+        assert!(channel.has_member(&member));
+
+        // Then remove
+        let remove_op = LocalOperation::RemoveChannelMember {
+            channel_id: "test".to_string(),
+            user_id: member.clone(),
+        };
+        apply_local_to_channel(&mut channel, remove_op, &mut ctx).unwrap();
+        assert!(!channel.has_member(&member));
+    }
+
+    #[test]
+    fn test_apply_local_space_name() {
+        use std::thread;
+        use std::time::Duration;
+
+        let space_id = SpaceId::generate();
+        let owner = UserId::generate();
+        let now = Timestamp::now();
+
+        let mut space = Space::new(
+            space_id,
+            "Old Space".to_string(),
+            owner.clone(),
+            now,
+            "node1".to_string(),
+        );
+
+        thread::sleep(Duration::from_millis(2));
+
+        let mut ctx = LocalContext::new("node1".to_string(), owner);
+
+        let op = LocalOperation::UpdateSpaceName {
+            space_id: "test".to_string(),
+            new_name: "New Space".to_string(),
+        };
+
+        apply_local_to_space(&mut space, op, &mut ctx).unwrap();
+
+        assert_eq!(space.get_name(), Some(&"New Space".to_string()));
+    }
+
+    #[test]
+    fn test_local_context_vector_clock() {
+        let mut ctx = LocalContext::new("node1".to_string(), UserId::generate());
+
+        let meta1 = ctx.next_metadata();
+        let meta2 = ctx.next_metadata();
+        let meta3 = ctx.next_metadata();
+
+        // Vector clock should be incrementing
+        assert!(meta2.timestamp >= meta1.timestamp);
+        assert!(meta3.timestamp >= meta2.timestamp);
+        assert_eq!(meta1.node_id, "node1");
+        assert_eq!(meta2.node_id, "node1");
+        assert_eq!(meta3.node_id, "node1");
+    }
+
+    #[test]
+    fn test_local_context_creation() {
+        let node_id = "test_node".to_string();
+        let user_id = UserId::generate();
+
+        let ctx = LocalContext::new(node_id.clone(), user_id.clone());
+
+        assert_eq!(ctx.node_id, node_id);
+        assert_eq!(ctx.user_id, user_id);
+        assert_eq!(ctx.vector_clock.get(&node_id), 0);
+    }
+
+    #[test]
+    fn test_multiple_channel_operations() {
+        use std::thread;
+        use std::time::Duration;
+
+        let channel_id = ChannelId::generate();
+        let creator = UserId::generate();
+        let now = Timestamp::now();
+
+        let mut channel = Channel::new(
+            channel_id,
+            "Initial".to_string(),
+            ChannelType::Text,
+            creator.clone(),
+            now,
+            "node1".to_string(),
+        );
+
+        let mut ctx = LocalContext::new("node1".to_string(), creator);
+
+        thread::sleep(Duration::from_millis(2));
+
+        // Apply multiple operations
+        apply_local_to_channel(
+            &mut channel,
+            LocalOperation::UpdateChannelName {
+                channel_id: "test".to_string(),
+                new_name: "Updated Name".to_string(),
+            },
+            &mut ctx,
+        )
+        .unwrap();
+
+        thread::sleep(Duration::from_millis(2));
+
+        apply_local_to_channel(
+            &mut channel,
+            LocalOperation::UpdateChannelTopic {
+                channel_id: "test".to_string(),
+                new_topic: "Updated Topic".to_string(),
+            },
+            &mut ctx,
+        )
+        .unwrap();
+
+        assert_eq!(channel.get_name(), Some(&"Updated Name".to_string()));
+        assert_eq!(channel.get_topic(), Some(&"Updated Topic".to_string()));
+    }
 }

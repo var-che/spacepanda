@@ -10,20 +10,22 @@ Successfully resolved all clippy warnings to enable strict CI/CD enforcement wit
 
 ## Progress Timeline
 
-| Stage | Errors | Status |
-|-------|--------|--------|
-| Initial state | 240 | ❌ Blocking CI |
-| After cargo fix | ~180 | 🔄 In progress |
-| After manual fixes | 43 | 🔄 In progress |
-| After targeted allows | 19 | 🔄 Final push |
-| After final fixes | 0 | ✅ PASSING |
+| Stage                 | Errors | Status         |
+| --------------------- | ------ | -------------- |
+| Initial state         | 240    | ❌ Blocking CI |
+| After cargo fix       | ~180   | 🔄 In progress |
+| After manual fixes    | 43     | 🔄 In progress |
+| After targeted allows | 19     | 🔄 Final push  |
+| After final fixes     | 0      | ✅ PASSING     |
 
 ## Categories of Fixes
 
 ### 1. Deprecated API Usage (18 instances)
+
 **Problem:** Using deprecated `rand::thread_rng()` and `rand::Rng::gen()` incompatible with Rust 2024
 
 **Files Modified:**
+
 - `src/core_identity/device_id.rs`
 - `src/core_identity/keypair.rs`
 - `src/core_identity/signatures.rs`
@@ -39,22 +41,27 @@ Successfully resolved all clippy warnings to enable strict CI/CD enforcement wit
 - `benches/dht_operations.rs`
 
 **Solution:**
+
 - `rand::thread_rng()` → `rand::rng()`
 - `rng.gen::<T>()` → `rng.random::<T>()`
 
 ### 2. Display Trait Conflicts (2 instances)
+
 **Problem:** Custom `to_string()` methods shadowing `Display` trait implementation
 
 **Files Modified:**
+
 - `src/core_identity/device_id.rs` - renamed to `as_hex()`
 - `src/core_identity/user_id.rs` - renamed to `as_base58()`
 
 **Solution:** Use semantically meaningful names instead of generic `to_string()`
 
 ### 3. Import Restoration (6 instances)
+
 **Problem:** `cargo fix --lib --allow-dirty` incorrectly removed imports used in test code
 
 **Files Modified:**
+
 - `src/core_dht/dht_node.rs` - restored `Duration`
 - `src/core_dht/server.rs` - restored `DhtMessage`
 - `src/core_mls/integration/dht_bridge.rs` - restored `MessageType` with `#[cfg(test)]`
@@ -65,9 +72,11 @@ Successfully resolved all clippy warnings to enable strict CI/CD enforcement wit
 **Solution:** Added back imports with proper `#[cfg(test)]` guards where appropriate
 
 ### 4. Invalid Configuration (1 instance)
+
 **Problem:** `#[cfg(all(test, feature = "never_enabled"))]` using non-existent feature
 
 **Files Modified:**
+
 - `src/core_identity/mod.rs`
 
 **Solution:** Removed invalid cfg attribute
@@ -77,21 +86,25 @@ Successfully resolved all clippy warnings to enable strict CI/CD enforcement wit
 Added crate-level `#![allow(...)]` directives in `src/lib.rs` for:
 
 **Performance Micro-optimizations:**
+
 - `clippy::unnecessary_lazy_evaluations` - or_insert_with vs or_default
 - `clippy::manual_unwrap_or` - explicit unwrap_or logic
 
 **Code Style (non-critical):**
+
 - `clippy::needless_range_loop` - indexing patterns
 - `clippy::if_same_then_else` - duplicate branches (intentional)
 - `clippy::new_without_default` - constructors without Default
 - `clippy::op_ref` - reference operations
 
 **Architectural Decisions:**
+
 - `async_fn_in_trait` - Using async in public traits (requires Send bounds)
 - `private_interfaces` - Intentional privacy boundaries
 - `dead_code`, `unused_variables`, `unused_imports` - WIP features
 
 **Complexity Tradeoffs:**
+
 - `clippy::type_complexity` - Complex types for MLS protocol
 - `clippy::large_enum_variant` - Protocol message sizes
 
@@ -110,30 +123,35 @@ Test integrity maintained throughout entire cleanup process.
 All CI checks passing:
 
 ### Security Audit
+
 ```bash
 cargo audit
 # Result: 0 vulnerabilities found in 297 dependencies
 ```
 
 ### Dependency Review
+
 ```bash
 cargo deny check advisories
 # Result: advisories ok
 ```
 
 ### Clippy (Strict Mode)
+
 ```bash
 cargo clippy --lib -- -D warnings
 # Result: Finished successfully (0 errors)
 ```
 
 ### Formatting
+
 ```bash
 cargo fmt -- --check
 # Result: All files properly formatted
 ```
 
 ### Test Suite
+
 ```bash
 cargo test --lib
 # Result: 1035 passed; 0 failed
@@ -144,6 +162,7 @@ cargo test --lib
 1. **cargo fix limitations:** The automated fix tool can be overly aggressive and remove imports that are actually used in test code. Always verify test suite after running cargo fix.
 
 2. **Lint name stability:** Not all clippy lint names are stable across Rust versions. For example:
+
    - `clippy::async_fn_in_trait` doesn't exist - use `async_fn_in_trait` (without clippy prefix)
    - `clippy::or_insert_with` doesn't exist - use `clippy::unnecessary_lazy_evaluations`
 

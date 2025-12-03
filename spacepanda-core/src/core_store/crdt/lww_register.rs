@@ -270,3 +270,191 @@ mod tests {
         assert_eq!(reg.vector_clock().get("node2"), 3);
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // Property: Last write wins (later timestamp always wins)
+    proptest! {
+        #[test]
+        fn prop_last_write_wins(
+            value1 in 0..1000i32,
+            value2 in 0..1000i32,
+            ts1 in 1u64..1000,
+            ts2 in 1000u64..2000,
+        ) {
+            let mut reg: LWWRegister<i32> = LWWRegister::new();
+            let vc = VectorClock::new();
+
+            // Write with earlier timestamp
+            reg.set(value1, ts1, "node1".to_string(), vc.clone());
+            
+            // Write with later timestamp
+            reg.set(value2, ts2, "node2".to_string(), vc);
+
+            // Later write should win
+            prop_assert_eq!(reg.get(), Some(&value2));
+            prop_assert_eq!(reg.timestamp(), ts2);
+        }
+    }
+
+    // Property: Merge is commutative (A ∪ B = B ∪ A)
+    proptest! {
+        #[test]
+        fn prop_merge_commutative(
+            value_a in 0..1000i32,
+            value_b in 0..1000i32,
+            ts_a in 1u64..500,
+            ts_b in 500u64..1000,
+        ) {
+            let vc = VectorClock::new();
+            
+            let mut reg_a1: LWWRegister<i32> = LWWRegister::new();
+            let mut reg_a2: LWWRegister<i32> = LWWRegister::new();
+            let mut reg_b1: LWWRegister<i32> = LWWRegister::new();
+            let mut reg_b2: LWWRegister<i32> = LWWRegister::new();
+
+            reg_a1.set(value_a, ts_a, "node_a".to_string(), vc.clone());
+            reg_a2.set(value_a, ts_a, "node_a".to_string(), vc.clone());
+            reg_b1.set(value_b, ts_b, "node_b".to_string(), vc.clone());
+            reg_b2.set(value_b, ts_b, "node_b".to_string(), vc);
+
+            // A ∪ B
+            reg_a1.merge(&reg_b1);
+            // B ∪ A
+            reg_b2.merge(&reg_a2);
+
+            // Results should be identical
+            prop_assert_eq!(reg_a1.get(), reg_b2.get());
+            prop_assert_eq!(reg_a1.timestamp(), reg_b2.timestamp());
+        }
+    }
+
+    // Property: Merge is associative ((A ∪ B) ∪ C = A ∪ (B ∪ C))
+    proptest! {
+        #[test]
+        fn prop_merge_associative(
+            val_a in 0..100i32,
+            val_b in 0..100i32,
+            val_c in 0..100i32,
+            ts_a in 1u64..100,
+            ts_b in 100u64..200,
+            ts_c in 200u64..300,
+        ) {
+            let vc = VectorClock::new();
+            
+            let mut reg_a1: LWWRegister<i32> = LWWRegister::new();
+            let mut reg_a2: LWWRegister<i32> = LWWRegister::new();
+            let mut reg_b1: LWWRegister<i32> = LWWRegister::new();
+            let mut reg_b2: LWWRegister<i32> = LWWRegister::new();
+            let mut reg_c1: LWWRegister<i32> = LWWRegister::new();
+            let mut reg_c2: LWWRegister<i32> = LWWRegister::new();
+
+            reg_a1.set(val_a, ts_a, "a".to_string(), vc.clone());
+            reg_a2.set(val_a, ts_a, "a".to_string(), vc.clone());
+            reg_b1.set(val_b, ts_b, "b".to_string(), vc.clone());
+            reg_b2.set(val_b, ts_b, "b".to_string(), vc.clone());
+            reg_c1.set(val_c, ts_c, "c".to_string(), vc.clone());
+            reg_c2.set(val_c, ts_c, "c".to_string(), vc);
+
+            // (A ∪ B) ∪ C
+            reg_a1.merge(&reg_b1);
+            reg_a1.merge(&reg_c1);
+
+            // A ∪ (B ∪ C)
+            reg_b2.merge(&reg_c2);
+            reg_a2.merge(&reg_b2);
+
+            // Results should be identical
+            prop_assert_eq!(reg_a1.get(), reg_a2.get());
+            prop_assert_eq!(reg_a1.timestamp(), reg_a2.timestamp());
+        }
+    }
+
+    // Property: Idempotent merge (A ∪ A = A)
+    proptest! {
+        #[test]
+        fn prop_merge_idempotent(value in 0..1000i32, timestamp in 1u64..1000) {
+            let vc = VectorClock::new();
+            
+            let mut reg1: LWWRegister<i32> = LWWRegister::new();
+            let mut reg2: LWWRegister<i32> = LWWRegister::new();
+
+            reg1.set(value, timestamp, "node1".to_string(), vc.clone());
+            reg2.set(value, timestamp, "node1".to_string(), vc);
+
+            let original_value = reg1.get().cloned();
+            let original_ts = reg1.timestamp();
+
+            // Merge with itself
+            reg1.merge(&reg2);
+
+            // Should be unchanged
+            prop_assert_eq!(reg1.get().cloned(), original_value);
+            prop_assert_eq!(reg1.timestamp(), original_ts);
+        }
+    }
+
+    // Property: Tiebreaker consistency (same timestamp, node ID breaks tie)
+    proptest! {
+        #[test]
+        fn prop_tiebreaker_consistency(
+            value_a in 0..1000i32,
+            value_b in 0..1000i32,
+            timestamp in 1u64..1000,
+        ) {
+            let vc = VectorClock::new();
+            
+            let mut reg: LWWRegister<i32> = LWWRegister::new();
+
+            // Both writes at same timestamp, different nodes
+            reg.set(value_a, timestamp, "node_a".to_string(), vc.clone());
+            reg.set(value_b, timestamp, "node_b".to_string(), vc);
+
+            // "node_b" > "node_a" lexicographically, so value_b should win
+            prop_assert_eq!(reg.get(), Some(&value_b));
+            prop_assert_eq!(reg.writer(), "node_b");
+        }
+    }
+
+    // Property: Convergence - different merge orders converge to same state
+    proptest! {
+        #[test]
+        fn prop_convergence(
+            values in prop::collection::vec((0..100i32, 1u64..1000), 1..10),
+        ) {
+            let vc = VectorClock::new();
+            
+            // Create registers for each value
+            let mut registers: Vec<LWWRegister<i32>> = Vec::new();
+            for (i, (value, ts)) in values.iter().enumerate() {
+                let mut reg = LWWRegister::new();
+                reg.set(*value, *ts, format!("node{}", i), vc.clone());
+                registers.push(reg);
+            }
+
+            if registers.is_empty() {
+                return Ok(());
+            }
+
+            // Merge all in forward order
+            let mut forward = registers[0].clone();
+            for reg in registers.iter().skip(1) {
+                forward.merge(reg);
+            }
+
+            // Merge all in reverse order
+            let mut backward = registers[registers.len() - 1].clone();
+            for reg in registers.iter().rev().skip(1) {
+                backward.merge(reg);
+            }
+
+            // Should converge to same state
+            prop_assert_eq!(forward.get(), backward.get());
+            prop_assert_eq!(forward.timestamp(), backward.timestamp());
+            prop_assert_eq!(forward.writer(), backward.writer());
+        }
+    }
+}

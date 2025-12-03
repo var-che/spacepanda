@@ -256,3 +256,214 @@ mod tests {
         assert!(!vc2.happened_before(&vc1));
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // Property: Increment increases clock value
+    proptest! {
+        #[test]
+        fn prop_increment_increases(node_id in "[a-z]+", iterations in 1usize..100) {
+            let mut vc = VectorClock::new();
+            
+            for i in 1..=iterations {
+                vc.increment(&node_id);
+                prop_assert_eq!(vc.get(&node_id), i as u64);
+            }
+        }
+    }
+
+    // Property: Merge is commutative (A ∪ B = B ∪ A)
+    proptest! {
+        #[test]
+        fn prop_merge_commutative(
+            ops_a in prop::collection::vec(("[a-z]+", 1u64..100), 1..10),
+            ops_b in prop::collection::vec(("[a-z]+", 1u64..100), 1..10),
+        ) {
+            let mut vc_a1 = VectorClock::new();
+            let mut vc_a2 = VectorClock::new();
+            let mut vc_b1 = VectorClock::new();
+            let mut vc_b2 = VectorClock::new();
+
+            for (node, val) in &ops_a {
+                vc_a1.set(node, *val);
+                vc_a2.set(node, *val);
+            }
+            for (node, val) in &ops_b {
+                vc_b1.set(node, *val);
+                vc_b2.set(node, *val);
+            }
+
+            // A ∪ B
+            vc_a1.merge(&vc_b1);
+            // B ∪ A
+            vc_b2.merge(&vc_a2);
+
+            // Should be equal
+            for node in vc_a1.node_ids() {
+                prop_assert_eq!(vc_a1.get(&node), vc_b2.get(&node));
+            }
+        }
+    }
+
+    // Property: Merge is associative ((A ∪ B) ∪ C = A ∪ (B ∪ C))
+    proptest! {
+        #[test]
+        fn prop_merge_associative(
+            ops_a in prop::collection::vec(("[a-z]+", 1u64..50), 0..5),
+            ops_b in prop::collection::vec(("[a-z]+", 1u64..50), 0..5),
+            ops_c in prop::collection::vec(("[a-z]+", 1u64..50), 0..5),
+        ) {
+            let mut vc_a1 = VectorClock::new();
+            let mut vc_a2 = VectorClock::new();
+            let mut vc_b1 = VectorClock::new();
+            let mut vc_b2 = VectorClock::new();
+            let mut vc_c1 = VectorClock::new();
+            let mut vc_c2 = VectorClock::new();
+
+            for (node, val) in &ops_a {
+                vc_a1.set(node, *val);
+                vc_a2.set(node, *val);
+            }
+            for (node, val) in &ops_b {
+                vc_b1.set(node, *val);
+                vc_b2.set(node, *val);
+            }
+            for (node, val) in &ops_c {
+                vc_c1.set(node, *val);
+                vc_c2.set(node, *val);
+            }
+
+            // (A ∪ B) ∪ C
+            vc_a1.merge(&vc_b1);
+            vc_a1.merge(&vc_c1);
+
+            // A ∪ (B ∪ C)
+            vc_b2.merge(&vc_c2);
+            vc_a2.merge(&vc_b2);
+
+            // Should be equal
+            let all_nodes: std::collections::HashSet<_> = 
+                vc_a1.node_ids().into_iter().chain(vc_a2.node_ids()).collect();
+            
+            for node in all_nodes {
+                prop_assert_eq!(vc_a1.get(&node), vc_a2.get(&node));
+            }
+        }
+    }
+
+    // Property: Idempotent merge (A ∪ A = A)
+    proptest! {
+        #[test]
+        fn prop_merge_idempotent(
+            ops in prop::collection::vec(("[a-z]+", 1u64..100), 1..10),
+        ) {
+            let mut vc1 = VectorClock::new();
+            let mut vc2 = VectorClock::new();
+
+            for (node, val) in &ops {
+                vc1.set(node, *val);
+                vc2.set(node, *val);
+            }
+
+            let original: std::collections::HashMap<_, _> = 
+                vc1.node_ids().iter().map(|n| (n.clone(), vc1.get(n))).collect();
+
+            vc1.merge(&vc2);
+
+            // Should be unchanged
+            for (node, val) in original {
+                prop_assert_eq!(vc1.get(&node), val);
+            }
+        }
+    }
+
+    // Property: Merge takes maximum of each entry
+    proptest! {
+        #[test]
+        fn prop_merge_takes_max(
+            node_id in "[a-z]+",
+            val_a in 1u64..100,
+            val_b in 1u64..100,
+        ) {
+            let mut vc_a = VectorClock::new();
+            let mut vc_b = VectorClock::new();
+
+            vc_a.set(&node_id, val_a);
+            vc_b.set(&node_id, val_b);
+
+            vc_a.merge(&vc_b);
+
+            prop_assert_eq!(vc_a.get(&node_id), val_a.max(val_b));
+        }
+    }
+
+    // Property: Happened-before is transitive
+    proptest! {
+        #[test]
+        fn prop_happened_before_transitive(
+            node in "[a-z]+",
+            t1 in 1u64..10,
+            t2 in 10u64..20,
+            t3 in 20u64..30,
+        ) {
+            let mut vc1 = VectorClock::new();
+            let mut vc2 = VectorClock::new();
+            let mut vc3 = VectorClock::new();
+
+            vc1.set(&node, t1);
+            vc2.set(&node, t2);
+            vc3.set(&node, t3);
+
+            // If vc1 < vc2 and vc2 < vc3, then vc1 < vc3
+            if vc1.happened_before(&vc2) && vc2.happened_before(&vc3) {
+                prop_assert!(vc1.happened_before(&vc3));
+            }
+        }
+    }
+
+    // Property: Concurrent events don't have happened-before relationship
+    proptest! {
+        #[test]
+        fn prop_concurrent_no_happened_before(
+            node_a in "[a-z]+",
+            node_b in "[a-z]+",
+            val_a in 1u64..100,
+            val_b in 1u64..100,
+        ) {
+            if node_a == node_b {
+                return Ok(());
+            }
+
+            let mut vc1 = VectorClock::new();
+            let mut vc2 = VectorClock::new();
+
+            vc1.set(&node_a, val_a);
+            vc2.set(&node_b, val_b);
+
+            // Concurrent events - neither happened before the other
+            let hb_1_2 = vc1.happened_before(&vc2);
+            let hb_2_1 = vc2.happened_before(&vc1);
+
+            // At least one should be false (could both be false if independent)
+            prop_assert!(!(hb_1_2 && hb_2_1));
+        }
+    }
+
+    // Property: Self is not happened-before self
+    proptest! {
+        #[test]
+        fn prop_not_happened_before_self(
+            ops in prop::collection::vec(("[a-z]+", 1u64..100), 1..10),
+        ) {
+            let mut vc = VectorClock::new();
+            for (node, val) in &ops {
+                vc.set(node, *val);
+            }
+
+            prop_assert!(!vc.happened_before(&vc));
+        }
+    }
+}

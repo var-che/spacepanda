@@ -4,6 +4,9 @@ members = [
     "spacepanda-core",
     "spacepanda-cli",
 ]
+exclude = [
+    "spacepanda-core/fuzz",
+]
 
 [workspace.package]
 version = "0.1.0"

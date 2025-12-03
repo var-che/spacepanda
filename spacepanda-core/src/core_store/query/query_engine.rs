@@ -377,4 +377,247 @@ mod tests {
         let result = engine.list_messages(&channel_id, None, None);
         assert_eq!(result.len(), 1);
     }
+
+    #[test]
+    fn test_list_messages_with_limit() {
+        let mut engine = QueryEngine::new();
+        let channel_id = ChannelId::generate();
+        let user_id = UserId::generate();
+
+        let messages: Vec<Message> = (0..10)
+            .map(|i| {
+                Message::new(
+                    MessageId::generate(),
+                    channel_id.clone(),
+                    user_id.clone(),
+                    format!("Message {}", i).into_bytes(),
+                    Timestamp::now(),
+                )
+            })
+            .collect();
+
+        engine.add_messages(channel_id.clone(), messages);
+
+        let result = engine.list_messages(&channel_id, Some(5), None);
+        assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn test_list_messages_with_offset() {
+        let mut engine = QueryEngine::new();
+        let channel_id = ChannelId::generate();
+        let user_id = UserId::generate();
+
+        let messages: Vec<Message> = (0..10)
+            .map(|_| {
+                Message::new(
+                    MessageId::generate(),
+                    channel_id.clone(),
+                    user_id.clone(),
+                    b"Test".to_vec(),
+                    Timestamp::now(),
+                )
+            })
+            .collect();
+
+        engine.add_messages(channel_id.clone(), messages);
+
+        let result = engine.list_messages(&channel_id, None, Some(3));
+        assert_eq!(result.len(), 7);
+    }
+
+    #[test]
+    fn test_list_messages_with_limit_and_offset() {
+        let mut engine = QueryEngine::new();
+        let channel_id = ChannelId::generate();
+        let user_id = UserId::generate();
+
+        let messages: Vec<Message> = (0..20)
+            .map(|_| {
+                Message::new(
+                    MessageId::generate(),
+                    channel_id.clone(),
+                    user_id.clone(),
+                    b"Test".to_vec(),
+                    Timestamp::now(),
+                )
+            })
+            .collect();
+
+        engine.add_messages(channel_id.clone(), messages);
+
+        let result = engine.list_messages(&channel_id, Some(5), Some(10));
+        assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn test_search_messages_returns_all() {
+        let mut engine = QueryEngine::new();
+        let channel_id = ChannelId::generate();
+
+        let messages = vec![
+            Message::new(
+                MessageId::generate(),
+                channel_id.clone(),
+                UserId::generate(),
+                b"Hello world".to_vec(),
+                Timestamp::now(),
+            ),
+            Message::new(
+                MessageId::generate(),
+                channel_id.clone(),
+                UserId::generate(),
+                b"Goodbye world".to_vec(),
+                Timestamp::now(),
+            ),
+        ];
+
+        engine.add_messages(channel_id.clone(), messages);
+
+        // Search is currently placeholder - returns all messages
+        let result = engine.search_messages(&channel_id, "world");
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_get_nonexistent_space() {
+        let engine = QueryEngine::new();
+        let space_id = SpaceId::generate();
+
+        assert!(engine.get_space(&space_id).is_none());
+    }
+
+    #[test]
+    fn test_get_nonexistent_channel() {
+        let engine = QueryEngine::new();
+        let channel_id = ChannelId::generate();
+
+        assert!(engine.get_channel(&channel_id).is_none());
+    }
+
+    #[test]
+    fn test_list_messages_empty_channel() {
+        let engine = QueryEngine::new();
+        let channel_id = ChannelId::generate();
+
+        let result = engine.list_messages(&channel_id, None, None);
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_multiple_spaces() {
+        let mut engine = QueryEngine::new();
+
+        for i in 0..5 {
+            let space = Space::new(
+                SpaceId::generate(),
+                format!("Space {}", i),
+                UserId::generate(),
+                Timestamp::now(),
+                "node1".to_string(),
+            );
+            engine.add_space(space);
+        }
+
+        let spaces = engine.list_spaces();
+        assert_eq!(spaces.len(), 5);
+    }
+
+    #[test]
+    fn test_message_info_fields() {
+        let mut engine = QueryEngine::new();
+        let channel_id = ChannelId::generate();
+        let user_id = UserId::generate();
+        let content = b"Test message".to_vec();
+
+        let messages = vec![Message::new(
+            MessageId::generate(),
+            channel_id.clone(),
+            user_id.clone(),
+            content.clone(),
+            Timestamp::now(),
+        )];
+
+        engine.add_messages(channel_id.clone(), messages);
+
+        let result = engine.list_messages(&channel_id, None, None);
+        assert_eq!(result.len(), 1);
+
+        let msg_info = &result[0];
+        assert_eq!(msg_info.sender, user_id);
+        assert_eq!(msg_info.content, content);
+        assert!(!msg_info.is_edited);
+        assert!(msg_info.reply_to.is_none());
+        assert_eq!(msg_info.reaction_count, 0);
+    }
+
+    #[test]
+    fn test_space_info_counts() {
+        let mut engine = QueryEngine::new();
+
+        let space = Space::new(
+            SpaceId::generate(),
+            "Test Space".to_string(),
+            UserId::generate(),
+            Timestamp::now(),
+            "node1".to_string(),
+        );
+
+        let space_id = space.id.clone();
+        engine.add_space(space);
+
+        let spaces = engine.list_spaces();
+        assert_eq!(spaces.len(), 1);
+
+        let space_info = &spaces[0];
+        assert_eq!(space_info.name, "Test Space");
+        // Description may or may not be set by Space::new
+        assert_eq!(space_info.member_count, 0); // Space::new doesn't add members automatically
+        assert_eq!(space_info.channel_count, 0);
+    }
+
+    #[test]
+    fn test_channel_info_last_message_time() {
+        let mut engine = QueryEngine::new();
+
+        let space_id = SpaceId::generate();
+        let channel_id = ChannelId::generate();
+
+        let space = Space::new(
+            space_id.clone(),
+            "Test Space".to_string(),
+            UserId::generate(),
+            Timestamp::now(),
+            "node1".to_string(),
+        );
+
+        let channel = Channel::new(
+            channel_id.clone(),
+            "general".to_string(),
+            ChannelType::Text,
+            UserId::generate(),
+            Timestamp::now(),
+            "node1".to_string(),
+        );
+
+        engine.add_space(space);
+        engine.add_channel(channel);
+
+        let now = Timestamp::now();
+        let messages = vec![Message::new(
+            MessageId::generate(),
+            channel_id.clone(),
+            UserId::generate(),
+            b"Test".to_vec(),
+            now,
+        )];
+
+        engine.add_messages(channel_id.clone(), messages);
+
+        // Channel won't appear in space list unless linked via space.channels
+        // This test verifies the messages cache works independently
+        let msgs = engine.list_messages(&channel_id, None, None);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].timestamp, now);
+    }
 }

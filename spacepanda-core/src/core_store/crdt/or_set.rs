@@ -412,3 +412,233 @@ mod tests {
         assert!(value.contains(&2));
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // Property: Merging is commutative (A ∪ B = B ∪ A)
+    proptest! {
+        #[test]
+        fn prop_merge_commutative(
+            elements_a in prop::collection::vec(0..100i32, 0..10),
+            elements_b in prop::collection::vec(0..100i32, 0..10),
+        ) {
+            let mut set_a1: ORSet<i32> = ORSet::new();
+            let mut set_a2: ORSet<i32> = ORSet::new();
+            let mut set_b1: ORSet<i32> = ORSet::new();
+            let mut set_b2: ORSet<i32> = ORSet::new();
+            let vc = VectorClock::new();
+
+            // Build sets
+            for (i, elem) in elements_a.iter().enumerate() {
+                let add_id = AddId::new("node_a".to_string(), i as u64);
+                set_a1.add(*elem, add_id.clone(), vc.clone());
+                set_a2.add(*elem, add_id, vc.clone());
+            }
+            for (i, elem) in elements_b.iter().enumerate() {
+                let add_id = AddId::new("node_b".to_string(), i as u64);
+                set_b1.add(*elem, add_id.clone(), vc.clone());
+                set_b2.add(*elem, add_id, vc.clone());
+            }
+
+            // A ∪ B
+            set_a1.merge(&set_b1).unwrap();
+            // B ∪ A
+            set_b2.merge(&set_a2).unwrap();
+
+            // Should be equal
+            let result_a = set_a1.elements();
+            let result_b = set_b2.elements();
+            
+            prop_assert_eq!(result_a.len(), result_b.len());
+            for elem in result_a {
+                prop_assert!(result_b.contains(&elem));
+            }
+        }
+    }
+
+    // Property: Merging is associative ((A ∪ B) ∪ C = A ∪ (B ∪ C))
+    proptest! {
+        #[test]
+        fn prop_merge_associative(
+            elements_a in prop::collection::vec(0..50i32, 0..5),
+            elements_b in prop::collection::vec(0..50i32, 0..5),
+            elements_c in prop::collection::vec(0..50i32, 0..5),
+        ) {
+            let vc = VectorClock::new();
+            
+            // Create three sets
+            let mut set_a1: ORSet<i32> = ORSet::new();
+            let mut set_a2: ORSet<i32> = ORSet::new();
+            let mut set_b1: ORSet<i32> = ORSet::new();
+            let mut set_b2: ORSet<i32> = ORSet::new();
+            let mut set_c1: ORSet<i32> = ORSet::new();
+            let mut set_c2: ORSet<i32> = ORSet::new();
+
+            for (i, &elem) in elements_a.iter().enumerate() {
+                let add_id = AddId::new("a".to_string(), i as u64);
+                set_a1.add(elem, add_id.clone(), vc.clone());
+                set_a2.add(elem, add_id, vc.clone());
+            }
+            for (i, &elem) in elements_b.iter().enumerate() {
+                let add_id = AddId::new("b".to_string(), i as u64);
+                set_b1.add(elem, add_id.clone(), vc.clone());
+                set_b2.add(elem, add_id, vc.clone());
+            }
+            for (i, &elem) in elements_c.iter().enumerate() {
+                let add_id = AddId::new("c".to_string(), i as u64);
+                set_c1.add(elem, add_id.clone(), vc.clone());
+                set_c2.add(elem, add_id, vc.clone());
+            }
+
+            // (A ∪ B) ∪ C
+            set_a1.merge(&set_b1).unwrap();
+            set_a1.merge(&set_c1).unwrap();
+
+            // A ∪ (B ∪ C)
+            set_b2.merge(&set_c2).unwrap();
+            set_a2.merge(&set_b2).unwrap();
+
+            // Results should be identical
+            let result1 = set_a1.elements();
+            let result2 = set_a2.elements();
+            
+            prop_assert_eq!(result1.len(), result2.len());
+            for elem in result1 {
+                prop_assert!(result2.contains(&elem));
+            }
+        }
+    }
+
+    // Property: Add-remove semantics (add wins over concurrent remove)
+    proptest! {
+        #[test]
+        fn prop_add_wins_over_remove(element in 0..100i32) {
+            let mut set1: ORSet<i32> = ORSet::new();
+            let mut set2: ORSet<i32> = ORSet::new();
+            let vc = VectorClock::new();
+            let add_id = AddId::new("node1".to_string(), 1);
+
+            // Set1: add element
+            set1.add(element, add_id.clone(), vc.clone());
+
+            // Set2: add then remove element
+            set2.add(element, add_id.clone(), vc.clone());
+            set2.remove(&element, vc);
+
+            // Merge set2 into set1
+            set1.merge(&set2).unwrap();
+
+            // Element should be removed (remove wins when it knows about the add)
+            prop_assert!(!set1.contains(&element));
+        }
+    }
+
+    // Property: Idempotent merge (A ∪ A = A)
+    proptest! {
+        #[test]
+        fn prop_merge_idempotent(elements in prop::collection::vec(0..100i32, 0..10)) {
+            let mut set1: ORSet<i32> = ORSet::new();
+            let mut set2: ORSet<i32> = ORSet::new();
+            let vc = VectorClock::new();
+
+            for (i, &elem) in elements.iter().enumerate() {
+                let add_id = AddId::new("node1".to_string(), i as u64);
+                set1.add(elem, add_id.clone(), vc.clone());
+                set2.add(elem, add_id, vc.clone());
+            }
+
+            let original_elements = set1.elements();
+
+            // Merge with itself
+            set1.merge(&set2).unwrap();
+
+            let merged_elements = set1.elements();
+
+            // Should be unchanged
+            prop_assert_eq!(original_elements.len(), merged_elements.len());
+            for elem in original_elements {
+                prop_assert!(merged_elements.contains(&elem));
+            }
+        }
+    }
+
+    // Property: Contains after add
+    proptest! {
+        #[test]
+        fn prop_contains_after_add(element in 0..1000i32, timestamp in 1u64..1000) {
+            let mut set: ORSet<i32> = ORSet::new();
+            let add_id = AddId::new("node1".to_string(), timestamp);
+            let vc = VectorClock::new();
+
+            set.add(element, add_id, vc);
+
+            prop_assert!(set.contains(&element));
+            prop_assert_eq!(set.len(), 1);
+        }
+    }
+
+    // Property: Not contains after remove
+    proptest! {
+        #[test]
+        fn prop_not_contains_after_remove(element in 0..1000i32) {
+            let mut set: ORSet<i32> = ORSet::new();
+            let add_id = AddId::new("node1".to_string(), 1);
+            let vc = VectorClock::new();
+
+            set.add(element, add_id, vc.clone());
+            prop_assert!(set.contains(&element));
+
+            set.remove(&element, vc);
+            prop_assert!(!set.contains(&element));
+        }
+    }
+
+    // Property: Convergence - independent operations converge to same state
+    proptest! {
+        #[test]
+        fn prop_convergence(
+            ops_a in prop::collection::vec((0..20i32, prop::bool::ANY), 0..10),
+            ops_b in prop::collection::vec((0..20i32, prop::bool::ANY), 0..10),
+        ) {
+            let mut set_a: ORSet<i32> = ORSet::new();
+            let mut set_b: ORSet<i32> = ORSet::new();
+            let mut set_a_copy: ORSet<i32> = ORSet::new();
+            let mut set_b_copy: ORSet<i32> = ORSet::new();
+            let vc = VectorClock::new();
+
+            // Node A performs ops_a
+            for (i, (elem, is_add)) in ops_a.iter().enumerate() {
+                let add_id = AddId::new("node_a".to_string(), i as u64);
+                if *is_add {
+                    set_a.add(*elem, add_id.clone(), vc.clone());
+                    set_a_copy.add(*elem, add_id, vc.clone());
+                }
+            }
+
+            // Node B performs ops_b
+            for (i, (elem, is_add)) in ops_b.iter().enumerate() {
+                let add_id = AddId::new("node_b".to_string(), i as u64);
+                if *is_add {
+                    set_b.add(*elem, add_id.clone(), vc.clone());
+                    set_b_copy.add(*elem, add_id, vc.clone());
+                }
+            }
+
+            // A merges B's changes, B merges A's changes
+            set_a.merge(&set_b_copy).unwrap();
+            set_b.merge(&set_a_copy).unwrap();
+
+            // Both should converge to same state
+            let result_a = set_a.elements();
+            let result_b = set_b.elements();
+
+            prop_assert_eq!(result_a.len(), result_b.len());
+            for elem in result_a {
+                prop_assert!(result_b.contains(&elem));
+            }
+        }
+    }
+}
