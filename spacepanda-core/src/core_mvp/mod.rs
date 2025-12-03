@@ -7,6 +7,9 @@ pub mod channel_manager;
 pub mod errors;
 pub mod types;
 
+#[cfg(test)]
+mod tests;
+
 // Re-exports
 pub use channel_manager::{ChannelManager, Identity};
 pub use errors::{MvpError, MvpResult};
