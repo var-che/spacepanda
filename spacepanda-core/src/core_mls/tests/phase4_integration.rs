@@ -7,6 +7,8 @@
 mod openmls_integration_tests {
     use crate::core_mls::engine::openmls_engine::OpenMlsEngine;
     use crate::core_mls::types::{GroupId, MlsConfig};
+    use openmls_rust_crypto::OpenMlsRustCrypto;
+    use std::sync::Arc;
 
     /// Test creating a new group with OpenMLS engine
     #[tokio::test]
@@ -14,8 +16,9 @@ mod openmls_integration_tests {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
         let identity = b"alice@example.com".to_vec();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let result = OpenMlsEngine::create_group(group_id, identity, config).await;
+        let result = OpenMlsEngine::create_group(group_id, identity, config, provider).await;
 
         assert!(result.is_ok(), "Should create group successfully");
 
@@ -30,8 +33,9 @@ mod openmls_integration_tests {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
         let identity = b"bob@example.com".to_vec();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let engine = OpenMlsEngine::create_group(group_id, identity.clone(), config)
+        let engine = OpenMlsEngine::create_group(group_id, identity.clone(), config, provider)
             .await
             .expect("Failed to create group");
 
@@ -50,12 +54,13 @@ mod openmls_integration_tests {
         let group_id2 = GroupId::random();
         let identity1 = b"user1@example.com".to_vec();
         let identity2 = b"user2@example.com".to_vec();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let engine1 = OpenMlsEngine::create_group(group_id1.clone(), identity1, config.clone())
+        let engine1 = OpenMlsEngine::create_group(group_id1.clone(), identity1, config.clone(), provider.clone())
             .await
             .expect("Failed to create group 1");
 
-        let engine2 = OpenMlsEngine::create_group(group_id2.clone(), identity2, config)
+        let engine2 = OpenMlsEngine::create_group(group_id2.clone(), identity2, config, provider)
             .await
             .expect("Failed to create group 2");
 
@@ -76,8 +81,9 @@ mod openmls_integration_tests {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
         let identity = b"charlie@example.com".to_vec();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let engine = OpenMlsEngine::create_group(group_id, identity, config)
+        let engine = OpenMlsEngine::create_group(group_id, identity, config, provider)
             .await
             .expect("Failed to create group");
 
@@ -98,8 +104,9 @@ mod openmls_integration_tests {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
         let identity = b"dave@example.com".to_vec();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let engine = OpenMlsEngine::create_group(group_id, identity, config)
+        let engine = OpenMlsEngine::create_group(group_id, identity, config, provider)
             .await
             .expect("Failed to create group");
 
@@ -118,13 +125,14 @@ mod openmls_integration_tests {
     #[tokio::test]
     async fn test_multiple_groups() {
         let config = MlsConfig::default();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         let mut engines = Vec::new();
         for i in 0..5 {
             let group_id = GroupId::random();
             let identity = format!("user{}@example.com", i).into_bytes();
 
-            let engine = OpenMlsEngine::create_group(group_id.clone(), identity, config.clone())
+            let engine = OpenMlsEngine::create_group(group_id.clone(), identity, config.clone(), provider.clone())
                 .await
                 .expect("Failed to create group");
 
@@ -152,10 +160,11 @@ mod openmls_integration_tests {
     async fn test_config_variations() {
         let group_id = GroupId::random();
         let identity = b"eve@example.com".to_vec();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         // Test with default config
         let config1 = MlsConfig::default();
-        let engine1 = OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config1)
+        let engine1 = OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config1, provider.clone())
             .await
             .expect("Failed to create group with default config");
         assert_eq!(engine1.epoch().await, 0);
@@ -163,7 +172,7 @@ mod openmls_integration_tests {
         // Test with custom config (if MlsConfig supports builder pattern)
         let config2 = MlsConfig::default();
         let group_id2 = GroupId::random();
-        let engine2 = OpenMlsEngine::create_group(group_id2, identity.clone(), config2)
+        let engine2 = OpenMlsEngine::create_group(group_id2, identity.clone(), config2, provider)
             .await
             .expect("Failed to create group with custom config");
         assert_eq!(engine2.epoch().await, 0);
@@ -175,8 +184,9 @@ mod openmls_integration_tests {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
         let identity = b"frank@example.com".to_vec();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let engine = OpenMlsEngine::create_group(group_id.clone(), identity, config)
+        let engine = OpenMlsEngine::create_group(group_id.clone(), identity, config, provider)
             .await
             .expect("Failed to create group");
 
@@ -202,11 +212,12 @@ mod openmls_integration_tests {
     async fn test_message_send_receive() {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         // Create Alice's group
         let alice_identity = b"alice@example.com".to_vec();
         let alice_engine =
-            OpenMlsEngine::create_group(group_id.clone(), alice_identity, config.clone())
+            OpenMlsEngine::create_group(group_id.clone(), alice_identity, config.clone(), provider)
                 .await
                 .expect("Failed to create Alice's group");
 
@@ -240,6 +251,7 @@ mod e2e_integration_tests {
     use openmls::prelude::*;
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
+    use std::sync::Arc;
     use tls_codec::Serialize as TlsSerializeTrait;
 
     /// Helper to create a key package for a user
@@ -280,11 +292,12 @@ mod e2e_integration_tests {
     async fn test_e2e_two_member_key_package_exchange() {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         // Alice creates the group
         let alice_identity = b"alice@example.com".to_vec();
         let alice_engine =
-            OpenMlsEngine::create_group(group_id.clone(), alice_identity.clone(), config.clone())
+            OpenMlsEngine::create_group(group_id.clone(), alice_identity.clone(), config.clone(), provider)
                 .await
                 .expect("Failed to create Alice's group");
 
@@ -318,11 +331,12 @@ mod e2e_integration_tests {
     async fn test_e2e_welcome_message_handling() {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         // Alice creates the group
         let alice_identity = b"alice@example.com".to_vec();
         let alice_engine =
-            OpenMlsEngine::create_group(group_id.clone(), alice_identity, config.clone())
+            OpenMlsEngine::create_group(group_id.clone(), alice_identity, config.clone(), provider)
                 .await
                 .expect("Failed to create Alice's group");
 
@@ -353,12 +367,14 @@ mod e2e_integration_tests {
     async fn test_e2e_multi_member_message_flow() {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         // Create Alice's group
         let alice_engine = OpenMlsEngine::create_group(
             group_id.clone(),
             b"alice@example.com".to_vec(),
             config.clone(),
+            provider,
         )
         .await
         .expect("Failed to create group");
@@ -392,10 +408,11 @@ mod e2e_integration_tests {
     async fn test_e2e_member_removal() {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         // Alice creates group
         let alice_engine =
-            OpenMlsEngine::create_group(group_id, b"alice@example.com".to_vec(), config.clone())
+            OpenMlsEngine::create_group(group_id, b"alice@example.com".to_vec(), config.clone(), provider)
                 .await
                 .expect("Failed to create group");
 
@@ -436,9 +453,10 @@ mod e2e_integration_tests {
     async fn test_e2e_sequential_operations() {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         let alice_engine =
-            OpenMlsEngine::create_group(group_id, b"alice@example.com".to_vec(), config.clone())
+            OpenMlsEngine::create_group(group_id, b"alice@example.com".to_vec(), config.clone(), provider)
                 .await
                 .expect("Failed to create group");
 
@@ -478,9 +496,10 @@ mod e2e_integration_tests {
     async fn test_e2e_batch_member_additions() {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         let alice_engine =
-            OpenMlsEngine::create_group(group_id, b"alice@example.com".to_vec(), config)
+            OpenMlsEngine::create_group(group_id, b"alice@example.com".to_vec(), config, provider)
                 .await
                 .expect("Failed to create group");
 
@@ -508,9 +527,10 @@ mod e2e_integration_tests {
     async fn test_e2e_message_ordering_and_epochs() {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         let alice_engine =
-            OpenMlsEngine::create_group(group_id, b"alice@example.com".to_vec(), config)
+            OpenMlsEngine::create_group(group_id, b"alice@example.com".to_vec(), config, provider)
                 .await
                 .unwrap();
 
@@ -550,9 +570,10 @@ mod e2e_integration_tests {
     async fn test_e2e_state_consistency() {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         let alice_engine =
-            OpenMlsEngine::create_group(group_id.clone(), b"alice@example.com".to_vec(), config)
+            OpenMlsEngine::create_group(group_id.clone(), b"alice@example.com".to_vec(), config, provider)
                 .await
                 .unwrap();
 

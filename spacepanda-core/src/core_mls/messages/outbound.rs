@@ -7,6 +7,10 @@ use crate::core_mls::{engine::openmls_engine::OpenMlsEngine, errors::MlsResult};
 
 #[cfg(test)]
 use crate::core_mls::types::{GroupId, MlsConfig};
+#[cfg(test)]
+use openmls_rust_crypto::OpenMlsRustCrypto;
+#[cfg(test)]
+use std::sync::Arc;
 
 /// Outbound message builder
 ///
@@ -159,9 +163,10 @@ mod tests {
         let group_id = GroupId::random();
         let identity = b"alice@example.com".to_vec();
         let config = MlsConfig::default();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         // Create a group
-        let engine = OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config)
+        let engine = OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config, provider)
             .await
             .expect("Failed to create group");
 
@@ -187,9 +192,10 @@ mod tests {
         let group_id = GroupId::random();
         let identity = b"bob@example.com".to_vec();
         let config = MlsConfig::default();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         // Create a group
-        let engine = OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config)
+        let engine = OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config, provider)
             .await
             .expect("Failed to create group");
 

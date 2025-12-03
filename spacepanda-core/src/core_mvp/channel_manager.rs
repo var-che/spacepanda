@@ -114,6 +114,50 @@ impl ChannelManager {
         }
     }
 
+    /// Generate a key package for joining channels
+    ///
+    /// Creates a KeyPackageBundle with cryptographic material and stores it
+    /// in the MLS provider. Returns only the serialized public key package
+    /// that can be shared with channel administrators for creating invites.
+    ///
+    /// # Returns
+    ///
+    /// Serialized public key package bytes (Vec<u8>) that can be shared
+    /// with channel admins. The private KeyPackageBundle is stored internally
+    /// and will be used automatically when joining from a Welcome message.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Bob generates a key package to share with Alice
+    /// let bob_key_package = bob_manager.generate_key_package().await?;
+    ///
+    /// // Bob shares key_package with Alice (via separate channel)
+    /// // Alice creates an invite using Bob's key package
+    /// let invite = alice_manager.create_invite(&channel_id, bob_key_package).await?;
+    ///
+    /// // Bob can now join using the invite (his bundle is already stored)
+    /// let channel_id = bob_manager.join_channel(&invite).await?;
+    /// ```
+    pub async fn generate_key_package(&self) -> MvpResult<Vec<u8>> {
+        info!(
+            user_id = %self.identity.user_id,
+            "Generating key package"
+        );
+
+        let key_package = self
+            .mls_service
+            .generate_key_package(self.identity.user_id.0.as_bytes().to_vec())
+            .await?;
+
+        debug!(
+            "Generated key package: {} bytes",
+            key_package.len()
+        );
+
+        Ok(key_package)
+    }
+
     /// Create a new channel
     ///
     /// This performs three operations:

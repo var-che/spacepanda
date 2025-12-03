@@ -26,6 +26,13 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
+// OpenMLS imports for key package generation
+use openmls::prelude::*;
+use openmls::prelude::tls_codec::Serialize;
+use openmls_basic_credential::SignatureKeyPair;
+use openmls_rust_crypto::OpenMlsRustCrypto;
+use openmls::key_packages::KeyPackage as MlsKeyPackage;
+
 /// MLS Service for managing multiple groups
 pub struct MlsService {
     /// Active MLS groups indexed by GroupId
@@ -39,6 +46,10 @@ pub struct MlsService {
 
     /// Shutdown coordinator
     shutdown: Arc<ShutdownCoordinator>,
+
+    /// Shared crypto provider for all MLS operations
+    /// This is necessary for key package bundles to be found when joining from Welcome
+    provider: Arc<OpenMlsRustCrypto>,
 }
 
 impl MlsService {
@@ -47,13 +58,100 @@ impl MlsService {
         info!("Initializing MLS service");
 
         let mls_config = MlsConfig::default();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         Self {
             groups: Arc::new(RwLock::new(HashMap::new())),
             config: mls_config,
             events: EventBroadcaster::default(),
             shutdown,
+            provider,
         }
+    }
+
+    /// Generate a key package for joining groups
+    ///
+    /// Creates a KeyPackageBundle with cryptographic material and stores it
+    /// in a provider. Returns the serialized public key package that can be
+    /// shared with group administrators.
+    ///
+    /// # Arguments
+    ///
+    /// * `identity` - User's identity bytes
+    ///
+    /// # Returns
+    ///
+    /// Serialized public key package bytes (Vec<u8>) that can be shared.
+    /// The private KeyPackageBundle is stored and will be used when joining.
+    ///
+    /// # Implementation Details
+    ///
+    /// This method:
+    /// 1. Creates a new crypto provider
+    /// 2. Generates signature keys
+    /// 3. Stores keys in provider
+    /// 4. Creates credential
+    /// 5. Builds KeyPackageBundle (auto-stored in provider)
+    /// 6. Returns serialized public key package
+    pub async fn generate_key_package(&self, identity: Vec<u8>) -> MlsResult<Vec<u8>> {
+        let timer = Timer::new("mls.generate_key_package.duration_ms");
+        
+        info!("Generating key package for identity: {:?}", hex::encode(&identity));
+
+        // Check if shutting down
+        if self.shutdown.is_shutting_down().await {
+            warn!("Cannot generate key package: service is shutting down");
+            return Err(MlsError::ServiceUnavailable(
+                "MLS service is shutting down".to_string(),
+            ));
+        }
+
+        // Use the same ciphersuite as our groups
+        let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
+
+        // Use the shared provider (critical for join_from_welcome to find the bundle)
+        let provider = self.provider.clone();
+
+        // Generate signature keys
+        let signature_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm())
+            .map_err(|e| MlsError::InvalidMessage(format!("Failed to generate signature keys: {:?}", e)))?;
+
+        // Store keys in provider
+        signature_keys
+            .store(provider.storage())
+            .map_err(|e| MlsError::InvalidMessage(format!("Failed to store signature keys: {:?}", e)))?;
+
+        // Create credential with the user's identity
+        let basic_credential = BasicCredential::new(identity.clone());
+        let credential_with_key = CredentialWithKey {
+            credential: basic_credential.into(),
+            signature_key: signature_keys.public().into(),
+        };
+
+        // Build the key package bundle
+        // NOTE: The KeyPackageBundle is automatically stored in the provider's storage
+        // when built. This allows join_from_welcome to find it later.
+        let key_package_bundle = KeyPackage::builder()
+            .build(ciphersuite, provider.as_ref(), &signature_keys, credential_with_key)
+            .map_err(|e| MlsError::InvalidMessage(format!("Failed to build key package: {:?}", e)))?;
+
+        // Serialize just the public key package
+        let key_package_bytes = key_package_bundle
+            .key_package()
+            .tls_serialize_detached()
+            .map_err(|e| MlsError::InvalidMessage(format!("Failed to serialize key package: {:?}", e)))?;
+
+        // Record metrics
+        record_counter("mls.key_packages.generated", 1);
+        timer.stop();
+
+        info!(
+            "Successfully generated key package ({} bytes) for identity: {:?}",
+            key_package_bytes.len(),
+            hex::encode(&identity)
+        );
+
+        Ok(key_package_bytes)
     }
 
     /// Create a new MLS group
@@ -74,11 +172,12 @@ impl MlsService {
             ));
         }
 
-        // Create the group
+        // Create the group with shared provider
         let adapter = OpenMlsHandleAdapter::create_group(
             group_id.clone(),
             identity.clone(),
             self.config.clone(),
+            self.provider.clone(),
         )
         .await?;
 
@@ -122,12 +221,13 @@ impl MlsService {
             ));
         }
 
-        // Join the group
+        // Join the group with shared provider (critical for finding stored KeyPackageBundle)
         let adapter = OpenMlsHandleAdapter::join_from_welcome(
             welcome_bytes,
             ratchet_tree,
             self.config.clone(),
-            None, // No KeyPackageBundle - generates new keys
+            None, // No KeyPackageBundle - will be found in provider storage
+            self.provider.clone(),
         )
         .await?;
 

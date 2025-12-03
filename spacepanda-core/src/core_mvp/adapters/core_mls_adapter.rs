@@ -43,6 +43,13 @@ impl CoreMlsAdapter {
 
 #[async_trait]
 impl GroupProvider for CoreMlsAdapter {
+    async fn generate_key_package(&self, identity: &[u8]) -> MvpResult<Vec<u8>> {
+        self.mls_service
+            .generate_key_package(identity.to_vec())
+            .await
+            .map_err(|e| MvpError::Mls(e))
+    }
+
     async fn create_group(
         &self,
         identity: &[u8],

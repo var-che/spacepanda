@@ -10,6 +10,7 @@ use crate::core_mls::{
     types::{GroupId, GroupMetadata, MlsConfig},
 };
 use openmls::prelude::KeyPackageBundle;
+use openmls_rust_crypto::OpenMlsRustCrypto;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -32,14 +33,22 @@ impl OpenMlsHandleAdapter {
     /// * `group_id` - Optional group ID (will generate random if None)
     /// * `identity` - Member identity (username/user ID)
     /// * `config` - Group configuration
+    /// Create a new group
+    ///
+    /// # Arguments
+    /// * `group_id` - Optional group ID (random if None)
+    /// * `identity` - Creator's identity
+    /// * `config` - MLS configuration
+    /// * `provider` - Shared crypto provider for key continuity
     pub async fn create_group(
         group_id: Option<GroupId>,
         identity: Vec<u8>,
         config: MlsConfig,
+        provider: Arc<OpenMlsRustCrypto>,
     ) -> MlsResult<Self> {
         let gid = group_id.unwrap_or_else(GroupId::random);
 
-        let engine = OpenMlsEngine::create_group(gid, identity, config.clone()).await?;
+        let engine = OpenMlsEngine::create_group(gid, identity, config.clone(), provider).await?;
 
         Ok(Self { engine: Arc::new(RwLock::new(engine)), config })
     }
@@ -51,14 +60,16 @@ impl OpenMlsHandleAdapter {
     /// * `ratchet_tree` - Optional ratchet tree bytes (if not in Welcome)
     /// * `config` - MLS configuration
     /// * `key_package_bundle` - Optional KeyPackageBundle with private keys for decryption
+    /// * `provider` - Shared crypto provider (must match the one used for key package generation)
     pub async fn join_from_welcome(
         welcome_bytes: &[u8],
         ratchet_tree: Option<Vec<u8>>,
         config: MlsConfig,
         key_package_bundle: Option<KeyPackageBundle>,
+        provider: Arc<OpenMlsRustCrypto>,
     ) -> MlsResult<Self> {
         let engine =
-            OpenMlsEngine::join_from_welcome(welcome_bytes, ratchet_tree, config.clone(), key_package_bundle).await?;
+            OpenMlsEngine::join_from_welcome(welcome_bytes, ratchet_tree, config.clone(), key_package_bundle, provider).await?;
 
         Ok(Self { engine: Arc::new(RwLock::new(engine)), config })
     }
@@ -137,8 +148,9 @@ mod tests {
     async fn test_adapter_create_group() {
         let config = MlsConfig::default();
         let identity = b"alice@example.com".to_vec();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let adapter = OpenMlsHandleAdapter::create_group(None, identity, config)
+        let adapter = OpenMlsHandleAdapter::create_group(None, identity, config, provider)
             .await
             .expect("Failed to create group via adapter");
 
@@ -150,12 +162,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_adapter_with_custom_group_id() {
+    async fn test_adapter_get_group_id() {
         let config = MlsConfig::default();
         let group_id = GroupId::random();
         let identity = b"bob@example.com".to_vec();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let adapter = OpenMlsHandleAdapter::create_group(Some(group_id.clone()), identity, config)
+        let adapter = OpenMlsHandleAdapter::create_group(Some(group_id.clone()), identity, config, provider)
             .await
             .expect("Failed to create group");
 
@@ -166,14 +179,15 @@ mod tests {
     #[tokio::test]
     async fn test_adapter_multiple_instances() {
         let config = MlsConfig::default();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         let adapter1 =
-            OpenMlsHandleAdapter::create_group(None, b"user1@example.com".to_vec(), config.clone())
+            OpenMlsHandleAdapter::create_group(None, b"user1@example.com".to_vec(), config.clone(), provider.clone())
                 .await
                 .expect("Failed to create adapter 1");
 
         let adapter2 =
-            OpenMlsHandleAdapter::create_group(None, b"user2@example.com".to_vec(), config)
+            OpenMlsHandleAdapter::create_group(None, b"user2@example.com".to_vec(), config, provider.clone())
                 .await
                 .expect("Failed to create adapter 2");
 
@@ -187,8 +201,9 @@ mod tests {
     async fn test_adapter_snapshot_export() {
         let config = MlsConfig::default();
         let identity = b"alice@example.com".to_vec();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let adapter = OpenMlsHandleAdapter::create_group(None, identity, config)
+        let adapter = OpenMlsHandleAdapter::create_group(None, identity, config, provider)
             .await
             .expect("Failed to create group");
 
@@ -205,8 +220,9 @@ mod tests {
     async fn test_adapter_snapshot_save_load() {
         let config = MlsConfig::default();
         let identity = b"bob@example.com".to_vec();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let adapter = OpenMlsHandleAdapter::create_group(None, identity, config)
+        let adapter = OpenMlsHandleAdapter::create_group(None, identity, config, provider)
             .await
             .expect("Failed to create group");
 

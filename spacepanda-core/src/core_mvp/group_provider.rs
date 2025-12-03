@@ -82,6 +82,30 @@ impl Default for GroupConfig {
 /// without coupling to specific provider details.
 #[async_trait]
 pub trait GroupProvider: Send + Sync {
+    /// Generate a key package for joining groups
+    ///
+    /// Generates a KeyPackageBundle with cryptographic material and stores it
+    /// in the provider's storage. Returns only the serialized public key package
+    /// that can be shared with group administrators for creating invites.
+    ///
+    /// # Arguments
+    ///
+    /// * `identity` - User's identity bytes
+    ///
+    /// # Returns
+    ///
+    /// Serialized public key package bytes (Vec<u8>) that can be shared
+    /// with group admins. The private KeyPackageBundle is stored internally
+    /// and will be used when joining from a Welcome message.
+    ///
+    /// # Implementation Notes
+    ///
+    /// The KeyPackageBundle contains both public and private keys. Only the
+    /// public portion is returned. When `join_from_welcome` is called later,
+    /// the MLS provider will automatically find and use the stored private
+    /// keys to decrypt the Welcome message.
+    async fn generate_key_package(&self, identity: &[u8]) -> MvpResult<Vec<u8>>;
+
     /// Create a new MLS group
     ///
     /// # Arguments

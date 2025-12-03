@@ -40,6 +40,12 @@ impl Default for MockGroupProvider {
 
 #[async_trait]
 impl GroupProvider for MockGroupProvider {
+    async fn generate_key_package(&self, identity: &[u8]) -> MvpResult<Vec<u8>> {
+        // For mock: just return the identity as the key package
+        // In a real implementation, this would generate actual crypto material
+        Ok(identity.to_vec())
+    }
+
     async fn create_group(
         &self,
         identity: &[u8],

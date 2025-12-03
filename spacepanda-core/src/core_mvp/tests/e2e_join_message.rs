@@ -16,7 +16,7 @@
 
 use crate::core_mvp::channel_manager::{ChannelManager, Identity};
 use crate::core_mvp::errors::MvpResult;
-use crate::core_store::model::types::UserId;  // Use the store's UserId, not identity's
+use crate::core_store::model::types::UserId;
 use crate::core_mls::service::MlsService;
 use crate::core_store::store::local_store::{LocalStore, LocalStoreConfig};
 use crate::config::Config;
@@ -24,6 +24,10 @@ use crate::shutdown::ShutdownCoordinator;
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::tempdir;
+
+// OpenMLS imports for key package generation
+use openmls::prelude::*;
+use openmls_rust_crypto::OpenMlsRustCrypto;
 
 /// Helper to create a test manager instance with isolated storage
 async fn create_test_manager(name: &str) -> (Arc<ChannelManager>, tempfile::TempDir) {

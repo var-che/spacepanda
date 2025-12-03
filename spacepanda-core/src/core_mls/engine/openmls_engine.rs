@@ -55,13 +55,15 @@ impl OpenMlsEngine {
     /// * `group_id` - Unique group identifier
     /// * `identity` - Member identity (username/user ID)
     /// * `config` - Group configuration
+    /// * `provider` - Shared crypto provider (for key continuity)
     pub async fn create_group(
         group_id: GroupId,
         identity: Vec<u8>,
         config: MlsConfig,
+        provider: Arc<OpenMlsRustCrypto>,
     ) -> MlsResult<Self> {
-        // Create crypto provider
-        let provider = Arc::new(OpenMlsRustCrypto::default());
+        // Use the provided shared provider (critical for key continuity)
+        // let provider = Arc::new(OpenMlsRustCrypto::default()); // REMOVED
 
         // Define ciphersuite
         let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
@@ -166,14 +168,16 @@ impl OpenMlsEngine {
     /// * `config` - Group configuration
     /// * `key_package_bundle` - Optional KeyPackageBundle with private keys for this member
     ///   If provided, uses existing crypto material. If None, generates new keys.
+    /// * `provider` - Shared crypto provider (must be same one used for key package generation)
     pub async fn join_from_welcome(
         welcome_bytes: &[u8],
         ratchet_tree: Option<Vec<u8>>,
         config: MlsConfig,
         key_package_bundle: Option<KeyPackageBundle>,
+        provider: Arc<OpenMlsRustCrypto>,
     ) -> MlsResult<Self> {
-        // Create crypto provider
-        let provider = Arc::new(OpenMlsRustCrypto::default());
+        // Use the provided shared provider (critical for finding stored KeyPackageBundle)
+        // let provider = Arc::new(OpenMlsRustCrypto::default()); // REMOVED
 
         // Parse Welcome message
         let mls_message = MlsMessageIn::tls_deserialize_exact(welcome_bytes)
@@ -626,8 +630,9 @@ mod tests {
         let group_id = GroupId::random();
         let identity = b"alice".to_vec();
         let config = MlsConfig::default();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let result = OpenMlsEngine::create_group(group_id.clone(), identity, config).await;
+        let result = OpenMlsEngine::create_group(group_id.clone(), identity, config, provider).await;
 
         assert!(result.is_ok());
 
@@ -643,8 +648,9 @@ mod tests {
         let group_id = GroupId::random();
         let identity = b"alice".to_vec();
         let config = MlsConfig::default();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let engine = OpenMlsEngine::create_group(group_id.clone(), identity, config)
+        let engine = OpenMlsEngine::create_group(group_id.clone(), identity, config, provider)
             .await
             .expect("Failed to create group");
 
@@ -659,8 +665,9 @@ mod tests {
         let group_id = GroupId::random();
         let identity = b"bob".to_vec();
         let config = MlsConfig::default();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let engine = OpenMlsEngine::create_group(group_id.clone(), identity, config)
+        let engine = OpenMlsEngine::create_group(group_id.clone(), identity, config, provider)
             .await
             .expect("Failed to create group");
 
@@ -685,9 +692,10 @@ mod tests {
         let group_id = GroupId::random();
         let identity = b"charlie".to_vec();
         let config = MlsConfig::default();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
 
         // Create engine and subscribe to events
-        let engine = OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config)
+        let engine = OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config, provider)
             .await
             .expect("Failed to create group");
 

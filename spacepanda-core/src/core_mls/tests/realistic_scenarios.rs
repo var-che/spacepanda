@@ -175,7 +175,8 @@ impl UserContext {
 async fn create_user(name: &str) -> (Vec<u8>, Arc<OpenMlsHandleAdapter>) {
     let identity = name.as_bytes().to_vec();
     let config = MlsConfig::default();
-    let adapter = OpenMlsHandleAdapter::create_group(None, identity.clone(), config)
+    let provider = Arc::new(OpenMlsRustCrypto::default());
+    let adapter = OpenMlsHandleAdapter::create_group(None, identity.clone(), config, provider)
         .await
         .unwrap();
     (identity, Arc::new(adapter))
@@ -358,8 +359,9 @@ mod scenario_tests {
 
         // Create a group with multiple members using adapters
         let config = MlsConfig::default();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
         let bob_adapter = Arc::new(
-            OpenMlsHandleAdapter::create_group(None, bob_ctx.identity.clone(), config.clone())
+            OpenMlsHandleAdapter::create_group(None, bob_ctx.identity.clone(), config.clone(), provider.clone())
                 .await
                 .unwrap(),
         );
