@@ -19,7 +19,7 @@ data:
     connection_timeout = "30s"
     shutdown_timeout = "30s"
     enable_tls = false
-    
+
     [dht]
     bucket_count = 256
     bucket_size = 20
@@ -27,7 +27,7 @@ data:
     sync_interval = "60s"
     peer_timeout = "300s"
     bootstrap_peers = []
-    
+
     [store]
     data_dir = "/app/data"
     enable_wal = true
@@ -35,20 +35,20 @@ data:
     max_snapshot_size = 104857600
     enable_compression = true
     tombstone_cleanup_interval = "3600s"
-    
+
     [logging]
     level = "info"
     json_format = true
     with_timestamp = true
     with_target = true
-    
+
     [metrics]
     enabled = true
     bind_address = "0.0.0.0:9090"
     collection_interval = "15s"
     enable_prometheus = true
     enable_opentelemetry = false
-    
+
     [features]
     experimental = false
     dht_replication = true
@@ -92,70 +92,70 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       containers:
-      - name: spacepanda-core
-        image: spacepanda/core:latest
-        imagePullPolicy: IfNotPresent
-        ports:
-        - name: http
-          containerPort: 8080
-          protocol: TCP
-        - name: metrics
-          containerPort: 9090
-          protocol: TCP
-        env:
-        - name: SPACEPANDA_LOG_LEVEL
-          value: "info"
-        - name: SPACEPANDA_LOG_JSON
-          value: "true"
-        - name: SPACEPANDA_METRICS_ENABLED
-          value: "true"
-        - name: SPACEPANDA_SERVER_BIND_ADDRESS
-          value: "0.0.0.0:8080"
-        - name: SPACEPANDA_METRICS_BIND_ADDRESS
-          value: "0.0.0.0:9090"
-        resources:
-          requests:
-            cpu: 500m
-            memory: 512Mi
-          limits:
-            cpu: 2000m
-            memory: 2Gi
-        livenessProbe:
-          httpGet:
-            path: /health/live
-            port: 8080
-          initialDelaySeconds: 10
-          periodSeconds: 30
-          timeoutSeconds: 3
-          failureThreshold: 3
-        readinessProbe:
-          httpGet:
-            path: /health/ready
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 10
-          timeoutSeconds: 3
-          failureThreshold: 3
-        volumeMounts:
-        - name: config
-          mountPath: /app/config
-          readOnly: true
-        - name: data
-          mountPath: /app/data
-        securityContext:
-          runAsNonRoot: true
-          runAsUser: 1000
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
+        - name: spacepanda-core
+          image: spacepanda/core:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: SPACEPANDA_LOG_LEVEL
+              value: "info"
+            - name: SPACEPANDA_LOG_JSON
+              value: "true"
+            - name: SPACEPANDA_METRICS_ENABLED
+              value: "true"
+            - name: SPACEPANDA_SERVER_BIND_ADDRESS
+              value: "0.0.0.0:8080"
+            - name: SPACEPANDA_METRICS_BIND_ADDRESS
+              value: "0.0.0.0:9090"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: data
+              mountPath: /app/data
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
       volumes:
-      - name: config
-        configMap:
-          name: spacepanda-config
-      - name: data
-        persistentVolumeClaim:
-          claimName: spacepanda-data
+        - name: config
+          configMap:
+            name: spacepanda-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: spacepanda-data
 ---
 apiVersion: v1
 kind: Service
@@ -167,14 +167,14 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-  - name: http
-    port: 8080
-    targetPort: 8080
-    protocol: TCP
-  - name: metrics
-    port: 9090
-    targetPort: 9090
-    protocol: TCP
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
   selector:
     app: spacepanda-core
 ---
@@ -191,10 +191,10 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-  - name: metrics
-    port: 9090
-    targetPort: 9090
-    protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
   selector:
     app: spacepanda-core
 ---
@@ -208,20 +208,20 @@ metadata:
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   tls:
-  - hosts:
-    - spacepanda.example.com
-    secretName: spacepanda-tls
+    - hosts:
+        - spacepanda.example.com
+      secretName: spacepanda-tls
   rules:
-  - host: spacepanda.example.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: spacepanda-core
-            port:
-              number: 8080
+    - host: spacepanda.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: spacepanda-core
+                port:
+                  number: 8080
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
@@ -236,15 +236,15 @@ spec:
   minReplicas: 3
   maxReplicas: 10
   metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 70
-  - type: Resource
-    resource:
-      name: memory
-      target:
-        type: Utilization
-        averageUtilization: 80
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

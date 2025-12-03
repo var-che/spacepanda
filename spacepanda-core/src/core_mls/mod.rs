@@ -44,6 +44,9 @@ pub mod storage;
 // OpenMLS engine wrapper (Phase 3)
 pub mod engine;
 
+// High-level service with production integration
+pub mod service;
+
 // Message lifecycle (envelopes, routing)
 pub mod messages;
 

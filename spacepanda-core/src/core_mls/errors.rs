@@ -99,6 +99,10 @@ pub enum MlsError {
     /// Other error
     #[error("Other: {0}")]
     Other(String),
+
+    /// Service unavailable (e.g., shutting down)
+    #[error("Service unavailable: {0}")]
+    ServiceUnavailable(String),
 }
 
 impl From<openmls::prelude::LibraryError> for MlsError {

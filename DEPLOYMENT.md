@@ -32,6 +32,7 @@ This guide covers production deployment of SpacePanda Core using Docker, Docker 
 SpacePanda Core uses environment variables for configuration. All variables follow the pattern `SPACEPANDA_<SECTION>_<KEY>`.
 
 **Server Configuration:**
+
 ```bash
 SPACEPANDA_SERVER_BIND_ADDRESS=0.0.0.0:8080
 SPACEPANDA_SERVER_MAX_CONNECTIONS=10000
@@ -39,24 +40,28 @@ SPACEPANDA_SERVER_ENABLE_TLS=false
 ```
 
 **DHT Configuration:**
+
 ```bash
 SPACEPANDA_DHT_BUCKET_SIZE=20
 SPACEPANDA_DHT_REPLICATION_FACTOR=3
 ```
 
 **Store Configuration:**
+
 ```bash
 SPACEPANDA_STORE_DATA_DIR=/app/data
 SPACEPANDA_STORE_ENABLE_WAL=true
 ```
 
 **Logging Configuration:**
+
 ```bash
 SPACEPANDA_LOG_LEVEL=info  # trace, debug, info, warn, error
 SPACEPANDA_LOG_JSON=true   # Enable JSON structured logging
 ```
 
 **Metrics Configuration:**
+
 ```bash
 SPACEPANDA_METRICS_ENABLED=true
 SPACEPANDA_METRICS_BIND_ADDRESS=0.0.0.0:9090
@@ -168,6 +173,7 @@ kubectl apply -f deploy/kubernetes.yaml
 ### Deployment Steps
 
 1. **Create ConfigMap:**
+
 ```bash
 kubectl create configmap spacepanda-config \
   --from-file=config/config.toml \
@@ -175,17 +181,20 @@ kubectl create configmap spacepanda-config \
 ```
 
 2. **Create PersistentVolumeClaim:**
+
 ```bash
 # Already included in kubernetes.yaml
 kubectl get pvc -n spacepanda
 ```
 
 3. **Deploy Application:**
+
 ```bash
 kubectl apply -f deploy/kubernetes.yaml
 ```
 
 4. **Verify Deployment:**
+
 ```bash
 # Check pods
 kubectl get pods -n spacepanda
@@ -233,16 +242,19 @@ SpacePanda exposes Prometheus metrics on port 9090:
 **Available Metrics:**
 
 - **CRDT Metrics:**
+
   - `crdt.or_set.add` - ORSet add operations
   - `crdt.or_set.merge` - ORSet merge operations
   - `crdt.or_set.merge.duration_ms` - Merge duration
 
 - **DHT Metrics:**
+
   - `dht.requests.total` - Total DHT requests
   - `dht.peers.active` - Active peer count
   - `dht.request.duration_ms` - Request latency
 
 - **Store Metrics:**
+
   - `store.operations.total` - Total store ops
   - `store.size.bytes` - Store size
   - `store.tombstones.count` - Tombstone count
@@ -310,6 +322,7 @@ curl http://localhost:8080/health/ready
 ```
 
 **Response:**
+
 ```json
 {
   "status": "healthy",
@@ -397,6 +410,7 @@ SPACEPANDA_LOG_LEVEL=debug docker-compose up
 ### Support
 
 For issues:
+
 1. Check logs: `docker logs` or `kubectl logs`
 2. Verify health: `/health/ready` endpoint
 3. Review metrics: `/metrics` endpoint
@@ -434,11 +448,13 @@ tls_key_path = "/app/config/key.pem"
 ### Resource Allocation
 
 **Recommended:**
+
 - CPU: 1-2 cores
 - Memory: 1-2 GB
 - Storage: 10+ GB SSD
 
 **High Load:**
+
 - CPU: 4+ cores
 - Memory: 4+ GB
 - Storage: 50+ GB NVMe SSD
