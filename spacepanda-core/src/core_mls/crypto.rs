@@ -11,8 +11,13 @@
 use super::errors::{MlsError, MlsResult};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand::RngCore;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Ed25519 signing key (secret key)
+/// 
+/// Implements `ZeroizeOnDrop` to ensure the secret key is securely
+/// erased from memory when dropped.
+#[derive(ZeroizeOnDrop)]
 pub struct MlsSigningKey {
     inner: SigningKey,
 }

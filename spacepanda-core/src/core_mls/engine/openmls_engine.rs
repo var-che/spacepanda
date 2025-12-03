@@ -474,8 +474,26 @@ impl OpenMlsEngine {
         // Get group ID
         let group_id = GroupId::new(group.group_id().as_slice().to_vec());
         
-        // Get members
-        let members = self.get_members_internal(&group)?;
+        // Get members with join times from our tracking HashMap
+        let join_times = self.member_join_times.read().await.clone();
+        let fallback_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
+        let members: Vec<MemberInfo> = group.members()
+            .map(|member| {
+                let identity = member.credential.serialized_content().to_vec();
+                let leaf_index = member.index.u32();
+                let joined_at = join_times.get(&leaf_index).copied().unwrap_or(fallback_time);
+                
+                MemberInfo {
+                    identity,
+                    leaf_index,
+                    joined_at,
+                }
+            })
+            .collect();
         
         // Get own leaf index - convert LeafNodeIndex to u32
         let own_leaf_index = group.own_leaf_index().u32();
@@ -498,8 +516,10 @@ impl OpenMlsEngine {
         let mut members = Vec::new();
         
         // Get join times from our tracking HashMap
-        let join_times = futures::executor::block_on(async {
-            self.member_join_times.read().await.clone()
+        let join_times = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.member_join_times.read().await.clone()
+            })
         });
         
         // Fallback timestamp if member not found in tracking
