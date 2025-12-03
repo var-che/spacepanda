@@ -18,7 +18,9 @@ use tls_codec::{Deserialize as TlsDeserialize, Serialize as TlsSerialize};
 /// Provides high-level MLS operations while abstracting OpenMLS details.
 pub trait GroupOperations {
     /// Add members to the group
-    async fn add_members(&self, key_packages: Vec<Vec<u8>>) -> MlsResult<Vec<u8>>;
+    ///
+    /// Returns: (commit_message, optional_welcome_message)
+    async fn add_members(&self, key_packages: Vec<Vec<u8>>) -> MlsResult<(Vec<u8>, Option<Vec<u8>>)>;
     
     /// Remove members from the group
     async fn remove_members(&self, leaf_indices: Vec<u32>) -> MlsResult<Vec<u8>>;
@@ -62,8 +64,8 @@ impl GroupOperations for OpenMlsEngine {
     /// * `key_packages` - Serialized KeyPackages for new members
     ///
     /// # Returns
-    /// Serialized commit message to broadcast to all members
-    async fn add_members(&self, key_packages: Vec<Vec<u8>>) -> MlsResult<Vec<u8>> {
+    /// Tuple of (serialized commit message, optional serialized Welcome message)
+    async fn add_members(&self, key_packages: Vec<Vec<u8>>) -> MlsResult<(Vec<u8>, Option<Vec<u8>>)> {
         let mut group = self.group.write().await;
         
         // Parse key packages using TlsDeserialize trait
@@ -78,7 +80,7 @@ impl GroupOperations for OpenMlsEngine {
             .collect::<Result<Vec<_>, _>>()?;
         
         // Add members (creates proposals and commits them)
-        let (commit_msg, _welcome_msg, _group_info) = group.add_members(
+        let (commit_msg, welcome_msg, _group_info) = group.add_members(
             self.provider(),
             self.signature_keys(),
             &parsed_packages,
@@ -92,8 +94,32 @@ impl GroupOperations for OpenMlsEngine {
         group.merge_pending_commit(self.provider())
             .map_err(|e| MlsError::InvalidMessage(format!("Failed to merge commit: {:?}", e)))?;
         
-        // Drop the write lock before emitting events
+        // Record join times for new members
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
+        // Find leaf indices of newly added members
+        let mut new_member_indices = Vec::new();
+        for member in group.members() {
+            let member_identity = member.credential.serialized_content();
+            for kp in &parsed_packages {
+                let kp_identity = kp.leaf_node().credential().serialized_content();
+                if member_identity == kp_identity {
+                    new_member_indices.push(member.index.u32());
+                    break;
+                }
+            }
+        }
+        
+        // Drop the write lock before accessing member_join_times
         drop(group);
+        
+        // Record join times
+        for leaf_index in &new_member_indices {
+            self.record_join_time(*leaf_index, now).await;
+        }
         
         // Emit MemberAdded events for each new member
         for key_package in &parsed_packages {
@@ -107,8 +133,14 @@ impl GroupOperations for OpenMlsEngine {
         }
         
         // Serialize commit for transport
-        commit_msg.tls_serialize_detached()
-            .map_err(|e| MlsError::SerializationError(format!("Failed to serialize commit: {:?}", e)))
+        let commit_bytes = commit_msg.tls_serialize_detached()
+            .map_err(|e| MlsError::SerializationError(format!("Failed to serialize commit: {:?}", e)))?;
+        
+        // Serialize Welcome message - OpenMLS always returns one when adding members
+        let welcome_bytes = welcome_msg.tls_serialize_detached()
+            .map_err(|e| MlsError::SerializationError(format!("Failed to serialize Welcome: {:?}", e)))?;
+        
+        Ok((commit_bytes, Some(welcome_bytes)))
     }
     
     /// Remove members from the group
@@ -142,6 +174,11 @@ impl GroupOperations for OpenMlsEngine {
         
         // Drop the write lock before emitting events
         drop(group);
+        
+        // Clean up join times for removed members
+        for &idx in &leaf_indices {
+            self.remove_join_time(idx).await;
+        }
         
         // Emit MemberRemoved events for each removed member
         // Note: Using leaf index as member_id since credentials aren't easily accessible

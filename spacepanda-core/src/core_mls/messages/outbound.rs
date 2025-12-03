@@ -100,7 +100,7 @@ impl OutboundBuilder {
         // For now, we skip the proposal step and go straight to commit
         // In a production system, you'd first create proposals, then commit them
         use crate::core_mls::engine::group_ops::GroupOperations;
-        let commit_payload = engine.add_members(key_packages).await?;
+        let (commit_payload, _welcome) = engine.add_members(key_packages).await?;
         
         // Wrap in envelope as a commit (since add_members commits immediately)
         Ok(EncryptedEnvelope::new(

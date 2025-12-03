@@ -14,6 +14,7 @@ use openmls::prelude::*;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use std::sync::Arc;
+use std::collections::HashMap;
 use tokio::sync::RwLock;
 use tls_codec::{Deserialize as TlsDeserialize, Serialize as TlsSerialize};
 
@@ -42,6 +43,9 @@ pub struct OpenMlsEngine {
     
     /// Event broadcaster for emitting state changes
     event_broadcaster: EventBroadcaster,
+    
+    /// Track when each member joined (leaf_index -> unix timestamp)
+    member_join_times: Arc<RwLock<HashMap<u32, u64>>>,
 }
 
 impl OpenMlsEngine {
@@ -102,6 +106,14 @@ impl OpenMlsEngine {
         // Create event broadcaster
         let event_broadcaster = EventBroadcaster::default();
         
+        // Initialize member join times with creator's join time
+        let mut join_times = HashMap::new();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        join_times.insert(0u32, now); // Creator is always at leaf index 0
+        
         let engine = Self {
             group: Arc::new(RwLock::new(group)),
             provider,
@@ -109,6 +121,7 @@ impl OpenMlsEngine {
             signature_keys,
             credential: credential_bundle.clone(),
             event_broadcaster: event_broadcaster.clone(),
+            member_join_times: Arc::new(RwLock::new(join_times)),
         };
         
         // Emit GroupCreated event
@@ -197,6 +210,9 @@ impl OpenMlsEngine {
         // Create event broadcaster
         let event_broadcaster = EventBroadcaster::default();
         
+        // Initialize member join times - we'll populate from group state
+        let join_times = HashMap::new();
+        
         let engine = Self {
             group: Arc::new(RwLock::new(group)),
             provider,
@@ -204,6 +220,7 @@ impl OpenMlsEngine {
             signature_keys,
             credential: credential_bundle,
             event_broadcaster: event_broadcaster.clone(),
+            member_join_times: Arc::new(RwLock::new(join_times)),
         };
         
         // Emit GroupJoined event
@@ -278,6 +295,25 @@ impl OpenMlsEngine {
     /// A receiver for MLS events from this group
     pub fn subscribe_events(&self) -> tokio::sync::broadcast::Receiver<MlsEvent> {
         self.event_broadcaster.subscribe()
+    }
+    
+    /// Record join time for a member
+    ///
+    /// # Arguments
+    /// * `leaf_index` - Leaf index of the member
+    /// * `timestamp` - Unix timestamp when member joined
+    pub(crate) async fn record_join_time(&self, leaf_index: u32, timestamp: u64) {
+        let mut join_times = self.member_join_times.write().await;
+        join_times.insert(leaf_index, timestamp);
+    }
+    
+    /// Remove join time for a member (called on removal)
+    ///
+    /// # Arguments
+    /// * `leaf_index` - Leaf index of the member
+    pub(crate) async fn remove_join_time(&self, leaf_index: u32) {
+        let mut join_times = self.member_join_times.write().await;
+        join_times.remove(&leaf_index);
     }
     
     /// Send an application message to the group
@@ -422,10 +458,15 @@ impl OpenMlsEngine {
         let ratchet_tree_bytes = ratchet_tree.tls_serialize_detached()
             .map_err(|e| MlsError::Internal(format!("Failed to serialize ratchet tree: {:?}", e)))?;
         
-        // Get group context - Note: OpenMLS doesn't have export_group_context in 0.7.1
-        // We'll use the group ID and epoch as a minimal context placeholder
-        // For full state, ratchet tree contains most of what we need
-        let group_context_bytes = vec![]; // TODO: Use GroupInfo when available
+        // Export group info - this is the authoritative group context
+        // Note: We include the ratchet tree in the GroupInfo (with_ratchet_tree=true)
+        let group_info_msg = group.export_group_info(
+            self.provider.crypto(),
+            &self.signature_keys,
+            true, // Include ratchet tree in GroupInfo
+        ).map_err(|e| MlsError::Internal(format!("Failed to export group info: {:?}", e)))?;
+        let group_context_bytes = group_info_msg.tls_serialize_detached()
+            .map_err(|e| MlsError::Internal(format!("Failed to serialize group info: {:?}", e)))?;
         
         // Get epoch
         let epoch = group.epoch().as_u64();
@@ -455,7 +496,14 @@ impl OpenMlsEngine {
     /// Helper to extract members without holding the lock
     fn get_members_internal(&self, group: &MlsGroup) -> MlsResult<Vec<MemberInfo>> {
         let mut members = Vec::new();
-        let current_time = std::time::SystemTime::now()
+        
+        // Get join times from our tracking HashMap
+        let join_times = futures::executor::block_on(async {
+            self.member_join_times.read().await.clone()
+        });
+        
+        // Fallback timestamp if member not found in tracking
+        let fallback_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
@@ -463,11 +511,15 @@ impl OpenMlsEngine {
         for member in group.members() {
             // Extract identity from credential - use serialized credential as identity
             let identity = member.credential.serialized_content().to_vec();
+            let leaf_index = member.index.u32();
+            
+            // Get actual join time from our tracking, or use fallback
+            let joined_at = join_times.get(&leaf_index).copied().unwrap_or(fallback_time);
             
             members.push(MemberInfo {
                 identity,
-                leaf_index: member.index.u32(),
-                joined_at: current_time, // TODO: Track actual join time
+                leaf_index,
+                joined_at,
             });
         }
         
