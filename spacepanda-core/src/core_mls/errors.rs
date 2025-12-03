@@ -20,6 +20,10 @@ pub enum MlsError {
     #[error("Replay detected: {0}")]
     ReplayDetected(String),
 
+    /// Rate limit exceeded
+    #[error("Rate limit exceeded: {0}")]
+    RateLimitExceeded(String),
+
     /// Epoch mismatch (too old or too new)
     #[error("Epoch mismatch: expected {expected}, got {actual}")]
     EpochMismatch { expected: u64, actual: u64 },

@@ -99,6 +99,7 @@ While OpenMLS handles in-memory group state, SpacePanda adds its own persistence
 ### Why Not Custom Adapters?
 
 Creating custom adapters would:
+
 - ❌ Duplicate existing, audited code
 - ❌ Increase attack surface
 - ❌ Require ongoing crypto maintenance
@@ -106,6 +107,7 @@ Creating custom adapters would:
 - ❌ Risk protocol bugs
 
 Using OpenMlsRustCrypto:
+
 - ✅ Leverages battle-tested code
 - ✅ Minimal attack surface
 - ✅ Automatic security updates
@@ -121,6 +123,7 @@ Using OpenMlsRustCrypto:
 **Implementation**: `openmls_rust_crypto::RustCrypto`
 
 Provides:
+
 - **HPKE (RFC 9180)**: Hybrid Public Key Encryption
   - X25519 key exchange
   - AES-128-GCM encryption
@@ -135,12 +138,14 @@ Provides:
 **Implementation**: `openmls_rust_crypto::MemoryStorage`
 
 Provides:
+
 - Key package storage (in-memory)
 - PSK storage
 - Signature key pairs
 - Encryption keys
 
 **Note**: This is in-memory only. SpacePanda adds durability via:
+
 - `GroupSnapshot` serialization
 - Encrypted file persistence
 - Atomic snapshot export/import
@@ -150,6 +155,7 @@ Provides:
 **Implementation**: Uses `ring::rand::SystemRandom`
 
 Provides:
+
 - Cryptographically secure randomness
 - Nonce generation
 - Salt generation
@@ -251,11 +257,13 @@ std::fs::write("group.mls", blob_bytes)?;
 ### Key Material Handling
 
 1. **Signature Keys**: Stored in OpenMLS's key store
+
    - Accessible via `provider.storage()`
    - Protected by Rust's type system
    - Zeroized on drop (via openmls_rust_crypto)
 
 2. **Encryption Keys**: Derived per-message
+
    - Never stored directly
    - Derived from ratchet tree secrets
    - Zeroized after use
@@ -268,11 +276,13 @@ std::fs::write("group.mls", blob_bytes)?;
 ### Storage Security
 
 **In-Memory (OpenMLS)**:
+
 - Transient key packages
 - PSKs for current session
 - Signature key pairs
 
 **On-Disk (SpacePanda)**:
+
 - Encrypted group snapshots
 - Argon2id key derivation (19 MiB memory, 2 iterations)
 - AES-256-GCM with per-blob nonces
@@ -289,16 +299,16 @@ std::fs::write("group.mls", blob_bytes)?;
 #[tokio::test]
 async fn test_openmls_provider_integration() {
     let provider = OpenMlsRustCrypto::default();
-    
+
     // Test crypto operations
     let keypair = SignatureKeyPair::new(
         Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
             .signature_algorithm()
     ).unwrap();
-    
+
     // Test storage
     keypair.store(provider.storage()).unwrap();
-    
+
     // Verify keys can be retrieved
     // (implicitly tested by group creation)
 }
@@ -322,22 +332,22 @@ All persistence tests use the OpenMLS provider:
 
 ### Provider Operations
 
-| Operation | Time (avg) | Notes |
-|-----------|------------|-------|
-| Key generation | ~100μs | Ed25519 keypair |
-| Signature | ~50μs | Ed25519 sign |
-| Verification | ~100μs | Ed25519 verify |
-| HPKE seal | ~200μs | X25519 + AES-GCM |
-| HPKE open | ~200μs | X25519 + AES-GCM |
+| Operation      | Time (avg) | Notes            |
+| -------------- | ---------- | ---------------- |
+| Key generation | ~100μs     | Ed25519 keypair  |
+| Signature      | ~50μs      | Ed25519 sign     |
+| Verification   | ~100μs     | Ed25519 verify   |
+| HPKE seal      | ~200μs     | X25519 + AES-GCM |
+| HPKE open      | ~200μs     | X25519 + AES-GCM |
 
 ### Persistence Operations
 
-| Operation | Time (avg) | Notes |
-|-----------|------------|-------|
-| Export snapshot | <1ms | Serialize + export |
-| Encrypt state | ~50ms | Argon2 dominates |
-| Decrypt state | ~50ms | Argon2 dominates |
-| File write | <5ms | Depends on filesystem |
+| Operation       | Time (avg) | Notes                 |
+| --------------- | ---------- | --------------------- |
+| Export snapshot | <1ms       | Serialize + export    |
+| Encrypt state   | ~50ms      | Argon2 dominates      |
+| Decrypt state   | ~50ms      | Argon2 dominates      |
+| File write      | <5ms       | Depends on filesystem |
 
 ---
 
@@ -346,6 +356,7 @@ All persistence tests use the OpenMLS provider:
 If custom storage is needed in the future:
 
 1. **Implement OpenMLS `StorageProvider`**:
+
    ```rust
    impl openmls_traits::storage::StorageProvider for CustomStorage {
        // ... delegate to FileKeystore
@@ -353,6 +364,7 @@ If custom storage is needed in the future:
    ```
 
 2. **Create Custom Backend**:
+
    ```rust
    struct CustomBackend {
        crypto: RustCrypto,
@@ -385,6 +397,7 @@ However, this is **not recommended** unless there's a specific requirement that 
 **Current Status**: ✅ Provider architecture is complete and functional
 
 The OpenMLS provider integration is production-ready with:
+
 - ✅ Full RFC 9420 compliance
 - ✅ Secure crypto operations
 - ✅ Robust persistence layer

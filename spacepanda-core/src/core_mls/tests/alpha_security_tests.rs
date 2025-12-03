@@ -361,21 +361,43 @@ mod security_tests {
     ///
     /// Goal: Send >N join/commit requests from one peer and verify rate-limit
     /// rejection.
-    ///
-    /// Note: This test is a placeholder. Full implementation requires
-    /// rate-limiting infrastructure from TASK 2.1
     #[tokio::test]
     async fn test_per_peer_rate_limiting() {
-        // TODO: Implement once rate-limiting infrastructure is added (TASK 2.1)
-        // 
-        // Expected behavior:
-        // 1. Configure rate limit (e.g., 10 requests per second per peer)
-        // 2. Send 20 rapid requests from same peer
-        // 3. Verify first 10 succeed, next 10 are rate-limited
-        // 4. Wait for window to reset
-        // 5. Verify requests succeed again
+        use crate::core_mls::rate_limit::{RateLimiter, RateLimitConfig};
+
+        // Create rate limiter with strict limits for testing
+        let config = RateLimitConfig {
+            max_requests_per_peer: 5,
+            window_secs: 60,
+            replay_cache_capacity: 100,
+            refill_rate: 5.0 / 60.0,  // Slow refill for testing
+        };
         
-        println!("⚠ Test 11 (rate-limiting): Deferred to TASK 2.1");
+        let limiter = RateLimiter::new(config);
+        let peer_id = b"alice@example.com";
+        
+        // First 5 requests should succeed
+        for i in 0..5 {
+            let result = limiter.check_rate_limit(peer_id).await;
+            assert!(result.is_ok(), "Request {} should succeed", i + 1);
+        }
+        
+        // 6th request should be rate-limited
+        let result = limiter.check_rate_limit(peer_id).await;
+        assert!(result.is_err(), "Request 6 should be rate-limited");
+        
+        // Verify the error is RateLimitExceeded
+        match result {
+            Err(crate::core_mls::errors::MlsError::RateLimitExceeded(_)) => {},
+            _ => panic!("Expected RateLimitExceeded error"),
+        }
+        
+        // Different peer should have independent limit
+        let peer2_id = b"bob@example.com";
+        let result = limiter.check_rate_limit(peer2_id).await;
+        assert!(result.is_ok(), "Different peer should not be rate-limited");
+        
+        println!("✓ Per-peer rate-limiting: Successfully enforced limits");
     }
 
     /// Test 4: Multi-device join + synchronization

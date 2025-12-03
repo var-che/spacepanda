@@ -50,6 +50,9 @@ pub mod messages;
 // State management (snapshots, persistence)
 pub mod state;
 
+// Rate limiting and DoS protection
+pub mod rate_limit;
+
 // Feature-gated MLS handle selector
 pub mod handle;
 

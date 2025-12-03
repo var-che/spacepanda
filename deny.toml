@@ -1,0 +1,84 @@
+# Configuration for cargo-deny
+#
+# This file defines security, licensing, and dependency policies for the SpacePanda project.
+# See https://embarkstudios.github.io/cargo-deny/ for full documentation.
+
+# Note: This config is compatible with cargo-deny 0.14.0+
+# Configuration has been migrated to use the new format per:
+# https://github.com/EmbarkStudios/cargo-deny/pull/611
+
+[advisories]
+# Database of known security vulnerabilities
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# Ignore specific advisories (use with extreme caution)
+ignore = [
+    # Example: "RUSTSEC-2021-0000",
+]
+
+[licenses]
+# List of explicitly allowed licenses
+# SpacePanda uses Apache-2.0 and is compatible with most permissive licenses
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "0BSD",
+    "Zlib",
+]
+
+# Confidence threshold for license detection
+confidence-threshold = 0.8
+
+# Exceptions for specific crates
+exceptions = [
+    # Ring uses a custom license (ISC-style + additions)
+    { allow = ["ISC", "MIT", "OpenSSL"], name = "ring" },
+]
+
+[licenses.private]
+# Allow private/unpublished crates to have unclear licenses
+ignore = false
+registries = []
+
+[bans]
+# Lint level for multiple versions of the same crate
+multiple-versions = "warn"
+
+# Lint level for wildcard dependencies (when a crate version requirement is `*`)
+wildcards = "deny"
+
+# Allow certain crates to have multiple versions
+# (Sometimes required due to ecosystem constraints)
+skip = [
+    # Example: { name = "windows-sys", version = "0.48" },
+]
+
+# Deny specific crates
+deny = [
+    # Example: { name = "openssl", reason = "use rustls instead" },
+]
+
+[sources]
+# Lint level for crates from unknown registries
+unknown-registry = "deny"
+
+# Lint level for crates from git sources
+unknown-git = "deny"
+
+# Allow crates from these git sources
+allow-git = []
+
+# Allowed registries
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[sources.allow-org]
+# Allow crates from specific GitHub organizations
+github = []
+
+
