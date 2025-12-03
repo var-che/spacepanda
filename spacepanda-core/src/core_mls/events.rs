@@ -2,6 +2,10 @@
 //!
 //! Events emitted by the MLS engine for consumption by other subsystems.
 
+pub mod broadcaster;
+
+pub use broadcaster::EventBroadcaster;
+
 use serde::{Deserialize, Serialize};
 
 /// MLS event type

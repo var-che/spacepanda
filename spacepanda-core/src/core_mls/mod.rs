@@ -47,6 +47,9 @@ pub mod engine;
 // Message lifecycle (envelopes, routing)
 pub mod messages;
 
+// State management (snapshots, persistence)
+pub mod state;
+
 // Feature-gated MLS handle selector
 pub mod handle;
 

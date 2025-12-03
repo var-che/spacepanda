@@ -84,9 +84,27 @@ impl GroupOperations for OpenMlsEngine {
             &parsed_packages,
         ).map_err(|e| MlsError::InvalidMessage(format!("Failed to add members: {:?}", e)))?;
         
+        // Get group info for events
+        let group_id = group.group_id().as_slice().to_vec();
+        let new_epoch = group.epoch().as_u64();
+        
         // Merge pending commit (CRITICAL!)
         group.merge_pending_commit(self.provider())
             .map_err(|e| MlsError::InvalidMessage(format!("Failed to merge commit: {:?}", e)))?;
+        
+        // Drop the write lock before emitting events
+        drop(group);
+        
+        // Emit MemberAdded events for each new member
+        for key_package in &parsed_packages {
+            // Extract member identity from credential
+            let member_id = key_package.leaf_node().credential().serialized_content().to_vec();
+            self.events().emit(MlsEvent::MemberAdded {
+                group_id: group_id.clone(),
+                member_id,
+                epoch: new_epoch,
+            });
+        }
         
         // Serialize commit for transport
         commit_msg.tls_serialize_detached()
@@ -108,6 +126,9 @@ impl GroupOperations for OpenMlsEngine {
             .map(|&idx| LeafNodeIndex::new(idx))
             .collect();
         
+        let group_id = group.group_id().as_slice().to_vec();
+        let new_epoch = group.epoch().as_u64();
+        
         // Remove members
         let (commit_msg, _welcome_opt, _group_info) = group.remove_members(
             self.provider(),
@@ -118,6 +139,19 @@ impl GroupOperations for OpenMlsEngine {
         // Merge pending commit
         group.merge_pending_commit(self.provider())
             .map_err(|e| MlsError::InvalidMessage(format!("Failed to merge commit: {:?}", e)))?;
+        
+        // Drop the write lock before emitting events
+        drop(group);
+        
+        // Emit MemberRemoved events for each removed member
+        // Note: Using leaf index as member_id since credentials aren't easily accessible
+        for &idx in &leaf_indices {
+            self.events().emit(MlsEvent::MemberRemoved {
+                group_id: group_id.clone(),
+                member_id: idx.to_be_bytes().to_vec(),  // Convert index to bytes
+                epoch: new_epoch,
+            });
+        }
         
         // Serialize commit for transport
         commit_msg.tls_serialize_detached()
