@@ -80,7 +80,7 @@ pub struct ChannelManager {
 }
 
 /// Simple identity holder (will integrate with core_identity later)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Identity {
     /// User ID
     pub user_id: UserId,
