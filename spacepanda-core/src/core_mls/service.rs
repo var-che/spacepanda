@@ -13,6 +13,8 @@ use crate::{
         engine::{adapter::OpenMlsHandleAdapter, GroupOperations},
         errors::{MlsError, MlsResult},
         events::{EventBroadcaster, MlsEvent},
+        storage::file_store::FileStorageProvider,
+        traits::storage::StorageProvider,
         types::{GroupId, GroupMetadata, MlsConfig},
     },
     health::{ComponentHealth, HealthStatus},
@@ -22,6 +24,7 @@ use crate::{
 };
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
@@ -54,6 +57,9 @@ pub struct MlsService {
     /// Storage for KeyPackageBundles indexed by serialized KeyPackage bytes
     /// This allows us to retrieve the correct signature keys when joining from Welcome
     key_package_bundles: Arc<RwLock<HashMap<Vec<u8>, KeyPackageBundle>>>,
+
+    /// Optional storage provider for persisting group state
+    storage: Option<Arc<dyn StorageProvider>>,
 }
 
 impl MlsService {
@@ -71,7 +77,115 @@ impl MlsService {
             shutdown,
             provider,
             key_package_bundles: Arc::new(RwLock::new(HashMap::new())),
+            storage: None,
         }
+    }
+
+    /// Create MLS service with file-based storage for persistence
+    pub fn with_storage(
+        config: &Config,
+        shutdown: Arc<ShutdownCoordinator>,
+        storage_dir: PathBuf,
+    ) -> MlsResult<Self> {
+        info!("Initializing MLS service with storage at: {:?}", storage_dir);
+
+        let mls_config = MlsConfig::default();
+        let provider = Arc::new(OpenMlsRustCrypto::default());
+        
+        // Create storage provider
+        let storage = Arc::new(FileStorageProvider::new(storage_dir, None)?);
+
+        Ok(Self {
+            groups: Arc::new(RwLock::new(HashMap::new())),
+            config: mls_config,
+            events: EventBroadcaster::default(),
+            shutdown,
+            provider,
+            key_package_bundles: Arc::new(RwLock::new(HashMap::new())),
+            storage: Some(storage),
+        })
+    }
+
+    /// Load all persisted groups from storage
+    ///
+    /// Should be called on service initialization to restore previous session state.
+    pub async fn load_persisted_groups(&self) -> MlsResult<usize> {
+        let Some(storage) = &self.storage else {
+            warn!("No storage configured, cannot load persisted groups");
+            return Ok(0);
+        };
+
+        info!("Loading persisted groups from storage");
+        
+        // In a real implementation, we'd list all snapshot files in the directory
+        // For now, we'll return 0 as we don't have a list operation
+        // This is a limitation to fix in production
+        
+        // TODO: Add list_snapshots() to StorageProvider trait
+        // For now, groups must be explicitly loaded by GroupId
+        
+        Ok(0)
+    }
+
+    /// Save a group's state to storage
+    pub async fn save_group(&self, group_id: &GroupId) -> MlsResult<()> {
+        let Some(storage) = &self.storage else {
+            // No storage configured, skip silently
+            return Ok(());
+        };
+
+        debug!("Saving group {} to storage", group_id);
+
+        let groups = self.groups.read().await;
+        let adapter = groups
+            .get(group_id)
+            .ok_or_else(|| MlsError::GroupNotFound(group_id.to_string()))?;
+
+        // Export snapshot
+        let snapshot = adapter.export_snapshot().await?;
+        
+        // Convert to persisted format
+        let snapshot_bytes = snapshot.to_bytes()?;
+        let persisted_snapshot = crate::core_mls::traits::storage::PersistedGroupSnapshot {
+            group_id: group_id.as_bytes().to_vec(),
+            epoch: snapshot.epoch,
+            serialized_group: snapshot_bytes,
+        };
+
+        // Save to storage
+        storage.save_group_snapshot(persisted_snapshot).await?;
+
+        info!("Successfully saved group {} at epoch {}", group_id, snapshot.epoch);
+        Ok(())
+    }
+
+    /// Load a group from storage and restore it to active groups
+    pub async fn load_group(&self, group_id: &GroupId) -> MlsResult<()> {
+        let Some(storage) = &self.storage else {
+            return Err(MlsError::Storage("No storage configured".to_string()));
+        };
+
+        info!("Loading group {} from storage", group_id);
+
+        // Load snapshot from storage
+        let persisted_snapshot = storage
+            .load_group_snapshot(&group_id.as_bytes().to_vec())
+            .await?;
+
+        // TODO: Restore group from snapshot
+        // This requires implementing restoration in OpenMlsHandleAdapter
+        // For MVP, we'll log that this needs implementation
+        
+        warn!("Group restoration from snapshot not yet implemented");
+        warn!("Loaded snapshot: epoch={}, size={} bytes", 
+            persisted_snapshot.epoch, 
+            persisted_snapshot.serialized_group.len()
+        );
+
+        // For now, return error indicating this is not yet supported
+        Err(MlsError::Internal(
+            "Group restoration from snapshot not yet implemented".to_string()
+        ))
     }
 
     /// Generate a key package for joining groups
@@ -201,6 +315,13 @@ impl MlsService {
             groups.insert(gid.clone(), Arc::new(adapter));
         }
 
+        // Save to storage if configured
+        if self.storage.is_some() {
+            if let Err(e) = self.save_group(&gid).await {
+                warn!("Failed to save newly created group {}: {}", gid, e);
+            }
+        }
+
         // Emit event
         self.events.emit(MlsEvent::GroupCreated {
             group_id: gid.as_bytes().to_vec(),
@@ -253,6 +374,13 @@ impl MlsService {
         {
             let mut groups = self.groups.write().await;
             groups.insert(gid.clone(), Arc::new(adapter));
+        }
+
+        // Save to storage if configured
+        if self.storage.is_some() {
+            if let Err(e) = self.save_group(&gid).await {
+                warn!("Failed to save joined group {}: {}", gid, e);
+            }
         }
 
         // Event will be emitted by the engine when processing Welcome

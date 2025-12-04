@@ -215,7 +215,13 @@ async fn load_manager(data_dir: &PathBuf) -> Result<Arc<ChannelManager>> {
     // Initialize services
     let config = Arc::new(Config::default());
     let shutdown = Arc::new(ShutdownCoordinator::new(std::time::Duration::from_secs(30)));
-    let mls_service = Arc::new(MlsService::new(&config, shutdown));
+    
+    // Create MLS service with storage persistence
+    let mls_storage_dir = data_dir.join("mls_groups");
+    let mls_service = Arc::new(
+        MlsService::with_storage(&config, shutdown, mls_storage_dir)
+            .with_context(|| "Failed to initialize MLS service with storage")?
+    );
     
     // Initialize store
     let store_config = LocalStoreConfig {
