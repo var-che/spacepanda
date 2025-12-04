@@ -38,9 +38,9 @@ impl OutboundBuilder {
     ///
     /// # Returns
     /// An encrypted envelope ready for transport
-    pub async fn build_application_message(
+    pub async fn build_application_message<P: openmls_traits::OpenMlsProvider + 'static>(
         &self,
-        engine: &OpenMlsEngine,
+        engine: &OpenMlsEngine<P>,
         plaintext: &[u8],
     ) -> MlsResult<EncryptedEnvelope> {
         let group_id = engine.group_id().await;
@@ -66,9 +66,9 @@ impl OutboundBuilder {
     ///
     /// # Returns
     /// An encrypted envelope ready for transport, plus optional Welcome messages
-    pub async fn build_commit_message(
+    pub async fn build_commit_message<P: openmls_traits::OpenMlsProvider + 'static>(
         &self,
-        engine: &OpenMlsEngine,
+        engine: &OpenMlsEngine<P>,
     ) -> MlsResult<(EncryptedEnvelope, Option<Vec<Vec<u8>>>)> {
         let group_id = engine.group_id().await;
         let epoch = engine.epoch().await;
@@ -92,9 +92,9 @@ impl OutboundBuilder {
     ///
     /// Note: Currently returns the raw serialized proposal.
     /// In a full implementation, this would create a Proposal message.
-    pub async fn build_add_proposal(
+    pub async fn build_add_proposal<P: openmls_traits::OpenMlsProvider + 'static>(
         &self,
-        engine: &OpenMlsEngine,
+        engine: &OpenMlsEngine<P>,
         key_packages: Vec<Vec<u8>>,
     ) -> MlsResult<EncryptedEnvelope> {
         let group_id = engine.group_id().await;
@@ -119,9 +119,9 @@ impl OutboundBuilder {
     ///
     /// Note: Currently returns the raw serialized proposal.
     /// In a full implementation, this would create a Proposal message.
-    pub async fn build_remove_proposal(
+    pub async fn build_remove_proposal<P: openmls_traits::OpenMlsProvider + 'static>(
         &self,
-        engine: &OpenMlsEngine,
+        engine: &OpenMlsEngine<P>,
         leaf_indices: Vec<u32>,
     ) -> MlsResult<EncryptedEnvelope> {
         let group_id = engine.group_id().await;

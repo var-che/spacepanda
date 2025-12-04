@@ -40,6 +40,7 @@ pub mod traits;
 pub mod integration;
 pub mod providers;
 pub mod storage;
+pub mod persistent_provider;
 
 // OpenMLS engine wrapper (Phase 3)
 pub mod engine;

@@ -13,6 +13,7 @@ use crate::{
         engine::{adapter::OpenMlsHandleAdapter, GroupOperations},
         errors::{MlsError, MlsResult},
         events::{EventBroadcaster, MlsEvent},
+        persistent_provider::PersistentProvider,
         storage::file_store::FileStorageProvider,
         traits::storage::StorageProvider,
         types::{GroupId, GroupMetadata, MlsConfig},
@@ -33,13 +34,13 @@ use tracing::{debug, error, info, warn};
 use openmls::prelude::*;
 use openmls::prelude::tls_codec::Serialize;
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_rust_crypto::OpenMlsRustCrypto;
+use openmls_traits::OpenMlsProvider;
 use openmls::key_packages::KeyPackage as MlsKeyPackage;
 
 /// MLS Service for managing multiple groups
 pub struct MlsService {
     /// Active MLS groups indexed by GroupId
-    groups: Arc<RwLock<HashMap<GroupId, Arc<OpenMlsHandleAdapter>>>>,
+    groups: Arc<RwLock<HashMap<GroupId, Arc<OpenMlsHandleAdapter<PersistentProvider>>>>>,
 
     /// Service configuration
     config: MlsConfig,
@@ -52,13 +53,14 @@ pub struct MlsService {
 
     /// Shared crypto provider for all MLS operations
     /// This is necessary for key package bundles to be found when joining from Welcome
-    provider: Arc<OpenMlsRustCrypto>,
+    /// Now using PersistentProvider which automatically saves/loads OpenMLS state
+    provider: Arc<PersistentProvider>,
 
     /// Storage for KeyPackageBundles indexed by serialized KeyPackage bytes
     /// This allows us to retrieve the correct signature keys when joining from Welcome
     key_package_bundles: Arc<RwLock<HashMap<Vec<u8>, KeyPackageBundle>>>,
 
-    /// Optional storage provider for persisting group state
+    /// Optional storage provider for persisting group state (our custom snapshots)
     storage: Option<Arc<dyn StorageProvider>>,
 }
 
@@ -68,7 +70,7 @@ impl MlsService {
         info!("Initializing MLS service");
 
         let mls_config = MlsConfig::default();
-        let provider = Arc::new(OpenMlsRustCrypto::default());
+        let provider = Arc::new(PersistentProvider::default());
 
         Self {
             groups: Arc::new(RwLock::new(HashMap::new())),
@@ -90,10 +92,14 @@ impl MlsService {
         info!("Initializing MLS service with storage at: {:?}", storage_dir);
 
         let mls_config = MlsConfig::default();
-        let provider = Arc::new(OpenMlsRustCrypto::default());
         
-        // Create storage provider
-        let storage = Arc::new(FileStorageProvider::new(storage_dir, None)?);
+        // Create persistent provider that saves/loads OpenMLS state
+        let openmls_storage_path = storage_dir.join("openmls_state.json");
+        let provider = Arc::new(PersistentProvider::new(&openmls_storage_path)?);
+        
+        // Create storage provider for our custom snapshots (optional, for debugging)
+        let snapshot_dir = storage_dir.join("snapshots");
+        let storage = Arc::new(FileStorageProvider::new(snapshot_dir, None)?);
 
         Ok(Self {
             groups: Arc::new(RwLock::new(HashMap::new())),
@@ -109,22 +115,63 @@ impl MlsService {
     /// Load all persisted groups from storage
     ///
     /// Should be called on service initialization to restore previous session state.
+    /// 
+    /// Note: Currently this loads snapshot metadata but doesn't fully restore group state.
+    /// OpenMLS groups need their internal storage to be restored, which requires a different
+    /// persistence strategy. This implementation logs the available groups for now.
     pub async fn load_persisted_groups(&self) -> MlsResult<usize> {
         let Some(storage) = &self.storage else {
-            warn!("No storage configured, cannot load persisted groups");
+            debug!("No storage configured, cannot load persisted groups");
             return Ok(0);
         };
 
         info!("Loading persisted groups from storage");
         
-        // In a real implementation, we'd list all snapshot files in the directory
-        // For now, we'll return 0 as we don't have a list operation
-        // This is a limitation to fix in production
+        // List all group snapshots
+        let group_ids = storage.list_groups().await?;
         
-        // TODO: Add list_snapshots() to StorageProvider trait
-        // For now, groups must be explicitly loaded by GroupId
+        if group_ids.is_empty() {
+            debug!("No persisted groups found");
+            return Ok(0);
+        }
         
-        Ok(0)
+        info!("Found {} persisted group snapshot(s)", group_ids.len());
+        
+        // Load snapshot metadata for each group
+        let mut loaded = 0;
+        for gid in &group_ids {
+            match storage.load_group_snapshot(gid).await {
+                Ok(snapshot) => {
+                    info!(
+                        "Loaded snapshot for group {}: epoch={}, size={} bytes",
+                        hex::encode(gid),
+                        snapshot.epoch,
+                        snapshot.serialized_group.len()
+                    );
+                    
+                    // TODO: Full group restoration requires OpenMLS to support
+                    // deserialization of MlsGroup from exported state.
+                    // For now, we just verify the snapshot is loadable.
+                    // Users will need to be re-invited to groups after restart.
+                    
+                    loaded += 1;
+                }
+                Err(e) => {
+                    warn!("Failed to load snapshot for group {}: {}", hex::encode(gid), e);
+                }
+            }
+        }
+        
+        if loaded > 0 {
+            warn!(
+                "Loaded {} snapshot(s), but full group restoration is not yet implemented.",
+                loaded
+            );
+            warn!("Groups must be re-created or re-joined after restart.");
+            warn!("This is a known limitation - see docs/mls-persistence-status.md");
+        }
+        
+        Ok(loaded)
     }
 
     /// Save a group's state to storage
@@ -322,6 +369,11 @@ impl MlsService {
             }
         }
 
+        // Save provider state (OpenMLS persistence)
+        if let Err(e) = self.provider.save() {
+            warn!("Failed to save provider state after group creation: {}", e);
+        }
+
         // Emit event
         self.events.emit(MlsEvent::GroupCreated {
             group_id: gid.as_bytes().to_vec(),
@@ -383,6 +435,11 @@ impl MlsService {
             }
         }
 
+        // Save provider state (OpenMLS persistence)
+        if let Err(e) = self.provider.save() {
+            warn!("Failed to save provider state after joining group: {}", e);
+        }
+
         // Event will be emitted by the engine when processing Welcome
 
         // Record metrics
@@ -430,6 +487,12 @@ impl MlsService {
         let engine_ref = adapter.engine();
         let engine = engine_ref.read().await;
         let ciphertext = engine.send_message(plaintext).await?;
+        drop(engine); // Release lock before saving
+
+        // Save provider state (message may have updated epoch)
+        if let Err(e) = self.provider.save() {
+            warn!("Failed to save provider state after sending message: {}", e);
+        }
 
         // Record metrics
         record_counter("mls.messages.encrypted", 1);
@@ -464,6 +527,7 @@ impl MlsService {
         let engine_ref = adapter.engine();
         let engine = engine_ref.read().await;
         let processed = engine.process_message(message_bytes).await?;
+        drop(engine); // Release lock before saving
 
         // Handle different message types
         let plaintext = match processed {
@@ -483,6 +547,11 @@ impl MlsService {
                 None
             }
         };
+
+        // Save provider state (commits update epoch state)
+        if let Err(e) = self.provider.save() {
+            warn!("Failed to save provider state after processing message: {}", e);
+        }
 
         trace.complete();
 
@@ -527,6 +596,11 @@ impl MlsService {
             Vec::new()
         };
 
+        // Save provider state (membership changes)
+        if let Err(e) = self.provider.save() {
+            warn!("Failed to save provider state after adding members: {}", e);
+        }
+
         // Record metrics
         record_counter("mls.members.added", 1);
         timer.stop();
@@ -556,6 +630,12 @@ impl MlsService {
         let engine_ref = adapter.engine();
         let engine = engine_ref.read().await;
         let commit = engine.remove_members(leaf_indices).await?;
+        drop(engine); // Release lock before saving
+
+        // Save provider state (membership changes)
+        if let Err(e) = self.provider.save() {
+            warn!("Failed to save provider state after removing members: {}", e);
+        }
 
         // Record metrics
         record_counter("mls.members.removed", 1);

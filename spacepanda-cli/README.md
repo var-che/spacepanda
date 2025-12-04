@@ -224,13 +224,15 @@ spacepanda listen <channel-id>
 
 ## Current Limitations
 
-⚠️ **MVP Status** - This is an early prototype:
+⚠️ **MVP/Alpha Status** - This is an early prototype:
 
-1. **No MLS State Persistence** - Groups don't persist between CLI invocations
+1. **Partial MLS State Persistence** - Groups save but don't restore
 
-   - **Impact**: Can only send/receive messages within a single CLI session
-   - **Workaround**: Keep CLI running for interactive sessions
-   - **Fix**: Implement MLS state serialization (planned)
+   - **Status**: ✅ Snapshots save to disk, ⚠️ restoration not implemented
+   - **Impact**: Must re-create or re-join channels after each CLI restart
+   - **Workaround**: Use tmux/screen for persistent sessions, save invite codes
+   - **Details**: See [Persistence User Guide](../docs/persistence-user-guide.md)
+   - **Fix**: Phase 2 - OpenMLS provider storage (planned Q1 2026)
 
 2. **No Network Layer in CLI** - P2P networking not integrated
 
@@ -248,6 +250,39 @@ spacepanda listen <channel-id>
    - **Impact**: Can't see incoming messages interactively
    - **Workaround**: Poll channel state
    - **Fix**: Implement message queue and display loop
+
+## Persistence
+
+**What Persists:**
+
+- ✅ User identity (`~/.spacepanda/identity.json`)
+- ✅ MLS group snapshots (`~/.spacepanda/mls_groups/*.snapshot`)
+- ✅ CRDT event log (`~/.spacepanda/commit_log/`)
+
+**What Doesn't Persist:**
+
+- ❌ Active MLS groups (limitation: can't send to groups from previous session)
+- ❌ Channel list (CRDT restoration issue)
+
+**Current Behavior:**
+
+```bash
+# Session 1
+$ spacepanda channel create "general"
+✅ Channel created
+INFO: Successfully saved group cf8e15fc... at epoch 0
+
+# Session 2 (new CLI invocation)
+$ spacepanda channel list
+INFO: Found 1 persisted group snapshot(s)
+⚠️  Full group restoration is not yet implemented.
+No channels found.
+```
+
+**For detailed information**, see:
+
+- [Persistence User Guide](../docs/persistence-user-guide.md) - User-facing documentation
+- [MLS Persistence Status](../docs/mls-persistence-status.md) - Technical implementation details
 
 ## Development Roadmap
 

@@ -34,9 +34,9 @@ impl InboundHandler {
     ///
     /// # Returns
     /// The processed message content and any events to emit
-    pub async fn process_envelope(
+    pub async fn process_envelope<P: openmls_traits::OpenMlsProvider + 'static>(
         &self,
-        engine: &OpenMlsEngine,
+        engine: &OpenMlsEngine<P>,
         envelope: &EncryptedEnvelope,
     ) -> MlsResult<ProcessedMessageResult> {
         // Verify epoch is valid (not too old, not from future)

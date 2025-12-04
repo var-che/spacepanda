@@ -12,7 +12,7 @@ use crate::core_mls::{
 
 use openmls::prelude::*;
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_rust_crypto::OpenMlsRustCrypto;
+use openmls_traits::OpenMlsProvider;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tls_codec::{Deserialize as TlsDeserialize, Serialize as TlsSerialize};
@@ -23,14 +23,13 @@ use tokio::sync::RwLock;
 /// This wraps an OpenMLS MlsGroup and provides the same API as our custom MlsGroup,
 /// allowing transparent migration from custom crypto to OpenMLS.
 ///
-/// Note: This is a simplified version that uses OpenMlsRustCrypto directly
-/// instead of our trait-based providers. Full trait integration will come later.
-pub struct OpenMlsEngine {
+/// Generic over provider type to support both standard and persistent providers.
+pub struct OpenMlsEngine<P: OpenMlsProvider> {
     /// The underlying OpenMLS group
     pub(crate) group: Arc<RwLock<MlsGroup>>,
 
     /// OpenMLS crypto provider
-    provider: Arc<OpenMlsRustCrypto>,
+    provider: Arc<P>,
 
     /// Group configuration
     config: MlsConfig,
@@ -48,7 +47,7 @@ pub struct OpenMlsEngine {
     member_join_times: Arc<RwLock<HashMap<u32, u64>>>,
 }
 
-impl OpenMlsEngine {
+impl<P: OpenMlsProvider + 'static> OpenMlsEngine<P> {
     /// Create a new group (as creator)
     ///
     /// # Arguments
@@ -60,7 +59,7 @@ impl OpenMlsEngine {
         group_id: GroupId,
         identity: Vec<u8>,
         config: MlsConfig,
-        provider: Arc<OpenMlsRustCrypto>,
+        provider: Arc<P>,
     ) -> MlsResult<Self> {
         // Use the provided shared provider (critical for key continuity)
         // let provider = Arc::new(OpenMlsRustCrypto::default()); // REMOVED
@@ -144,7 +143,7 @@ impl OpenMlsEngine {
     /// that has specific crypto material already stored.
     pub(crate) fn from_group_with_provider(
         group: MlsGroup,
-        provider: Arc<OpenMlsRustCrypto>,
+        provider: Arc<P>,
         config: MlsConfig,
         signature_keys: SignatureKeyPair,
         credential: CredentialWithKey,
@@ -174,7 +173,7 @@ impl OpenMlsEngine {
         ratchet_tree: Option<Vec<u8>>,
         config: MlsConfig,
         key_package_bundle: Option<KeyPackageBundle>,
-        provider: Arc<OpenMlsRustCrypto>,
+        provider: Arc<P>,
     ) -> MlsResult<Self> {
         // Use the provided shared provider (critical for finding stored KeyPackageBundle)
         // let provider = Arc::new(OpenMlsRustCrypto::default()); // REMOVED
@@ -344,7 +343,7 @@ impl OpenMlsEngine {
     }
 
     /// Get reference to provider for use in operations
-    pub(crate) fn provider(&self) -> &OpenMlsRustCrypto {
+    pub(crate) fn provider(&self) -> &P {
         &self.provider
     }
 
@@ -510,7 +509,7 @@ pub enum ProcessedMessage {
     Commit { new_epoch: u64 },
 }
 
-impl OpenMlsEngine {
+impl<P: OpenMlsProvider + 'static> OpenMlsEngine<P> {
     // ===== Snapshot Export/Import =====
 
     /// Export current group state as an atomic snapshot
@@ -632,6 +631,7 @@ impl OpenMlsEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use openmls_rust_crypto::OpenMlsRustCrypto;
 
     #[tokio::test]
     async fn test_create_group() {

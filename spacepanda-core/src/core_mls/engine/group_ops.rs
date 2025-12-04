@@ -59,7 +59,7 @@ pub struct CommitResult {
     pub new_epoch: u64,
 }
 
-impl GroupOperations for OpenMlsEngine {
+impl<P: openmls_traits::OpenMlsProvider + 'static> GroupOperations for OpenMlsEngine<P> {
     /// Add members to the group
     ///
     /// # Arguments

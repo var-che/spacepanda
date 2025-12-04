@@ -10,7 +10,7 @@ use spacepanda_core::{
 };
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{info, warn, debug};
 
 #[derive(Parser, Debug)]
 #[command(name = "spacepanda")]
@@ -222,6 +222,19 @@ async fn load_manager(data_dir: &PathBuf) -> Result<Arc<ChannelManager>> {
         MlsService::with_storage(&config, shutdown, mls_storage_dir)
             .with_context(|| "Failed to initialize MLS service with storage")?
     );
+
+    // Load persisted groups from previous sessions
+    match mls_service.load_persisted_groups().await {
+        Ok(count) if count > 0 => {
+            info!("Loaded {} persisted group snapshot(s)", count);
+        }
+        Ok(_) => {
+            debug!("No persisted groups to load");
+        }
+        Err(e) => {
+            warn!("Failed to load persisted groups: {}", e);
+        }
+    }
     
     // Initialize store
     let store_config = LocalStoreConfig {

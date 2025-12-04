@@ -17,9 +17,10 @@ metrics.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 openmls = "0.7.1"
-openmls_rust_crypto = "0.4"
+openmls_rust_crypto = { version = "0.4", features = ["test-utils"] }
 openmls_basic_credential = "0.4"
-openmls_traits = "0.3"
+openmls_traits = "0.4"
+openmls_memory_storage = { version = "0.4", features = ["persistence"] }
 rustls = "0.23"
 tokio.workspace = true
 async-trait = "0.1"

@@ -91,7 +91,7 @@ impl UserContext {
         &self,
         welcome_bytes: &[u8],
         ratchet_tree_bytes: Option<&[u8]>,
-    ) -> Result<Arc<OpenMlsEngine>, String> {
+    ) -> Result<Arc<OpenMlsEngine<openmls_rust_crypto::OpenMlsRustCrypto>>, String> {
         // Parse Welcome message
         let mls_message = MlsMessageIn::tls_deserialize_exact(welcome_bytes)
             .map_err(|e| format!("Failed to parse welcome: {:?}", e))?;
@@ -160,7 +160,7 @@ impl UserContext {
         &self,
         welcome_bytes: &[u8],
         ratchet_tree_bytes: Option<&[u8]>,
-    ) -> Result<Arc<OpenMlsHandleAdapter>, String> {
+    ) -> Result<Arc<OpenMlsHandleAdapter<openmls_rust_crypto::OpenMlsRustCrypto>>, String> {
         let engine = self.join_from_welcome_engine(welcome_bytes, ratchet_tree_bytes).await?;
         let config = MlsConfig::default();
         
@@ -172,7 +172,7 @@ impl UserContext {
 }
 
 /// Helper function to create a user with identity
-async fn create_user(name: &str) -> (Vec<u8>, Arc<OpenMlsHandleAdapter>) {
+async fn create_user(name: &str) -> (Vec<u8>, Arc<OpenMlsHandleAdapter<openmls_rust_crypto::OpenMlsRustCrypto>>) {
     let identity = name.as_bytes().to_vec();
     let config = MlsConfig::default();
     let provider = Arc::new(OpenMlsRustCrypto::default());
