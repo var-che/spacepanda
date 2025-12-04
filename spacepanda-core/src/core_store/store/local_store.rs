@@ -12,7 +12,7 @@
 */
 
 use crate::core_store::crdt::{Crdt, OperationMetadata};
-use crate::core_store::model::{Channel, ChannelId, Space, SpaceId};
+use crate::core_store::model::{Channel, ChannelId, Message, MessageId, Space, SpaceId};
 use crate::core_store::store::commit_log::CommitLog;
 use crate::core_store::store::encryption::EncryptionManager;
 use crate::core_store::store::errors::{StoreError, StoreResult};
@@ -81,6 +81,9 @@ pub struct LocalStore {
     /// In-memory cache of channels
     channels_cache: Arc<RwLock<HashMap<ChannelId, Channel>>>,
 
+    /// In-memory cache of messages (ChannelId -> Vec<Message>)
+    messages_cache: Arc<RwLock<HashMap<ChannelId, Vec<Message>>>>,
+
     /// Operation counter for snapshots
     operation_count: Arc<RwLock<usize>>,
 }
@@ -111,6 +114,7 @@ impl LocalStore {
             encryption,
             spaces_cache: Arc::new(RwLock::new(HashMap::new())),
             channels_cache: Arc::new(RwLock::new(HashMap::new())),
+            messages_cache: Arc::new(RwLock::new(HashMap::new())),
             operation_count: Arc::new(RwLock::new(0)),
         })
     }
@@ -212,6 +216,92 @@ impl LocalStore {
     /// List all channels
     pub fn list_channels(&self) -> StoreResult<Vec<ChannelId>> {
         Ok(self.channels_cache.read().map_err(handle_poison)?.keys().cloned().collect())
+    }
+
+    /// Store a message
+    pub fn store_message(&self, message: &Message) -> StoreResult<()> {
+        // Serialize message
+        let data = bincode::serialize(message)?;
+
+        // Encrypt if enabled
+        let data = if let Some(enc) = &self.encryption {
+            enc.encrypt(&data)?
+        } else {
+            data
+        };
+
+        // Write to commit log
+        self.commit_log.write().map_err(handle_poison)?.append(&data)?;
+
+        // Update cache
+        self.messages_cache
+            .write()
+            .map_err(handle_poison)?
+            .entry(message.channel_id.clone())
+            .or_insert_with(Vec::new)
+            .push(message.clone());
+
+        // Check if we need to snapshot
+        self.maybe_snapshot()?;
+
+        Ok(())
+    }
+
+    /// Get a single message by ID
+    pub fn get_message(&self, message_id: &MessageId) -> StoreResult<Option<Message>> {
+        // Search in cache
+        let cache = self.messages_cache.read().map_err(handle_poison)?;
+        for messages in cache.values() {
+            if let Some(msg) = messages.iter().find(|m| &m.id == message_id) {
+                return Ok(Some(msg.clone()));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Get all messages for a channel
+    pub fn get_channel_messages(&self, channel_id: &ChannelId) -> StoreResult<Vec<Message>> {
+        let cache = self.messages_cache.read().map_err(handle_poison)?;
+        Ok(cache.get(channel_id).cloned().unwrap_or_default())
+    }
+
+    /// Get messages for a channel with pagination
+    pub fn get_channel_messages_paginated(
+        &self,
+        channel_id: &ChannelId,
+        limit: usize,
+        offset: usize,
+    ) -> StoreResult<Vec<Message>> {
+        let cache = self.messages_cache.read().map_err(handle_poison)?;
+        let messages = cache.get(channel_id).cloned().unwrap_or_default();
+        
+        // Sort by timestamp (newest first)
+        let mut sorted: Vec<Message> = messages;
+        sorted.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        
+        // Apply pagination
+        Ok(sorted.into_iter().skip(offset).take(limit).collect())
+    }
+
+    /// Get thread replies (messages that reply to a specific message)
+    pub fn get_thread_replies(&self, parent_id: &MessageId) -> StoreResult<Vec<Message>> {
+        let cache = self.messages_cache.read().map_err(handle_poison)?;
+        let mut replies = Vec::new();
+        
+        for messages in cache.values() {
+            for msg in messages {
+                if let Some(reply_to) = &msg.reply_to {
+                    if reply_to == parent_id {
+                        replies.push(msg.clone());
+                    }
+                }
+            }
+        }
+        
+        // Sort by timestamp
+        replies.sort_by_key(|m| m.timestamp);
+        
+        Ok(replies)
     }
 
     /// Apply a CRDT operation and persist it

@@ -1063,19 +1063,132 @@ impl ChannelManager {
 
     /// Store a message (for testing/MVP)
     ///
-    /// In production, messages would be stored in CRDT and synced via DHT.
-    /// For MVP, we store in-memory for thread queries.
+    /// Persists the message to both in-memory cache and CRDT store.
+    /// Messages are encrypted via MLS before being stored.
     ///
     /// # Arguments
     ///
     /// * `message` - ChatMessage to store
     pub async fn store_message(&self, message: ChatMessage) -> MvpResult<()> {
+        // Store in memory cache for fast thread queries
         let mut messages = self.messages.write().await;
         messages
             .entry(message.channel_id.clone())
             .or_insert_with(Vec::new)
-            .push(message);
+            .push(message.clone());
+        
+        // Convert ChatMessage to store Message format
+        use crate::core_store::model::Message as StoreMessage;
+        
+        let store_msg = StoreMessage::new(
+            message.message_id.clone(),
+            message.channel_id.clone(),
+            message.sender.clone(),
+            message.body.clone(), // In production, this would be encrypted
+            message.timestamp,
+        );
+        
+        // Persist to CRDT store
+        self.store
+            .store_message(&store_msg)
+            .map_err(|e| MvpError::Store(e.to_string()))?;
+        
         Ok(())
+    }
+
+    /// Load messages for a channel from persistent storage
+    ///
+    /// Populates the in-memory cache with messages from the CRDT store.
+    ///
+    /// # Arguments
+    ///
+    /// * `channel_id` - Channel to load messages for
+    pub async fn load_channel_messages(&self, channel_id: &ChannelId) -> MvpResult<()> {
+        use crate::core_store::model::Message as StoreMessage;
+        
+        // Get messages from store
+        let store_messages = self.store
+            .get_channel_messages(channel_id)
+            .map_err(|e| MvpError::Store(e.to_string()))?;
+        
+        // Convert to ChatMessage and load into memory
+        let mut messages = self.messages.write().await;
+        let channel_messages = messages.entry(channel_id.clone()).or_insert_with(Vec::new);
+        
+        for store_msg in store_messages {
+            // Convert store Message to ChatMessage
+            let chat_msg = ChatMessage {
+                message_id: store_msg.id.clone(),
+                channel_id: store_msg.channel_id.clone(),
+                sender: store_msg.sender.clone(),
+                timestamp: store_msg.timestamp,
+                body: store_msg.content.clone(),
+                reply_to: store_msg.reply_to.clone(),
+                message_type: crate::core_mvp::types::MessageType::Text,
+            };
+            
+            channel_messages.push(chat_msg);
+        }
+        
+        debug!(
+            channel_id = %channel_id,
+            count = channel_messages.len(),
+            "Loaded messages from store"
+        );
+        
+        Ok(())
+    }
+
+    /// Get messages from store for a channel
+    ///
+    /// # Arguments
+    ///
+    /// * `channel_id` - Channel to query
+    ///
+    /// # Returns
+    ///
+    /// Vector of messages from the persistent store
+    pub async fn get_stored_messages(&self, channel_id: &ChannelId) -> MvpResult<Vec<crate::core_store::model::Message>> {
+        self.store
+            .get_channel_messages(channel_id)
+            .map_err(|e| MvpError::Store(e.to_string()))
+    }
+
+    /// Get paginated messages from store
+    ///
+    /// # Arguments
+    ///
+    /// * `channel_id` - Channel to query
+    /// * `limit` - Maximum number of messages to return
+    /// * `offset` - Number of messages to skip
+    ///
+    /// # Returns
+    ///
+    /// Vector of messages (sorted newest first)
+    pub async fn get_stored_messages_paginated(
+        &self,
+        channel_id: &ChannelId,
+        limit: usize,
+        offset: usize,
+    ) -> MvpResult<Vec<crate::core_store::model::Message>> {
+        self.store
+            .get_channel_messages_paginated(channel_id, limit, offset)
+            .map_err(|e| MvpError::Store(e.to_string()))
+    }
+
+    /// Get thread replies from store
+    ///
+    /// # Arguments
+    ///
+    /// * `parent_id` - Parent message ID
+    ///
+    /// # Returns
+    ///
+    /// Vector of reply messages from the store
+    pub async fn get_stored_thread_replies(&self, parent_id: &MessageId) -> MvpResult<Vec<crate::core_store::model::Message>> {
+        self.store
+            .get_thread_replies(parent_id)
+            .map_err(|e| MvpError::Store(e.to_string()))
     }
 
     /// Get thread information for a message

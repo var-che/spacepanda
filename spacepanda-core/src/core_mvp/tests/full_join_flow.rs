@@ -1025,3 +1025,170 @@ async fn test_channel_threads_listing() -> MvpResult<()> {
     Ok(())
 }
 
+/// Test message persistence
+#[tokio::test]
+async fn test_message_persistence() -> MvpResult<()> {
+    use crate::core_mvp::types::ChatMessage;
+
+    println!("\n=== TESTING MESSAGE PERSISTENCE ===\n");
+
+    let (alice_manager, _alice_dir) = create_test_manager("alice").await;
+
+    // Create channel
+    let channel_id = alice_manager
+        .create_channel("persistent-channel".to_string(), false)
+        .await?;
+
+    println!("Test 1: Storing messages...");
+    
+    // Create and store 3 messages
+    let msg1 = ChatMessage::new(
+        channel_id.clone(),
+        alice_manager.identity().user_id.clone(),
+        b"First message".to_vec(),
+    );
+    let msg1_id = msg1.message_id.clone();
+    alice_manager.store_message(msg1).await?;
+    println!("  ✓ Stored message 1");
+
+    let msg2 = ChatMessage::new(
+        channel_id.clone(),
+        alice_manager.identity().user_id.clone(),
+        b"Second message".to_vec(),
+    );
+    let msg2_id = msg2.message_id.clone();
+    alice_manager.store_message(msg2).await?;
+    println!("  ✓ Stored message 2");
+
+    let msg3 = ChatMessage::new(
+        channel_id.clone(),
+        alice_manager.identity().user_id.clone(),
+        b"Third message".to_vec(),
+    ).reply_to(msg1_id.clone());
+    alice_manager.store_message(msg3).await?;
+    println!("  ✓ Stored message 3 (reply to msg1)");
+
+    // Test 2: Query messages from in-memory cache
+    println!("\nTest 2: Querying from in-memory cache...");
+    let thread_replies = alice_manager.get_thread_replies(&msg1_id).await?;
+    assert_eq!(thread_replies.len(), 1, "Should have 1 reply");
+    assert_eq!(
+        thread_replies[0].body_as_string().unwrap(),
+        "Third message",
+        "Reply should be msg3"
+    );
+    println!("  ✓ Thread query works from cache");
+
+    // Test 3: Create a new manager instance to test persistence
+    println!("\nTest 3: Testing persistence across restarts...");
+    let (alice_manager2, _alice_dir2) = create_test_manager("alice2").await;
+    
+    // Load messages from persistent store
+    alice_manager2.load_channel_messages(&channel_id).await?;
+    println!("  ✓ Loaded messages from store");
+
+    // Verify messages were loaded
+    let loaded_thread_replies = alice_manager2.get_thread_replies(&msg1_id).await?;
+    assert_eq!(loaded_thread_replies.len(), 1, "Should have 1 reply after reload");
+    assert_eq!(
+        loaded_thread_replies[0].body_as_string().unwrap(),
+        "Third message",
+        "Reply should match after reload"
+    );
+    println!("  ✓ Messages persisted and loaded correctly");
+
+    // Test 4: Query messages using store directly
+    println!("\nTest 4: Querying store directly...");
+    use crate::core_store::model::types::MessageId;
+    
+    let store_messages = alice_manager
+        .get_stored_messages(&channel_id)
+        .await?;
+    
+    assert_eq!(store_messages.len(), 3, "Store should have 3 messages");
+    println!("  ✓ Store contains {} messages", store_messages.len());
+
+    // Verify thread replies in store
+    let store_replies = alice_manager
+        .get_stored_thread_replies(&msg1_id)
+        .await?;
+    
+    assert_eq!(store_replies.len(), 1, "Store should have 1 reply");
+    assert_eq!(
+        store_replies[0].reply_to,
+        Some(msg1_id.clone()),
+        "Reply should reference parent"
+    );
+    println!("  ✓ Store thread query works correctly");
+
+    println!("\n=== ✅ MESSAGE PERSISTENCE TESTS PASSED! ===\n");
+    Ok(())
+}
+
+/// Test message pagination
+#[tokio::test]
+async fn test_message_pagination() -> MvpResult<()> {
+    use crate::core_mvp::types::ChatMessage;
+
+    println!("\n=== TESTING MESSAGE PAGINATION ===\n");
+
+    let (alice_manager, _alice_dir) = create_test_manager("alice").await;
+
+    // Create channel
+    let channel_id = alice_manager
+        .create_channel("busy-channel".to_string(), false)
+        .await?;
+
+    println!("Creating 10 messages...");
+    
+    // Create 10 messages
+    for i in 1..=10 {
+        let msg = ChatMessage::new(
+            channel_id.clone(),
+            alice_manager.identity().user_id.clone(),
+            format!("Message {}", i).into_bytes(),
+        );
+        alice_manager.store_message(msg).await?;
+    }
+    println!("  ✓ Created 10 messages");
+
+    // Test pagination
+    println!("\nTest: Paginated retrieval...");
+    
+    // Get first page (5 messages, offset 0)
+    let page1 = alice_manager
+        .get_stored_messages_paginated(&channel_id, 5, 0)
+        .await?;
+    
+    assert_eq!(page1.len(), 5, "First page should have 5 messages");
+    println!("  ✓ Page 1: {} messages", page1.len());
+
+    // Get second page (5 messages, offset 5)
+    let page2 = alice_manager
+        .get_stored_messages_paginated(&channel_id, 5, 5)
+        .await?;
+    
+    assert_eq!(page2.len(), 5, "Second page should have 5 messages");
+    println!("  ✓ Page 2: {} messages", page2.len());
+
+    // Verify no overlap (messages are sorted newest first)
+    let page1_ids: Vec<_> = page1.iter().map(|m| &m.id).collect();
+    let page2_ids: Vec<_> = page2.iter().map(|m| &m.id).collect();
+    
+    for id in &page2_ids {
+        assert!(!page1_ids.contains(&id), "Pages should not overlap");
+    }
+    println!("  ✓ Pages don't overlap");
+
+    // Get partial page (3 messages, offset 8)
+    let page3 = alice_manager
+        .get_stored_messages_paginated(&channel_id, 5, 8)
+        .await?;
+    
+    assert_eq!(page3.len(), 2, "Third page should have remaining 2 messages");
+    println!("  ✓ Partial page: {} messages", page3.len());
+
+    println!("\n=== ✅ MESSAGE PAGINATION TESTS PASSED! ===\n");
+    Ok(())
+}
+
