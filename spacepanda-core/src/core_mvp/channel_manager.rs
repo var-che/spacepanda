@@ -260,19 +260,26 @@ impl ChannelManager {
         &self,
         channel_id: &ChannelId,
         key_package: Vec<u8>,
-    ) -> MvpResult<InviteToken> {
+    ) -> MvpResult<(InviteToken, Option<Vec<u8>>)> {
         info!(
             channel_id = %channel_id,
             inviter = %self.identity.user_id,
             "Creating invite"
         );
 
+        // Get channel metadata to include in invite
+        let channel = self
+            .store
+            .get_channel(channel_id)
+            .map_err(|e| MvpError::Store(e.to_string()))?
+            .ok_or_else(|| MvpError::ChannelNotFound(channel_id.to_string()))?;
+
         // Get group ID from channel
         let group_id = GroupId::new(channel_id.0.as_bytes().to_vec());
 
         // Add member via MLS service and get Welcome
         debug!("Adding member to MLS group");
-        let (_, welcome_bytes) = self
+        let (commit, welcome_bytes, ratchet_tree) = self
             .mls_service
             .add_members(&group_id, vec![key_package])
             .await?;
@@ -282,15 +289,24 @@ impl ChannelManager {
             return Err(MvpError::Internal("Failed to generate Welcome message".to_string()));
         }
 
-        // TODO: Export ratchet tree from the group
-        // For MVP, we'll pass None and let the joiner handle it
-        let ratchet_tree = None;
+        // Convert ratchet tree to Option (None if empty)
+        let ratchet_tree_opt = if ratchet_tree.is_empty() {
+            None
+        } else {
+            Some(ratchet_tree)
+        };
 
-        // Create invite token
+        // Get channel name and is_public flag
+        let channel_name = channel.get_name().cloned().unwrap_or_else(|| "Unnamed Channel".to_string());
+        let is_public = false; // TODO: Get from channel metadata when implemented
+
+        // Create invite token with channel metadata
         let invite = InviteToken::new(
             channel_id.clone(),
             welcome_bytes,
-            ratchet_tree,
+            ratchet_tree_opt,
+            channel_name,
+            is_public,
             self.identity.user_id.clone(),
         );
 
@@ -300,7 +316,9 @@ impl ChannelManager {
             "Invite created successfully"
         );
 
-        Ok(invite)
+        // Return invite and the commit for existing members
+        let commit_opt = if commit.is_empty() { None } else { Some(commit) };
+        Ok((invite, commit_opt))
     }
 
     /// Join a channel from an invite
@@ -363,11 +381,11 @@ impl ChannelManager {
                 debug!("Channel metadata found in local store");
             }
             Ok(None) => {
-                // Create placeholder channel (will sync from peers later)
-                warn!("Channel metadata not found, creating placeholder");
+                // Create placeholder channel using metadata from invite
+                debug!("Channel metadata not found, creating from invite");
                 let channel = Channel::new(
                     invite.channel_id.clone(),
-                    format!("Channel {}", invite.channel_id),
+                    invite.channel_name.clone(),
                     ChannelType::Text,
                     invite.inviter.clone(),
                     Timestamp::now(),
@@ -458,21 +476,77 @@ impl ChannelManager {
         // For MVP, we need to try all groups until we find the right one
         let groups = self.mls_service.list_groups().await;
 
-        for group_id in groups {
+        for group_id in groups.iter() {
             // Try to process message with this group
-            if let Ok(Some(plaintext)) = self.mls_service.process_message(&group_id, ciphertext).await {
-                info!(
-                    group_id = ?group_id,
-                    plaintext_size = plaintext.len(),
-                    "Message decrypted successfully"
-                );
-                return Ok(plaintext);
+            match self.mls_service.process_message(group_id, ciphertext).await {
+                Ok(Some(plaintext)) => {
+                    info!(
+                        group_id = ?group_id,
+                        plaintext_size = plaintext.len(),
+                        "Message decrypted successfully"
+                    );
+                    return Ok(plaintext);
+                }
+                Ok(None) => {
+                    // Commit or proposal, continue trying
+                }
+                Err(_e) => {
+                    // Failed with this group, try next
+                }
             }
         }
 
-        warn!("Failed to decrypt message with any group");
+        warn!("Failed to decrypt message with any of {} groups", groups.len());
         Err(MvpError::InvalidMessage(
             "Could not decrypt message".to_string(),
+        ))
+    }
+
+    /// Process a commit message from the group
+    ///
+    /// This updates the member's group state when other members add/remove participants
+    /// or perform other group operations. Essential for keeping epochs in sync.
+    ///
+    /// # Arguments
+    ///
+    /// * `commit` - Serialized commit message
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Alice adds Charlie, gets commit for Bob
+    /// let (invite, Some(commit)) = alice.create_invite(&channel_id, charlie_kp).await?;
+    /// // Bob processes commit to advance epoch
+    /// bob.process_commit(&commit).await?;
+    /// ```
+    pub async fn process_commit(&self, commit: &[u8]) -> MvpResult<()> {
+        debug!(size = commit.len(), "Processing commit");
+
+        // Try all groups until we find the right one
+        let groups = self.mls_service.list_groups().await;
+
+        for group_id in groups.iter() {
+            // Try to process commit with this group
+            match self.mls_service.process_message(group_id, commit).await {
+                Ok(Some(_)) => {
+                    // This shouldn't happen for commits, but if it does, it worked
+                    info!(group_id = ?group_id, "Commit processed (unexpected app message)");
+                    return Ok(());
+                }
+                Ok(None) => {
+                    // Commit or proposal processed successfully
+                    info!(group_id = ?group_id, "Commit processed successfully");
+                    return Ok(());
+                }
+                Err(_e) => {
+                    // Failed with this group, try next
+                }
+            }
+        }
+
+        warn!("Failed to process commit with any of {} groups", groups.len());
+        Err(MvpError::InvalidMessage(
+            "Could not process commit".to_string(),
         ))
     }
 

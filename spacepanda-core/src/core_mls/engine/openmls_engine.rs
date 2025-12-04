@@ -197,22 +197,21 @@ impl OpenMlsEngine {
             // Extract information from the existing key package bundle
             let key_package = bundle.key_package();
             let leaf_node = key_package.leaf_node();
-            let signature_key = leaf_node.signature_key().clone();
+            let signature_public_key = leaf_node.signature_key();
             
-            // Note: We still need to generate SignatureKeyPair for the engine,
-            // but the actual decryption will use the bundle's init_private_key
-            // which OpenMLS will automatically find from the Welcome message
-            let sig_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm()).map_err(|e| {
-                MlsError::CryptoError(format!("Failed to generate signature keys: {:?}", e))
-            })?;
-            
-            sig_keys.store(provider.storage()).map_err(|e| {
-                MlsError::CryptoError(format!("Failed to store signature keys: {:?}", e))
+            // Retrieve the signature keys from provider storage using the public key bytes
+            // The keys were stored when the KeyPackage was generated
+            let sig_keys = SignatureKeyPair::read(
+                provider.storage(),
+                signature_public_key.as_slice(),
+                ciphersuite.signature_algorithm()
+            ).ok_or_else(|| {
+                MlsError::CryptoError("Failed to retrieve signature keys from provider storage".to_string())
             })?;
 
             let cred = CredentialWithKey {
                 credential: leaf_node.credential().clone(),
-                signature_key,
+                signature_key: signature_public_key.clone(),
             };
             
             (sig_keys, cred)
@@ -262,7 +261,9 @@ impl OpenMlsEngine {
         // Convert to active group
         let group = staged_welcome
             .into_group(&*provider)
-            .map_err(|e| MlsError::InvalidMessage(format!("Failed to join group: {:?}", e)))?;
+            .map_err(|e| {
+                MlsError::InvalidMessage(format!("Failed to join group: {:?}", e))
+            })?;
 
         // Get group info for event
         let group_id = GroupId::new(group.group_id().as_slice().to_vec());

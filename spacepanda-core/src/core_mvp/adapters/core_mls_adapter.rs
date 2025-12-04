@@ -73,19 +73,22 @@ impl GroupProvider for CoreMlsAdapter {
     ) -> MvpResult<Welcome> {
         let group_id = Self::to_group_id(handle);
 
-        let (commit, welcome_blob) = self
+        let (commit, welcome_blob, ratchet_tree) = self
             .mls_service
             .add_members(&group_id, key_packages)
             .await
             .map_err(|e| MvpError::Mls(e))?;
 
-        // For now, we don't export ratchet tree automatically
-        // TODO: Add export_ratchet_tree call if config.export_tree was true
-        let ratchet_tree = None;
+        // Include ratchet tree if it was exported (non-empty)
+        let ratchet_tree_opt = if ratchet_tree.is_empty() {
+            None
+        } else {
+            Some(ratchet_tree)
+        };
 
         Ok(Welcome {
             blob: welcome_blob,
-            ratchet_tree,
+            ratchet_tree: ratchet_tree_opt,
         })
     }
 
@@ -143,7 +146,7 @@ impl GroupProvider for CoreMlsAdapter {
     ) -> MvpResult<Vec<u8>> {
         let group_id = Self::to_group_id(handle);
 
-        let (commit, _welcome) = self
+        let (commit, _welcome, _ratchet_tree) = self
             .mls_service
             .add_members(&group_id, key_packages)
             .await
@@ -208,9 +211,21 @@ impl GroupProvider for CoreMlsAdapter {
     }
 
     async fn export_ratchet_tree(&self, handle: &GroupHandle) -> MvpResult<Vec<u8>> {
-        // TODO: Implement ratchet tree export in MlsService
-        // For now, return empty vec (OpenMLS can handle inline trees)
-        Ok(Vec::new())
+        let group_id = Self::to_group_id(handle);
+
+        // Get the group adapter
+        let groups = self.mls_service.list_groups().await;
+        if !groups.contains(&group_id) {
+            return Err(MvpError::Mls(crate::core_mls::errors::MlsError::GroupNotFound(
+                group_id.to_string(),
+            )));
+        }
+
+        // Export ratchet tree via MlsService
+        self.mls_service
+            .export_ratchet_tree(&group_id)
+            .await
+            .map_err(|e| MvpError::Mls(e))
     }
 }
 

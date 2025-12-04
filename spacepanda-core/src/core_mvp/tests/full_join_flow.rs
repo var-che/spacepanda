@@ -94,7 +94,7 @@ async fn test_full_join_flow() -> MvpResult<()> {
 
     // Step 3: Alice creates an invite for Bob
     println!("\nStep 3: Alice creates invite for Bob");
-    let invite = alice_manager
+    let (invite, _commit) = alice_manager
         .create_invite(&channel_id, bob_key_package)
         .await?;
     println!("  ✓ Invite created");
@@ -169,7 +169,7 @@ async fn test_multiple_message_exchange() -> MvpResult<()> {
         .await?;
 
     let bob_kp = bob_manager.generate_key_package().await?;
-    let invite = alice_manager
+    let (invite, _commit) = alice_manager
         .create_invite(&channel_id, bob_kp)
         .await?;
     bob_manager.join_channel(&invite).await?;
@@ -219,19 +219,25 @@ async fn test_three_party_group() -> MvpResult<()> {
 
     // Alice invites Bob
     let bob_kp = bob_manager.generate_key_package().await?;
-    let bob_invite = alice_manager
+    let (bob_invite, _commit) = alice_manager
         .create_invite(&channel_id, bob_kp)
         .await?;
     bob_manager.join_channel(&bob_invite).await?;
     println!("✓ Bob joined");
 
-    // Alice invites Charlie
+    // Alice invites Charlie - Bob needs to process the commit to stay in sync
     let charlie_kp = charlie_manager.generate_key_package().await?;
-    let charlie_invite = alice_manager
+    let (charlie_invite, commit) = alice_manager
         .create_invite(&channel_id, charlie_kp)
         .await?;
     charlie_manager.join_channel(&charlie_invite).await?;
     println!("✓ Charlie joined");
+
+    // Bob processes the commit from adding Charlie to advance his epoch
+    if let Some(commit_bytes) = commit {
+        bob_manager.process_commit(&commit_bytes).await?;
+        println!("✓ Bob processed commit (epoch synced)");
+    }
 
     // Alice broadcasts a message
     println!("\nAlice broadcasts to group...");
@@ -286,7 +292,7 @@ async fn test_invite_creation_with_real_key_package() -> MvpResult<()> {
     println!("  - Public key package: {} bytes", bob_key_package.len());
 
     // Step 3: Alice creates an invite using Bob's key package
-    let invite = alice_manager
+    let (invite, _commit) = alice_manager
         .create_invite(&channel_id, bob_key_package)
         .await?;
     println!("✓ Invite created successfully");

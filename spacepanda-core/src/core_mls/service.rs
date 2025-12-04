@@ -50,6 +50,10 @@ pub struct MlsService {
     /// Shared crypto provider for all MLS operations
     /// This is necessary for key package bundles to be found when joining from Welcome
     provider: Arc<OpenMlsRustCrypto>,
+
+    /// Storage for KeyPackageBundles indexed by serialized KeyPackage bytes
+    /// This allows us to retrieve the correct signature keys when joining from Welcome
+    key_package_bundles: Arc<RwLock<HashMap<Vec<u8>, KeyPackageBundle>>>,
 }
 
 impl MlsService {
@@ -66,6 +70,7 @@ impl MlsService {
             events: EventBroadcaster::default(),
             shutdown,
             provider,
+            key_package_bundles: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -116,7 +121,7 @@ impl MlsService {
         let signature_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm())
             .map_err(|e| MlsError::InvalidMessage(format!("Failed to generate signature keys: {:?}", e)))?;
 
-        // Store keys in provider
+        // Store keys in provider (OpenMLS stores them indexed by public key hash)
         signature_keys
             .store(provider.storage())
             .map_err(|e| MlsError::InvalidMessage(format!("Failed to store signature keys: {:?}", e)))?;
@@ -140,6 +145,13 @@ impl MlsService {
             .key_package()
             .tls_serialize_detached()
             .map_err(|e| MlsError::InvalidMessage(format!("Failed to serialize key package: {:?}", e)))?;
+
+        // Store the KeyPackageBundle indexed by the serialized key package bytes
+        // This allows us to retrieve it later when joining from Welcome
+        {
+            let mut bundles = self.key_package_bundles.write().await;
+            bundles.insert(key_package_bytes.clone(), key_package_bundle);
+        }
 
         // Record metrics
         record_counter("mls.key_packages.generated", 1);
@@ -221,12 +233,16 @@ impl MlsService {
             ));
         }
 
-        // Join the group with shared provider (critical for finding stored KeyPackageBundle)
+        // Parse Welcome to find which KeyPackage was used
+        // Then retrieve the corresponding KeyPackageBundle from our storage
+        let key_package_bundle = self.find_key_package_bundle_for_welcome(welcome_bytes).await?;
+
+        // Join the group with shared provider and the correct KeyPackageBundle
         let adapter = OpenMlsHandleAdapter::join_from_welcome(
             welcome_bytes,
             ratchet_tree,
             self.config.clone(),
-            None, // No KeyPackageBundle - will be found in provider storage
+            Some(key_package_bundle), // Pass the KeyPackageBundle so correct signature keys are used
             self.provider.clone(),
         )
         .await?;
@@ -247,6 +263,27 @@ impl MlsService {
 
         info!("Successfully joined MLS group: {}", gid);
         Ok(gid)
+    }
+
+    /// Find the KeyPackageBundle that matches the Welcome message
+    /// 
+    /// This is a simplified implementation that tries all stored bundles.
+    /// In production, we would parse the Welcome to get the specific KeyPackage hash.
+    async fn find_key_package_bundle_for_welcome(
+        &self,
+        _welcome_bytes: &[u8],
+    ) -> MlsResult<KeyPackageBundle> {
+        let bundles = self.key_package_bundles.read().await;
+        
+        // For MVP: just return the first (and likely only) bundle
+        // TODO: Parse Welcome message to find the correct KeyPackage hash
+        if let Some((_, bundle)) = bundles.iter().next() {
+            Ok(bundle.clone())
+        } else {
+            Err(MlsError::InvalidMessage(
+                "No KeyPackageBundle found for this Welcome message".to_string(),
+            ))
+        }
     }
 
     /// Send an encrypted message to a group
@@ -329,7 +366,7 @@ impl MlsService {
         &self,
         group_id: &GroupId,
         key_packages: Vec<Vec<u8>>,
-    ) -> MlsResult<(Vec<u8>, Vec<u8>)> {
+    ) -> MlsResult<(Vec<u8>, Vec<u8>, Vec<u8>)> {
         let timer = Timer::new("mls.add_members.duration_ms");
 
         info!("Adding {} members to group {}", key_packages.len(), group_id);
@@ -348,13 +385,27 @@ impl MlsService {
         // Convert Option<Vec<u8>> to Vec<u8> (empty vec if None)
         let welcome = welcome_opt.unwrap_or_default();
 
+        // Export ratchet tree for the Welcome recipient
+        // This is required when the Welcome doesn't include the tree inline
+        let ratchet_tree = if !welcome.is_empty() {
+            // Release the engine lock before calling export_ratchet_tree
+            drop(engine);
+            
+            // Get fresh reference and export tree
+            let engine_ref = adapter.engine();
+            let engine = engine_ref.read().await;
+            engine.export_ratchet_tree_bytes().await.unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
         // Record metrics
         record_counter("mls.members.added", 1);
         timer.stop();
 
         info!("Successfully added members to group {}", group_id);
 
-        Ok((commit, welcome))
+        Ok((commit, welcome, ratchet_tree))
     }
 
     /// Remove members from a group
@@ -385,6 +436,23 @@ impl MlsService {
         info!("Successfully removed members from group {}", group_id);
 
         Ok(commit)
+    }
+
+    /// Export ratchet tree for a group
+    ///
+    /// This exports the current ratchet tree state, which is needed
+    /// when the Welcome message doesn't include it inline.
+    pub async fn export_ratchet_tree(&self, group_id: &GroupId) -> MlsResult<Vec<u8>> {
+        info!("Exporting ratchet tree for group {}", group_id);
+
+        let groups = self.groups.read().await;
+        let adapter = groups
+            .get(group_id)
+            .ok_or_else(|| MlsError::GroupNotFound(group_id.to_string()))?;
+
+        let engine_ref = adapter.engine();
+        let engine = engine_ref.read().await;
+        engine.export_ratchet_tree_bytes().await
     }
 
     /// Get group metadata

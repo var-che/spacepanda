@@ -73,6 +73,12 @@ pub struct InviteToken {
     /// Ratchet tree for joining (required for some MLS configs)
     pub ratchet_tree: Option<Vec<u8>>,
 
+    /// Channel name (so joiner can create proper metadata)
+    pub channel_name: String,
+
+    /// Whether channel is public
+    pub is_public: bool,
+
     /// When this invite was created
     pub created_at: Timestamp,
 
@@ -89,12 +95,16 @@ impl InviteToken {
         channel_id: ChannelId,
         welcome_blob: Vec<u8>,
         ratchet_tree: Option<Vec<u8>>,
+        channel_name: String,
+        is_public: bool,
         inviter: UserId,
     ) -> Self {
         Self {
             channel_id,
             welcome_blob,
             ratchet_tree,
+            channel_name,
+            is_public,
             created_at: Timestamp::now(),
             expires_at: None,
             inviter,
@@ -288,6 +298,8 @@ mod tests {
             channel_id,
             vec![1, 2, 3],
             Some(vec![4, 5, 6]),
+            "test-channel".to_string(),
+            false,
             inviter,
         );
 
