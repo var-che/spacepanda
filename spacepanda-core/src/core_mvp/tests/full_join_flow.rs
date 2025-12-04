@@ -312,3 +312,94 @@ async fn test_invite_creation_with_real_key_package() -> MvpResult<()> {
     println!("\n=== ✅ INVITE CREATION TEST PASSED! ===\n");
     Ok(())
 }
+
+/// Test a four-person MLS group with all members able to communicate
+///
+/// Tests:
+/// 1. Alice creates a channel
+/// 2. Alice adds Bob, Charlie, and Dave sequentially
+/// 3. All members sync epochs via commits
+/// 4. Each member sends a message that all others can decrypt
+#[tokio::test]
+async fn test_four_party_group() -> MvpResult<()> {
+    println!("\n=== FOUR-PARTY GROUP TEST ===\n");
+
+    // Setup: Create all four members
+    let (alice_manager, _alice_dir) = create_test_manager("alice").await;
+    let (bob_manager, _bob_dir) = create_test_manager("bob").await;
+    let (charlie_manager, _charlie_dir) = create_test_manager("charlie").await;
+    let (dave_manager, _dave_dir) = create_test_manager("dave").await;
+    println!("✓ All four members created");
+
+    // Step 1: Alice creates a channel
+    let channel_id = alice_manager
+        .create_channel("four-party-chat".to_string(), false)
+        .await?;
+    println!("✓ Alice created channel");
+
+    // Step 2: Build the group - add each member with epoch sync
+    println!("\nBuilding four-party group...");
+    
+    // Add Bob
+    let bob_kp = bob_manager.generate_key_package().await?;
+    let (bob_invite, _) = alice_manager.create_invite(&channel_id, bob_kp).await?;
+    bob_manager.join_channel(&bob_invite).await?;
+    println!("  ✓ Bob joined (2 members)");
+    
+    // Add Charlie - Bob must process commit
+    let charlie_kp = charlie_manager.generate_key_package().await?;
+    let (charlie_invite, commit) = alice_manager.create_invite(&channel_id, charlie_kp).await?;
+    if let Some(c) = commit {
+        bob_manager.process_commit(&c).await?;
+    }
+    charlie_manager.join_channel(&charlie_invite).await?;
+    println!("  ✓ Charlie joined (3 members)");
+    
+    // Add Dave - Bob and Charlie must process commit
+    let dave_kp = dave_manager.generate_key_package().await?;
+    let (dave_invite, commit) = alice_manager.create_invite(&channel_id, dave_kp).await?;
+    if let Some(c) = commit {
+        bob_manager.process_commit(&c).await?;
+        charlie_manager.process_commit(&c).await?;
+    }
+    dave_manager.join_channel(&dave_invite).await?;
+    println!("  ✓ Dave joined (4 members)");
+
+    // Step 3: Test all-to-all messaging
+    println!("\nTesting all-to-all messaging...");
+    
+    // Alice sends, all others receive
+    let alice_msg = b"Hello from Alice!";
+    let ct = alice_manager.send_message(&channel_id, alice_msg).await?;
+    assert_eq!(bob_manager.receive_message(&ct).await?, alice_msg);
+    assert_eq!(charlie_manager.receive_message(&ct).await?, alice_msg);
+    assert_eq!(dave_manager.receive_message(&ct).await?, alice_msg);
+    println!("  ✓ Alice's message received by all");
+
+    // Bob sends, all others receive
+    let bob_msg = b"Bob here!";
+    let ct = bob_manager.send_message(&channel_id, bob_msg).await?;
+    assert_eq!(alice_manager.receive_message(&ct).await?, bob_msg);
+    assert_eq!(charlie_manager.receive_message(&ct).await?, bob_msg);
+    assert_eq!(dave_manager.receive_message(&ct).await?, bob_msg);
+    println!("  ✓ Bob's message received by all");
+
+    // Charlie sends, all others receive
+    let charlie_msg = b"Charlie checking in";
+    let ct = charlie_manager.send_message(&channel_id, charlie_msg).await?;
+    assert_eq!(alice_manager.receive_message(&ct).await?, charlie_msg);
+    assert_eq!(bob_manager.receive_message(&ct).await?, charlie_msg);
+    assert_eq!(dave_manager.receive_message(&ct).await?, charlie_msg);
+    println!("  ✓ Charlie's message received by all");
+
+    // Dave sends, all others receive
+    let dave_msg = b"Dave says hi!";
+    let ct = dave_manager.send_message(&channel_id, dave_msg).await?;
+    assert_eq!(alice_manager.receive_message(&ct).await?, dave_msg);
+    assert_eq!(bob_manager.receive_message(&ct).await?, dave_msg);
+    assert_eq!(charlie_manager.receive_message(&ct).await?, dave_msg);
+    println!("  ✓ Dave's message received by all");
+
+    println!("\n=== ✅ FOUR-PARTY GROUP TEST PASSED! ===\n");
+    Ok(())
+}
