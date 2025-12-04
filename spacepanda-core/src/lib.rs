@@ -42,12 +42,18 @@
 // Privacy warnings - intentional module design decisions
 #![allow(private_interfaces)]
 
+pub mod config;
 pub mod core_dht;
 pub mod core_identity;
 pub mod core_mls;
+pub mod core_mvp;
 pub mod core_router;
 pub mod core_store;
+pub mod health;
 pub mod logging;
+pub mod metrics;
+pub mod shutdown;
+pub mod tracing;
 
 #[cfg(test)]
 pub mod test_utils;
@@ -58,6 +64,7 @@ pub use core_identity::{
     Keypair, StoredIdentity, UserId, UserMetadata,
 };
 pub use core_mls::{GroupId, MlsConfig, MlsError, MlsResult};
+pub use core_mvp::{ChannelManager, Identity, MvpError, MvpResult};
 pub use core_router::{TransportCommand, TransportEvent, TransportManager};
 pub use logging::{init_logging, LogLevel};
 

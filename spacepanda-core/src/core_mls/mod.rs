@@ -44,6 +44,9 @@ pub mod storage;
 // OpenMLS engine wrapper (Phase 3)
 pub mod engine;
 
+// High-level service with production integration
+pub mod service;
+
 // Message lifecycle (envelopes, routing)
 pub mod messages;
 
@@ -90,6 +93,9 @@ mod security_tests;
 #[cfg(test)]
 #[path = "tests/tdd_tests.rs"]
 mod tdd_tests;
+#[cfg(test)]
+#[path = "tests/realistic_scenarios.rs"]
+mod realistic_scenarios;
 
 // Placeholder modules (to be implemented incrementally)
 

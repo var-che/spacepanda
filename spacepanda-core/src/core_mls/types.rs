@@ -78,6 +78,40 @@ impl Default for MlsConfig {
     }
 }
 
+/// Role of a member in a channel
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MemberRole {
+    /// Full admin permissions (can remove members, promote/demote, change settings)
+    Admin,
+    /// Regular member (can send/receive messages)
+    Member,
+    /// Read-only access (can view but not send messages)
+    ReadOnly,
+}
+
+impl MemberRole {
+    /// Check if this role can remove members
+    pub fn can_remove_members(&self) -> bool {
+        matches!(self, MemberRole::Admin)
+    }
+
+    /// Check if this role can promote/demote members
+    pub fn can_manage_roles(&self) -> bool {
+        matches!(self, MemberRole::Admin)
+    }
+
+    /// Check if this role can send messages
+    pub fn can_send_messages(&self) -> bool {
+        matches!(self, MemberRole::Admin | MemberRole::Member)
+    }
+}
+
+impl Default for MemberRole {
+    fn default() -> Self {
+        MemberRole::Member
+    }
+}
+
 /// Member information in a group
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemberInfo {
@@ -87,6 +121,8 @@ pub struct MemberInfo {
     pub leaf_index: u32,
     /// When the member joined (Unix timestamp)
     pub joined_at: u64,
+    /// Member's role in the channel
+    pub role: MemberRole,
 }
 
 /// Public group metadata (safe to publish to CRDT/DHT)
@@ -160,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_member_info() {
-        let member = MemberInfo { identity: vec![1, 2, 3], leaf_index: 0, joined_at: 1234567890 };
+        let member = MemberInfo { identity: vec![1, 2, 3], leaf_index: 0, joined_at: 1234567890, role: MemberRole::Member };
 
         let json = serde_json::to_string(&member).unwrap();
         let deserialized: MemberInfo = serde_json::from_str(&json).unwrap();

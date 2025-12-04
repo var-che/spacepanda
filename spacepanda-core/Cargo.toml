@@ -28,6 +28,8 @@ chacha20poly1305 = "0.10"  # AEAD cipher
 blake3 = "1.5"  # Modern, faster hashing (upgraded from blake2)
 serde.workspace = true
 serde_json.workspace = true
+toml = "0.8"  # For config file parsing
+humantime-serde = "1.1"  # Duration serialization
 uuid = { version = "1.0", features = ["v4", "serde"] }
 rand = "0.9.2"
 hex = "0.4.3"
@@ -48,6 +50,9 @@ sha2 = "0.10"
 curve25519-dalek = "4.1"
 hpke = "0.12"  # RFC 9180 compliant HPKE
 hpke-rs-crypto = "0.2"  # Crypto backend for hpke
+num_cpus = "1.16"  # For system metrics
+clap = { version = "4.5", features = ["derive"] }  # CLI argument parsing
+axum = "0.7"  # HTTP web framework for test harness
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
@@ -55,9 +60,9 @@ tempfile = "3.8"
 futures = "0.3"
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 rand_core = "0.6"
-num_cpus = "1.16"
 chrono = "0.4"
 proptest = "1.4"
+tower = "0.5"  # For testing HTTP services
 
 [[bench]]
 name = "rpc_protocol"
@@ -74,4 +79,12 @@ harness = false
 [[bench]]
 name = "crypto_operations"
 harness = false
+
+[[bench]]
+name = "profile_or_set_merge"
+harness = false
+
+
+[profile.bench]
+debug = true
 
