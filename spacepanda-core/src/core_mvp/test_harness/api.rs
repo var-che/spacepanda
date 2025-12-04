@@ -3,7 +3,7 @@
 use super::handlers;
 use super::state::AppState;
 use axum::{
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use std::sync::Arc;
@@ -28,6 +28,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Message routes
         .route("/channels/:id/send", post(handlers::send_message))
         .route("/channels/:id/messages", get(handlers::get_messages))
+        // Reaction routes
+        .route("/messages/:id/reactions", post(handlers::add_reaction))
+        .route("/messages/:id/reactions", get(handlers::get_reactions))
+        .route("/messages/:id/reactions/:emoji", delete(handlers::remove_reaction))
         // State
         .with_state(state)
 }

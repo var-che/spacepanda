@@ -190,6 +190,41 @@ pub enum MessageType {
     Attachment,
 }
 
+/// Emoji reaction to a message
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct Reaction {
+    /// The emoji (e.g., "👍", "❤️", "🎉")
+    pub emoji: String,
+    /// User who reacted
+    pub user_id: UserId,
+    /// When the reaction was added
+    pub timestamp: Timestamp,
+}
+
+impl Reaction {
+    /// Create a new reaction
+    pub fn new(emoji: String, user_id: UserId) -> Self {
+        Self {
+            emoji,
+            user_id,
+            timestamp: Timestamp::now(),
+        }
+    }
+}
+
+/// Aggregated reactions for a message (grouped by emoji)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReactionSummary {
+    /// The emoji
+    pub emoji: String,
+    /// Count of users who reacted with this emoji
+    pub count: usize,
+    /// List of users who reacted (for display)
+    pub users: Vec<UserId>,
+    /// Whether the current user has reacted with this emoji
+    pub user_reacted: bool,
+}
+
 /// Channel creation request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateChannelRequest {

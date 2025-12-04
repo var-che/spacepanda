@@ -674,3 +674,152 @@ async fn test_promote_demote_operations() -> MvpResult<()> {
     Ok(())
 }
 
+/// Test adding and removing reactions
+#[tokio::test]
+async fn test_message_reactions() -> MvpResult<()> {
+    use crate::core_store::model::types::MessageId;
+
+    println!("\n=== TESTING MESSAGE REACTIONS ===\n");
+
+    let (alice_manager, _alice_dir) = create_test_manager("alice").await;
+    let (bob_manager, _bob_dir) = create_test_manager("bob").await;
+
+    // Create channel
+    let channel_id = alice_manager
+        .create_channel("test-channel".to_string(), false)
+        .await?;
+    
+    // Bob joins
+    let bob_kp = bob_manager.generate_key_package().await?;
+    let invite = alice_manager.create_invite(&channel_id, bob_kp).await?;
+    bob_manager.join_channel(&invite).await?;
+
+    // Create a fake message ID for testing
+    let message_id = MessageId::generate();
+    println!("✓ Test message ID: {}", message_id);
+
+    // Test 1: Alice adds a reaction
+    println!("\nTest 1: Adding reactions...");
+    alice_manager.add_reaction(&message_id, "👍".to_string()).await?;
+    println!("  ✓ Alice reacted with 👍");
+
+    bob_manager.add_reaction(&message_id, "👍".to_string()).await?;
+    println!("  ✓ Bob reacted with 👍");
+
+    bob_manager.add_reaction(&message_id, "❤️".to_string()).await?;
+    println!("  ✓ Bob reacted with ❤️");
+
+    // Test 2: Get reactions and verify counts
+    println!("\nTest 2: Verifying reaction counts...");
+    let reactions = alice_manager.get_reactions(&message_id).await?;
+    assert_eq!(reactions.len(), 2, "Should have 2 unique emoji reactions");
+    
+    // Find the thumbs up reaction
+    let thumbs_up = reactions.iter().find(|r| r.emoji == "👍").unwrap();
+    assert_eq!(thumbs_up.count, 2, "Thumbs up should have 2 reactions");
+    println!("  ✓ 👍 has {} reactions", thumbs_up.count);
+
+    let heart = reactions.iter().find(|r| r.emoji == "❤️").unwrap();
+    assert_eq!(heart.count, 1, "Heart should have 1 reaction");
+    println!("  ✓ ❤️ has {} reaction", heart.count);
+
+    // Test 3: Verify user_reacted flag
+    println!("\nTest 3: Verifying user_reacted flag...");
+    assert!(thumbs_up.user_reacted, "Alice should have reacted with 👍");
+    assert!(!heart.user_reacted, "Alice should NOT have reacted with ❤️");
+    println!("  ✓ user_reacted flags are correct for Alice");
+
+    // Test 4: Duplicate reaction should fail
+    println!("\nTest 4: Testing duplicate reaction prevention...");
+    let result = alice_manager.add_reaction(&message_id, "👍".to_string()).await;
+    assert!(result.is_err(), "Duplicate reaction should fail");
+    println!("  ✓ Duplicate reaction correctly prevented");
+
+    // Test 5: Remove reaction
+    println!("\nTest 5: Removing reactions...");
+    alice_manager.remove_reaction(&message_id, "👍".to_string()).await?;
+    println!("  ✓ Alice removed 👍");
+
+    let reactions = alice_manager.get_reactions(&message_id).await?;
+    let thumbs_up = reactions.iter().find(|r| r.emoji == "👍").unwrap();
+    assert_eq!(thumbs_up.count, 1, "Thumbs up should now have 1 reaction");
+    assert!(!thumbs_up.user_reacted, "Alice should no longer have 👍 reaction");
+    println!("  ✓ Reaction count updated correctly");
+
+    // Test 6: Remove non-existent reaction should fail
+    println!("\nTest 6: Testing invalid removal...");
+    let result = alice_manager.remove_reaction(&message_id, "🎉".to_string()).await;
+    assert!(result.is_err(), "Removing non-existent reaction should fail");
+    println!("  ✓ Invalid removal correctly prevented");
+
+    println!("\n=== ✅ MESSAGE REACTIONS TESTS PASSED! ===\n");
+    Ok(())
+}
+
+/// Test reaction aggregation and sorting
+#[tokio::test]
+async fn test_reaction_aggregation() -> MvpResult<()> {
+    use crate::core_store::model::types::MessageId;
+
+    println!("\n=== TESTING REACTION AGGREGATION ===\n");
+
+    let (alice_manager, _alice_dir) = create_test_manager("alice").await;
+    let (bob_manager, _bob_dir) = create_test_manager("bob").await;
+    let (charlie_manager, _charlie_dir) = create_test_manager("charlie").await;
+
+    // Create channel and add members
+    let channel_id = alice_manager
+        .create_channel("test-channel".to_string(), false)
+        .await?;
+
+    let bob_kp = bob_manager.generate_key_package().await?;
+    let invite = alice_manager.create_invite(&channel_id, bob_kp).await?;
+    bob_manager.join_channel(&invite).await?;
+
+    let charlie_kp = charlie_manager.generate_key_package().await?;
+    let invite = alice_manager.create_invite(&channel_id, charlie_kp).await?;
+    charlie_manager.join_channel(&invite).await?;
+
+    let message_id = MessageId::generate();
+
+    // Add reactions: 3 people react with 👍, 2 with ❤️, 1 with 🎉
+    println!("Adding reactions from multiple users...");
+    alice_manager.add_reaction(&message_id, "👍".to_string()).await?;
+    bob_manager.add_reaction(&message_id, "👍".to_string()).await?;
+    charlie_manager.add_reaction(&message_id, "👍".to_string()).await?;
+    
+    alice_manager.add_reaction(&message_id, "❤️".to_string()).await?;
+    bob_manager.add_reaction(&message_id, "❤️".to_string()).await?;
+    
+    charlie_manager.add_reaction(&message_id, "🎉".to_string()).await?;
+    println!("✓ Reactions added");
+
+    // Get reactions and verify sorting (most popular first)
+    println!("\nVerifying aggregation and sorting...");
+    let reactions = alice_manager.get_reactions(&message_id).await?;
+    
+    assert_eq!(reactions.len(), 3, "Should have 3 unique emojis");
+    assert_eq!(reactions[0].emoji, "👍", "Most popular should be first");
+    assert_eq!(reactions[0].count, 3, "Thumbs up should have 3");
+    assert_eq!(reactions[1].emoji, "❤️", "Second most popular");
+    assert_eq!(reactions[1].count, 2, "Heart should have 2");
+    assert_eq!(reactions[2].emoji, "🎉", "Least popular");
+    assert_eq!(reactions[2].count, 1, "Party should have 1");
+    
+    println!("  ✓ Sorted by count: {} ({}), {} ({}), {} ({})",
+        reactions[0].emoji, reactions[0].count,
+        reactions[1].emoji, reactions[1].count,
+        reactions[2].emoji, reactions[2].count
+    );
+
+    // Verify user lists
+    println!("\nVerifying user lists...");
+    assert_eq!(reactions[0].users.len(), 3, "Thumbs up should have 3 users");
+    assert_eq!(reactions[1].users.len(), 2, "Heart should have 2 users");
+    assert_eq!(reactions[2].users.len(), 1, "Party should have 1 user");
+    println!("  ✓ User lists are correct");
+
+    println!("\n=== ✅ REACTION AGGREGATION TESTS PASSED! ===\n");
+    Ok(())
+}
+

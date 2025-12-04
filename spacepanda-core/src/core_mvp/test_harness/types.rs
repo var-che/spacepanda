@@ -179,6 +179,48 @@ pub struct MemberInfo {
 }
 
 // ============================================================================
+// Reaction Types
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddReactionRequest {
+    /// Emoji to react with (e.g., "👍", "❤️", "🎉")
+    pub emoji: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddReactionResponse {
+    pub message_id: String,
+    pub emoji: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoveReactionRequest {
+    /// Emoji to remove
+    pub emoji: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoveReactionResponse {
+    pub message_id: String,
+    pub emoji: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetReactionsResponse {
+    pub message_id: String,
+    pub reactions: Vec<ReactionSummaryHttp>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReactionSummaryHttp {
+    pub emoji: String,
+    pub count: usize,
+    pub users: Vec<String>,
+    pub user_reacted: bool,
+}
+
+// ============================================================================
 // Error Types
 // ============================================================================
 

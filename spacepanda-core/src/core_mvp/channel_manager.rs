@@ -30,16 +30,17 @@ use crate::{
     },
     core_mvp::{
         errors::{MvpError, MvpResult},
-        types::{ChannelDescriptor, ChatMessage, InviteToken},
+        types::{ChannelDescriptor, ChatMessage, InviteToken, Reaction, ReactionSummary},
     },
     core_store::{
         model::{
             channel::Channel,
-            types::{ChannelId, ChannelType, Timestamp, UserId},
+            types::{ChannelId, ChannelType, MessageId, Timestamp, UserId},
         },
         store::local_store::LocalStore,
     },
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
@@ -57,6 +58,10 @@ pub struct ChannelManager {
 
     /// Configuration
     config: Arc<Config>,
+
+    /// In-memory reaction storage (MessageId -> Vec<Reaction>)
+    /// TODO: Persist to CRDT in production
+    reactions: Arc<RwLock<HashMap<MessageId, Vec<Reaction>>>>,
 }
 
 /// Simple identity holder (will integrate with core_identity later)
@@ -111,6 +116,7 @@ impl ChannelManager {
             store,
             identity,
             config,
+            reactions: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -887,6 +893,164 @@ impl ChannelManager {
         }
 
         Ok(channels)
+    }
+
+    /// Add a reaction to a message
+    ///
+    /// # Arguments
+    ///
+    /// * `message_id` - ID of the message to react to
+    /// * `emoji` - Emoji string (e.g., "👍", "❤️", "🎉")
+    ///
+    /// # Returns
+    ///
+    /// Success if reaction was added
+    ///
+    /// # Errors
+    ///
+    /// Returns error if user has already reacted with this emoji
+    pub async fn add_reaction(
+        &self,
+        message_id: &MessageId,
+        emoji: String,
+    ) -> MvpResult<()> {
+        let user_id = self.identity.user_id.clone();
+        
+        info!(
+            message_id = %message_id,
+            emoji = %emoji,
+            user_id = %user_id,
+            "Adding reaction"
+        );
+
+        let mut reactions = self.reactions.write().await;
+        let message_reactions = reactions.entry(message_id.clone()).or_insert_with(Vec::new);
+
+        // Check if user already reacted with this emoji
+        if message_reactions.iter().any(|r| r.user_id == user_id && r.emoji == emoji) {
+            return Err(MvpError::InvalidOperation(
+                "User has already reacted with this emoji".to_string(),
+            ));
+        }
+
+        // Add the reaction
+        message_reactions.push(Reaction::new(emoji, user_id));
+
+        debug!(
+            message_id = %message_id,
+            total_reactions = message_reactions.len(),
+            "Reaction added"
+        );
+
+        Ok(())
+    }
+
+    /// Remove a reaction from a message
+    ///
+    /// # Arguments
+    ///
+    /// * `message_id` - ID of the message
+    /// * `emoji` - Emoji to remove
+    ///
+    /// # Returns
+    ///
+    /// Success if reaction was removed
+    ///
+    /// # Errors
+    ///
+    /// Returns error if reaction doesn't exist
+    pub async fn remove_reaction(
+        &self,
+        message_id: &MessageId,
+        emoji: String,
+    ) -> MvpResult<()> {
+        let user_id = self.identity.user_id.clone();
+        
+        info!(
+            message_id = %message_id,
+            emoji = %emoji,
+            user_id = %user_id,
+            "Removing reaction"
+        );
+
+        let mut reactions = self.reactions.write().await;
+        
+        if let Some(message_reactions) = reactions.get_mut(message_id) {
+            let initial_len = message_reactions.len();
+            message_reactions.retain(|r| !(r.user_id == user_id && r.emoji == emoji));
+            
+            if message_reactions.len() == initial_len {
+                return Err(MvpError::InvalidOperation(
+                    "Reaction not found".to_string(),
+                ));
+            }
+
+            debug!(
+                message_id = %message_id,
+                remaining_reactions = message_reactions.len(),
+                "Reaction removed"
+            );
+
+            Ok(())
+        } else {
+            Err(MvpError::InvalidOperation(
+                "No reactions found for this message".to_string(),
+            ))
+        }
+    }
+
+    /// Get aggregated reactions for a message
+    ///
+    /// # Arguments
+    ///
+    /// * `message_id` - ID of the message
+    ///
+    /// # Returns
+    ///
+    /// List of reaction summaries grouped by emoji
+    pub async fn get_reactions(
+        &self,
+        message_id: &MessageId,
+    ) -> MvpResult<Vec<ReactionSummary>> {
+        let reactions = self.reactions.read().await;
+        let user_id = self.identity.user_id.clone();
+
+        let message_reactions = reactions
+            .get(message_id)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+
+        // Group reactions by emoji
+        let mut emoji_map: HashMap<String, Vec<&Reaction>> = HashMap::new();
+        for reaction in message_reactions {
+            emoji_map
+                .entry(reaction.emoji.clone())
+                .or_insert_with(Vec::new)
+                .push(reaction);
+        }
+
+        // Convert to ReactionSummary
+        let mut summaries: Vec<ReactionSummary> = emoji_map
+            .into_iter()
+            .map(|(emoji, reactions)| {
+                let users: Vec<UserId> = reactions.iter().map(|r| r.user_id.clone()).collect();
+                let user_reacted = users.contains(&user_id);
+                
+                ReactionSummary {
+                    emoji,
+                    count: reactions.len(),
+                    users,
+                    user_reacted,
+                }
+            })
+            .collect();
+
+        // Sort by count (descending), then by emoji
+        summaries.sort_by(|a, b| {
+            b.count.cmp(&a.count).then_with(|| a.emoji.cmp(&b.emoji))
+        });
+
+        Ok(summaries)
     }
 }
 

@@ -330,3 +330,72 @@ pub async fn get_member_role(
     }))
 }
 
+/// POST /messages/:id/reactions - Add a reaction to a message
+pub async fn add_reaction(
+    State(state): State<Arc<AppState>>,
+    Path(message_id): Path<String>,
+    Json(req): Json<AddReactionRequest>,
+) -> ApiResult<Json<AddReactionResponse>> {
+    use crate::core_store::model::types::MessageId;
+    
+    let message_id = MessageId(message_id);
+    
+    state
+        .channel_manager
+        .add_reaction(&message_id, req.emoji.clone())
+        .await?;
+    
+    Ok(Json(AddReactionResponse {
+        message_id: message_id.0,
+        emoji: req.emoji,
+    }))
+}
+
+/// DELETE /messages/:id/reactions/:emoji - Remove a reaction from a message
+pub async fn remove_reaction(
+    State(state): State<Arc<AppState>>,
+    Path((message_id, emoji)): Path<(String, String)>,
+) -> ApiResult<StatusCode> {
+    use crate::core_store::model::types::MessageId;
+    
+    let message_id = MessageId(message_id);
+    
+    state
+        .channel_manager
+        .remove_reaction(&message_id, emoji)
+        .await?;
+    
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// GET /messages/:id/reactions - Get all reactions for a message
+pub async fn get_reactions(
+    State(state): State<Arc<AppState>>,
+    Path(message_id): Path<String>,
+) -> ApiResult<Json<GetReactionsResponse>> {
+    use crate::core_store::model::types::MessageId;
+    
+    let message_id_obj = MessageId(message_id.clone());
+    
+    let summaries = state
+        .channel_manager
+        .get_reactions(&message_id_obj)
+        .await?;
+    
+    // Convert to HTTP response format
+    let reactions = summaries
+        .into_iter()
+        .map(|s| ReactionSummaryHttp {
+            emoji: s.emoji,
+            count: s.count,
+            users: s.users.into_iter().map(|u| u.0).collect(),
+            user_reacted: s.user_reacted,
+        })
+        .collect();
+    
+    Ok(Json(GetReactionsResponse {
+        message_id,
+        reactions,
+    }))
+}
+
