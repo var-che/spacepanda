@@ -99,6 +99,42 @@ pub struct RemoveMemberResponse {
     pub removed_member_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromoteMemberRequest {
+    /// Identity of the member to promote to Admin
+    pub member_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromoteMemberResponse {
+    pub member_id: String,
+    pub new_role: String, // "Admin"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DemoteMemberRequest {
+    /// Identity of the member to demote to Member
+    pub member_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DemoteMemberResponse {
+    pub member_id: String,
+    pub new_role: String, // "Member"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetMemberRoleRequest {
+    /// Identity of the member to query
+    pub member_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetMemberRoleResponse {
+    pub member_id: String,
+    pub role: String, // "Admin", "Member", or "ReadOnly"
+}
+
 // ============================================================================
 // Message Types
 // ============================================================================

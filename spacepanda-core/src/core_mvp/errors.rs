@@ -52,6 +52,10 @@ pub enum MvpError {
     #[error("Serialization error: {0}")]
     Serialization(String),
 
+    /// Invalid operation
+    #[error("Invalid operation: {0}")]
+    InvalidOperation(String),
+
     /// Configuration error
     #[error("Configuration error: {0}")]
     Config(String),

@@ -518,3 +518,159 @@ async fn test_four_party_member_removal() -> MvpResult<()> {
     Ok(())
 }
 
+/// Test permission system - only admins can remove members
+#[tokio::test]
+async fn test_admin_permissions_for_removal() -> MvpResult<()> {
+    println!("\n=== TESTING ADMIN PERMISSIONS ===\n");
+
+    // Create Alice (admin) and Bob (member)
+    let (alice_manager, _alice_dir) = create_test_manager("alice").await;
+    let (bob_manager, _bob_dir) = create_test_manager("bob").await;
+
+    // Alice creates channel (becomes admin)
+    let channel_id = alice_manager
+        .create_channel("test-channel".to_string(), false)
+        .await?;
+    println!("✓ Alice created channel as admin");
+
+    // Generate invite for Bob
+    let bob_key_package = bob_manager.generate_key_package().await?;
+    let invite = alice_manager
+        .create_invite(&channel_id, bob_key_package)
+        .await?;
+
+    // Bob joins
+    let _bob_channel_id = bob_manager.join_channel(&invite).await?;
+    println!("✓ Bob joined as regular member");
+
+    // Create Charlie to attempt removal
+    let (charlie_manager, _charlie_dir) = create_test_manager("charlie").await;
+    let charlie_key_package = charlie_manager.generate_key_package().await?;
+    let charlie_invite = alice_manager
+        .create_invite(&channel_id, charlie_key_package)
+        .await?;
+    let _charlie_channel_id = charlie_manager.join_channel(&charlie_invite).await?;
+    println!("✓ Charlie joined as regular member");
+
+    // Test 1: Alice (admin) CAN remove Bob
+    println!("\nTest 1: Admin removing member...");
+    let bob_identity = bob_manager.identity().user_id.0.as_bytes();
+    let result = alice_manager.remove_member(&channel_id, bob_identity).await;
+    assert!(result.is_ok(), "Admin should be able to remove members");
+    println!("  ✓ Alice (admin) successfully removed Bob");
+
+    // Test 2: Charlie (member) CANNOT remove anyone
+    println!("\nTest 2: Non-admin attempting removal...");
+    // Create new test since we need all 3 members
+    let (alice_manager2, _alice_dir2) = create_test_manager("alice2").await;
+    let (bob_manager2, _bob_dir2) = create_test_manager("bob2").await;
+    let (charlie_manager2, _charlie_dir2) = create_test_manager("charlie2").await;
+
+    let channel_id2 = alice_manager2
+        .create_channel("test-channel-2".to_string(), false)
+        .await?;
+
+    let bob_kp2 = bob_manager2.generate_key_package().await?;
+    let invite2 = alice_manager2.create_invite(&channel_id2, bob_kp2).await?;
+    bob_manager2.join_channel(&invite2).await?;
+
+    let charlie_kp2 = charlie_manager2.generate_key_package().await?;
+    let charlie_inv2 = alice_manager2.create_invite(&channel_id2, charlie_kp2).await?;
+    charlie_manager2.join_channel(&charlie_inv2).await?;
+
+    let bob2_identity = bob_manager2.identity().user_id.0.as_bytes();
+    let result = charlie_manager2.remove_member(&channel_id2, bob2_identity).await;
+    assert!(result.is_err(), "Non-admin should NOT be able to remove members");
+    println!("  ✓ Charlie (member) was correctly denied permission");
+
+    println!("\n=== ✅ PERMISSION TESTS PASSED! ===\n");
+    Ok(())
+}
+
+/// Test role queries
+#[tokio::test]
+async fn test_role_queries() -> MvpResult<()> {
+    println!("\n=== TESTING ROLE QUERIES ===\n");
+
+    let (alice_manager, _alice_dir) = create_test_manager("alice").await;
+    let (bob_manager, _bob_dir) = create_test_manager("bob").await;
+
+    // Alice creates channel
+    let channel_id = alice_manager
+        .create_channel("test-channel".to_string(), false)
+        .await?;
+
+    // Bob joins
+    let bob_key_package = bob_manager.generate_key_package().await?;
+    let invite = alice_manager.create_invite(&channel_id, bob_key_package).await?;
+    bob_manager.join_channel(&invite).await?;
+
+    // Test get_member_role
+    let alice_identity = alice_manager.identity().user_id.0.as_bytes();
+    let alice_role = alice_manager.get_member_role(&channel_id, alice_identity).await?;
+    assert_eq!(alice_role, crate::core_mls::types::MemberRole::Admin);
+    println!("✓ Alice is Admin (creator)");
+
+    let bob_identity = bob_manager.identity().user_id.0.as_bytes();
+    let bob_role = alice_manager.get_member_role(&channel_id, bob_identity).await?;
+    assert_eq!(bob_role, crate::core_mls::types::MemberRole::Member);
+    println!("✓ Bob is Member (joined)");
+
+    // Test is_admin
+    let alice_is_admin = alice_manager.is_admin(&channel_id, alice_identity).await?;
+    assert!(alice_is_admin);
+    println!("✓ is_admin returns true for Alice");
+
+    let bob_is_admin = alice_manager.is_admin(&channel_id, bob_identity).await?;
+    assert!(!bob_is_admin);
+    println!("✓ is_admin returns false for Bob");
+
+    println!("\n=== ✅ ROLE QUERY TESTS PASSED! ===\n");
+    Ok(())
+}
+
+/// Test promote/demote functionality (stub test since persistence not implemented)
+#[tokio::test]
+async fn test_promote_demote_operations() -> MvpResult<()> {
+    println!("\n=== TESTING PROMOTE/DEMOTE OPERATIONS ===\n");
+
+    let (alice_manager, _alice_dir) = create_test_manager("alice").await;
+    let (bob_manager, _bob_dir) = create_test_manager("bob").await;
+
+    // Alice creates channel
+    let channel_id = alice_manager
+        .create_channel("test-channel".to_string(), false)
+        .await?;
+
+    // Bob joins
+    let bob_key_package = bob_manager.generate_key_package().await?;
+    let invite = alice_manager.create_invite(&channel_id, bob_key_package).await?;
+    bob_manager.join_channel(&invite).await?;
+
+    let bob_identity = bob_manager.identity().user_id.0.as_bytes();
+
+    // Test: Admin can call promote_member (even if persistence not implemented)
+    let result = alice_manager.promote_member(&channel_id, bob_identity).await;
+    assert!(result.is_ok(), "Admin should be able to call promote_member");
+    println!("✓ Alice (admin) can call promote_member");
+
+    // Test: Admin can call demote_member
+    let result = alice_manager.demote_member(&channel_id, bob_identity).await;
+    assert!(result.is_ok(), "Admin should be able to call demote_member");
+    println!("✓ Alice (admin) can call demote_member");
+
+    // Test: Non-admin CANNOT promote
+    let alice_identity = alice_manager.identity().user_id.0.as_bytes();
+    let result = bob_manager.promote_member(&channel_id, alice_identity).await;
+    assert!(result.is_err(), "Non-admin should NOT be able to promote");
+    println!("✓ Bob (member) correctly denied permission to promote");
+
+    // Test: Non-admin CANNOT demote
+    let result = bob_manager.demote_member(&channel_id, alice_identity).await;
+    assert!(result.is_err(), "Non-admin should NOT be able to demote");
+    println!("✓ Bob (member) correctly denied permission to demote");
+
+    println!("\n=== ✅ PROMOTE/DEMOTE TESTS PASSED! ===\n");
+    Ok(())
+}
+

@@ -264,3 +264,69 @@ pub async fn remove_member(
         removed_member_id: req.member_id,
     }))
 }
+
+/// POST /channels/:id/promote-member - Promote a member to Admin
+pub async fn promote_member(
+    State(state): State<Arc<AppState>>,
+    Path(channel_id): Path<String>,
+    Json(req): Json<PromoteMemberRequest>,
+) -> ApiResult<Json<PromoteMemberResponse>> {
+    let channel_id = ChannelId(channel_id);
+    let member_identity = req.member_id.as_bytes();
+    
+    state
+        .channel_manager
+        .promote_member(&channel_id, member_identity)
+        .await?;
+    
+    Ok(Json(PromoteMemberResponse {
+        member_id: req.member_id,
+        new_role: "Admin".to_string(),
+    }))
+}
+
+/// POST /channels/:id/demote-member - Demote a member to regular Member
+pub async fn demote_member(
+    State(state): State<Arc<AppState>>,
+    Path(channel_id): Path<String>,
+    Json(req): Json(DemoteMemberRequest>,
+) -> ApiResult<Json<DemoteMemberResponse>> {
+    let channel_id = ChannelId(channel_id);
+    let member_identity = req.member_id.as_bytes();
+    
+    state
+        .channel_manager
+        .demote_member(&channel_id, member_identity)
+        .await?;
+    
+    Ok(Json(DemoteMemberResponse {
+        member_id: req.member_id,
+        new_role: "Member".to_string(),
+    }))
+}
+
+/// GET /channels/:id/members/:member_id/role - Get a member's role
+pub async fn get_member_role(
+    State(state): State<Arc<AppState>>,
+    Path((channel_id, member_id)): Path<(String, String)>,
+) -> ApiResult<Json<GetMemberRoleResponse>> {
+    let channel_id = ChannelId(channel_id);
+    let member_identity = member_id.as_bytes();
+    
+    let role = state
+        .channel_manager
+        .get_member_role(&channel_id, member_identity)
+        .await?;
+    
+    let role_str = match role {
+        crate::core_mls::types::MemberRole::Admin => "Admin",
+        crate::core_mls::types::MemberRole::Member => "Member",
+        crate::core_mls::types::MemberRole::ReadOnly => "ReadOnly",
+    };
+    
+    Ok(Json(GetMemberRoleResponse {
+        member_id,
+        role: role_str.to_string(),
+    }))
+}
+

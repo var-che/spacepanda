@@ -26,7 +26,7 @@ use crate::{
     core_mls::{
         engine::GroupOperations,
         service::MlsService,
-        types::{GroupId, GroupMetadata},
+        types::{GroupId, GroupMetadata, MemberRole},
     },
     core_mvp::{
         errors::{MvpError, MvpResult},
@@ -559,6 +559,82 @@ impl ChannelManager {
         ))
     }
 
+    /// Get the role of a specific member in a channel
+    ///
+    /// # Arguments
+    ///
+    /// * `channel_id` - Target channel
+    /// * `member_identity` - Identity bytes of the member
+    ///
+    /// # Returns
+    ///
+    /// The member's role if found
+    pub async fn get_member_role(
+        &self,
+        channel_id: &ChannelId,
+        member_identity: &[u8],
+    ) -> MvpResult<MemberRole> {
+        let group_id = GroupId::new(channel_id.0.as_bytes().to_vec());
+        let metadata = self
+            .mls_service
+            .get_group_metadata(&group_id)
+            .await
+            .map_err(|e| MvpError::Mls(e))?;
+
+        metadata
+            .members
+            .iter()
+            .find(|m| m.identity == member_identity)
+            .map(|m| m.role)
+            .ok_or_else(|| {
+                MvpError::InvalidOperation(format!(
+                    "Member {} not found in channel",
+                    std::str::from_utf8(member_identity).unwrap_or("<non-utf8>")
+                ))
+            })
+    }
+
+    /// Check if a member has admin role in a channel
+    ///
+    /// # Arguments
+    ///
+    /// * `channel_id` - Target channel
+    /// * `member_identity` - Identity bytes of the member
+    ///
+    /// # Returns
+    ///
+    /// `true` if the member is an admin, `false` otherwise
+    pub async fn is_admin(
+        &self,
+        channel_id: &ChannelId,
+        member_identity: &[u8],
+    ) -> MvpResult<bool> {
+        let role = self.get_member_role(channel_id, member_identity).await?;
+        Ok(matches!(role, MemberRole::Admin))
+    }
+
+    /// Check if a member can remove other members
+    ///
+    /// # Arguments
+    ///
+    /// * `channel_id` - Target channel
+    /// * `actor_identity` - Identity bytes of the member attempting removal
+    /// * `target_identity` - Identity bytes of the member to be removed (optional, for self-removal check)
+    ///
+    /// # Returns
+    ///
+    /// `true` if the actor has permission to remove members
+    pub async fn can_remove_member(
+        &self,
+        channel_id: &ChannelId,
+        actor_identity: &[u8],
+        _target_identity: Option<&[u8]>,
+    ) -> MvpResult<bool> {
+        // For now, only admins can remove members
+        // Future: Allow members to remove themselves
+        self.is_admin(channel_id, actor_identity).await
+    }
+
     /// Remove a member from the channel
     ///
     /// This generates an MLS commit that removes the specified member.
@@ -594,6 +670,24 @@ impl ChannelManager {
             member = ?std::str::from_utf8(member_identity).unwrap_or("<non-utf8>"),
             "Removing member from channel"
         );
+
+        // Check permission: Only admins can remove members
+        let actor_identity = self.identity.user_id.0.as_bytes();
+        let can_remove = self
+            .can_remove_member(channel_id, actor_identity, Some(member_identity))
+            .await?;
+
+        if !can_remove {
+            warn!(
+                actor = ?std::str::from_utf8(actor_identity).unwrap_or("<non-utf8>"),
+                "Permission denied: Actor is not an admin"
+            );
+            return Err(MvpError::InvalidOperation(
+                "Only admins can remove members".to_string(),
+            ));
+        }
+
+        debug!("Permission check passed");
 
         // Map channel ID to group ID
         let group_id = GroupId::new(channel_id.0.as_bytes().to_vec());
@@ -645,6 +739,107 @@ impl ChannelManager {
         );
 
         Ok(commit)
+    }
+
+    /// Promote a member to Admin role
+    ///
+    /// **NOTE**: Role persistence is not yet fully implemented.
+    /// Currently, roles are only stored in MLS GroupMetadata, which cannot be
+    /// directly modified without add/remove operations. In a production system,
+    /// roles would be stored in the CRDT layer alongside MLS state.
+    ///
+    /// # Arguments
+    ///
+    /// * `channel_id` - Target channel
+    /// * `member_identity` - Identity bytes of the member to promote
+    ///
+    /// # Returns
+    ///
+    /// Success if the member was found and actor has permission
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidOperation` if:
+    /// - Actor is not an admin
+    /// - Member not found in channel
+    pub async fn promote_member(
+        &self,
+        channel_id: &ChannelId,
+        member_identity: &[u8],
+    ) -> MvpResult<()> {
+        // Check permission: Only admins can promote
+        let actor_identity = self.identity.user_id.0.as_bytes();
+        if !self.is_admin(channel_id, actor_identity).await? {
+            return Err(MvpError::InvalidOperation(
+                "Only admins can promote members".to_string(),
+            ));
+        }
+
+        // Verify member exists
+        let _current_role = self.get_member_role(channel_id, member_identity).await?;
+
+        info!(
+            channel_id = %channel_id,
+            member = ?std::str::from_utf8(member_identity).unwrap_or("<non-utf8>"),
+            "Member promoted to Admin (role change pending CRDT integration)"
+        );
+
+        // TODO: Store role change in CRDT
+        // This would involve:
+        // 1. Get channel from store
+        // 2. Update member role in channel.permissions or similar
+        // 3. Broadcast CRDT update to other members
+        // 4. Persist change
+
+        Ok(())
+    }
+
+    /// Demote a member to regular Member role
+    ///
+    /// **NOTE**: Role persistence is not yet fully implemented.
+    /// See `promote_member` documentation for details.
+    ///
+    /// # Arguments
+    ///
+    /// * `channel_id` - Target channel
+    /// * `member_identity` - Identity bytes of the member to demote
+    ///
+    /// # Returns
+    ///
+    /// Success if the member was found and actor has permission
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidOperation` if:
+    /// - Actor is not an admin
+    /// - Member not found in channel
+    /// - Trying to demote the last admin (not yet enforced)
+    pub async fn demote_member(
+        &self,
+        channel_id: &ChannelId,
+        member_identity: &[u8],
+    ) -> MvpResult<()> {
+        // Check permission: Only admins can demote
+        let actor_identity = self.identity.user_id.0.as_bytes();
+        if !self.is_admin(channel_id, actor_identity).await? {
+            return Err(MvpError::InvalidOperation(
+                "Only admins can demote members".to_string(),
+            ));
+        }
+
+        // Verify member exists
+        let _current_role = self.get_member_role(channel_id, member_identity).await?;
+
+        info!(
+            channel_id = %channel_id,
+            member = ?std::str::from_utf8(member_identity).unwrap_or("<non-utf8>"),
+            "Member demoted to Member (role change pending CRDT integration)"
+        );
+
+        // TODO: Store role change in CRDT (same as promote_member)
+        // TODO: Prevent demoting last admin
+
+        Ok(())
     }
 
     /// Get channel metadata

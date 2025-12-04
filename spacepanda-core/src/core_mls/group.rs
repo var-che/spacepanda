@@ -65,6 +65,7 @@ impl MlsGroup {
                 identity: creator_identity,
                 leaf_index: self_index,
                 joined_at: current_timestamp(),
+                role: super::types::MemberRole::Admin, // Creator is admin
             }],
             created_at: current_timestamp(),
             updated_at: current_timestamp(),
@@ -325,6 +326,7 @@ impl MlsGroup {
                         identity: identity.clone(),
                         leaf_index: leaf_idx,
                         joined_at: current_timestamp(),
+                        role: super::types::MemberRole::Member, // New members are regular members
                     });
 
                     result.added_members.push(leaf_idx);

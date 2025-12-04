@@ -322,6 +322,7 @@ impl OpenMlsEngine {
                     identity,
                     leaf_index: member.index.u32(),
                     joined_at: 0, // OpenMLS doesn't track join time by default
+                    role: super::super::types::MemberRole::Member, // Default to Member
                 }
             })
             .collect();
@@ -559,7 +560,7 @@ impl OpenMlsEngine {
                 let leaf_index = member.index.u32();
                 let joined_at = join_times.get(&leaf_index).copied().unwrap_or(fallback_time);
 
-                MemberInfo { identity, leaf_index, joined_at }
+                MemberInfo { identity, leaf_index, joined_at, role: super::super::types::MemberRole::Member }
             })
             .collect();
 
@@ -615,7 +616,7 @@ impl OpenMlsEngine {
             // Get actual join time from our tracking, or use fallback
             let joined_at = join_times.get(&leaf_index).copied().unwrap_or(fallback_time);
 
-            members.push(MemberInfo { identity, leaf_index, joined_at });
+            members.push(MemberInfo { identity, leaf_index, joined_at, role: super::super::types::MemberRole::Member });
         }
 
         Ok(members)
