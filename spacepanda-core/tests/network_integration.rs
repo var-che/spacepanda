@@ -1,6 +1,9 @@
 /// Integration tests for P2P networking between ChannelManagers
 ///
 /// Tests end-to-end message delivery over the network layer
+/// 
+/// SECURITY NOTE: Peer discovery now uses invite-based exchange instead of DHT
+/// to prevent metadata leakage and maintain privacy-first architecture.
 
 use spacepanda_core::config::Config;
 use spacepanda_core::core_mls::service::MlsService;

@@ -20,5 +20,5 @@ pub use adapters::{CoreMlsAdapter, MockGroupProvider};
 pub use channel_manager::{ChannelManager, Identity};
 pub use errors::{MvpError, MvpResult};
 pub use group_provider::{GroupConfig, GroupHandle, GroupProvider, Welcome};
-pub use peer_discovery::{DhtPeerDiscovery, NoPeerDiscovery, PeerDiscovery, PeerDiscoveryService};
+pub use peer_discovery::{NoPeerDiscovery, PeerDiscovery, PeerDiscoveryService};
 pub use types::{ChannelDescriptor, ChatMessage, InviteToken};

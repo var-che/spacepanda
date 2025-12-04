@@ -155,6 +155,11 @@ impl NetworkLayer {
         );
     }
     
+    /// Get our local peer ID
+    pub async fn get_local_peer_id(&self) -> Option<PeerId> {
+        Some(self.local_peer_id.clone())
+    }
+    
     /// Broadcast encrypted message to all channel members
     ///
     /// # Arguments

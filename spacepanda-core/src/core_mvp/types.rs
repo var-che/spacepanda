@@ -87,6 +87,10 @@ pub struct InviteToken {
 
     /// Inviter's user ID
     pub inviter: UserId,
+
+    /// Inviter's peer ID (for P2P connection)
+    /// This enables secure peer discovery without DHT metadata leakage
+    pub inviter_peer_id: Option<Vec<u8>>,
 }
 
 impl InviteToken {
@@ -108,7 +112,14 @@ impl InviteToken {
             created_at: Timestamp::now(),
             expires_at: None,
             inviter,
+            inviter_peer_id: None,
         }
+    }
+
+    /// Set the inviter's peer ID for P2P connection establishment
+    pub fn with_peer_id(mut self, peer_id: Vec<u8>) -> Self {
+        self.inviter_peer_id = Some(peer_id);
+        self
     }
 
     /// Check if invite has expired

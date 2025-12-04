@@ -2,6 +2,31 @@
 ///
 /// Provides mechanisms to discover network peer IDs for user identities.
 /// This is used by the NetworkLayer to map user identities to peer addresses.
+///
+/// # Privacy-First Architecture
+///
+/// **SECURITY DECISION**: This module previously included DHT-based peer discovery,
+/// which has been REMOVED due to critical privacy risks:
+///
+/// ## DHT Metadata Leakage Threats
+/// - DHT queries expose WHO is looking for WHOM and WHEN
+/// - Global observers can build social graphs from lookup patterns
+/// - User activity patterns become visible to DHT node operators
+/// - Online status inference from query timing
+/// - Violates privacy-first mission (similar to Signal/Session's approach)
+///
+/// ## Current Approach: Invite-Based Peer Exchange
+/// Peer IDs are now exchanged securely through encrypted InviteTokens:
+/// - No metadata leakage to third parties
+/// - Perfect forward secrecy via MLS encryption
+/// - Only communicating parties learn peer IDs
+/// - Prevents social graph analysis
+///
+/// ## Future Considerations
+/// If DHT is needed for relay/bootstrap discovery (not user discovery):
+/// - Route all DHT queries through onion circuits (anonymous lookups)
+/// - Use blind cryptographic queries (PIR)
+/// - Store only relay addresses, never user identity mappings
 
 use crate::core_router::session_manager::PeerId;
 use crate::core_store::model::types::UserId;
@@ -53,44 +78,16 @@ impl PeerDiscovery for NoPeerDiscovery {
     }
 }
 
-/// DHT-based peer discovery
-///
-/// Uses the DHT to store and lookup user identity -> peer ID mappings
-pub struct DhtPeerDiscovery {
-    // TODO: Add DHT client reference when ready
-    // dht_client: Arc<DhtClient>,
-}
-
-impl DhtPeerDiscovery {
-    /// Create new DHT-based peer discovery
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-#[async_trait]
-impl PeerDiscovery for DhtPeerDiscovery {
-    async fn lookup_peer_id(&self, _identity: &[u8]) -> Result<Option<PeerId>, String> {
-        // TODO: Implement DHT lookup
-        // 1. Convert identity to DhtKey
-        // 2. Call dht_client.find_value(key)
-        // 3. Deserialize PeerId from DhtValue
-        // 4. Return result
-        
-        tracing::debug!("DHT peer lookup not yet implemented");
-        Ok(None)
-    }
-
-    async fn register_self(&self, _identity: &[u8], _peer_id: PeerId) -> Result<(), String> {
-        // TODO: Implement DHT store
-        // 1. Convert identity to DhtKey
-        // 2. Serialize peer_id to DhtValue
-        // 3. Call dht_client.store(key, value)
-        
-        tracing::debug!("DHT peer registration not yet implemented");
-        Ok(())
-    }
-}
+// DHT-based peer discovery REMOVED for privacy reasons
+// 
+// SECURITY RATIONALE:
+// - DHT queries expose metadata: who is looking for whom, when, and social graphs
+// - Global observer can track user activity patterns and relationships
+// - Violates privacy-first mission (Signal/Session use invite-based exchange, not DHT)
+//
+// ALTERNATIVE APPROACH:
+// Peer IDs are now exchanged through encrypted invite tokens.
+// This provides perfect forward secrecy and prevents metadata leakage.
 
 /// Type alias for peer discovery service
 pub type PeerDiscoveryService = Arc<dyn PeerDiscovery>;
@@ -105,13 +102,5 @@ mod tests {
         let result = discovery.lookup_peer_id(b"test_identity").await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
-    }
-
-    #[tokio::test]
-    async fn test_dht_peer_discovery_placeholder() {
-        let discovery = DhtPeerDiscovery::new();
-        let result = discovery.lookup_peer_id(b"test_identity").await;
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none()); // Returns None until implemented
     }
 }

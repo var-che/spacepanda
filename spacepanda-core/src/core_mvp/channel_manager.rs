@@ -383,7 +383,7 @@ impl ChannelManager {
         let is_public = false; // TODO: Get from channel metadata when implemented
 
         // Create invite token with channel metadata
-        let invite = InviteToken::new(
+        let mut invite = InviteToken::new(
             channel_id.clone(),
             welcome_bytes,
             ratchet_tree_opt,
@@ -391,6 +391,14 @@ impl ChannelManager {
             is_public,
             self.identity.user_id.clone(),
         );
+
+        // Add our peer ID to invite if network is enabled (for invite-based peer discovery)
+        if let Some(ref network) = self.network {
+            if let Some(local_peer_id) = network.get_local_peer_id().await {
+                debug!("Adding local peer ID to invite for secure peer exchange");
+                invite = invite.with_peer_id(local_peer_id.0.clone());
+            }
+        }
 
         info!(
             channel_id = %channel_id,
@@ -494,6 +502,17 @@ impl ChannelManager {
             channel_id = %invite.channel_id,
             "Successfully joined channel"
         );
+
+        // Register inviter's peer ID if provided in invite (invite-based peer discovery)
+        if let (Some(ref network), Some(ref inviter_peer_id)) = (&self.network, &invite.inviter_peer_id) {
+            debug!("Registering inviter's peer ID from invite");
+            let peer_id = crate::core_router::session_manager::PeerId(inviter_peer_id.clone());
+            network.register_channel_member(
+                &invite.channel_id,
+                invite.inviter.clone(),
+                peer_id,
+            ).await;
+        }
 
         // Trigger peer discovery if network is enabled
         if let Some(ref network) = self.network {
