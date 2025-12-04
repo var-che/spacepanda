@@ -318,11 +318,17 @@ impl OpenMlsEngine {
             .map(|member| {
                 // Extract identity from credential - use serialized credential as identity
                 let identity = member.credential.serialized_content().to_vec();
+                // Creator (first member, leaf index 0) is admin, others are regular members
+                let role = if member.index.u32() == 0 {
+                    super::super::types::MemberRole::Admin
+                } else {
+                    super::super::types::MemberRole::Member
+                };
                 MemberInfo {
                     identity,
                     leaf_index: member.index.u32(),
                     joined_at: 0, // OpenMLS doesn't track join time by default
-                    role: super::super::types::MemberRole::Member, // Default to Member
+                    role,
                 }
             })
             .collect();

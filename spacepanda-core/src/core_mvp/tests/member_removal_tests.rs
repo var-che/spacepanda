@@ -55,11 +55,11 @@ async fn test_remove_member_basic() {
     
     // Alice invites Bob
     let bob_kp = bob.generate_key_package().await.unwrap();
-    let (welcome, _) = alice.create_invite(&channel_id, &bob_kp).await.unwrap();
+    let (welcome, _) = alice.create_invite(&channel_id, bob_kp).await.unwrap();
     println!("✓ Alice invited Bob");
     
     // Bob joins
-    bob.join_channel(&welcome, None).await.unwrap();
+    bob.join_channel(&welcome).await.unwrap();
     println!("✓ Bob joined");
     
     // Alice removes Bob
@@ -90,21 +90,25 @@ async fn test_remove_member_with_multiple_remaining() {
     
     // Add Bob
     let bob_kp = bob.generate_key_package().await.unwrap();
-    let (welcome, _) = alice.create_invite(&channel_id, &bob_kp).await.unwrap();
-    bob.join_channel(&welcome, None).await.unwrap();
+    let (welcome, _) = alice.create_invite(&channel_id, bob_kp).await.unwrap();
+    bob.join_channel(&welcome).await.unwrap();
     
     // Add Charlie
     let charlie_kp = charlie.generate_key_package().await.unwrap();
-    let (welcome, commit) = alice.create_invite(&channel_id, &charlie_kp).await.unwrap();
-    bob.process_commit(&commit).await.unwrap();
-    charlie.join_channel(&welcome, None).await.unwrap();
+    let (welcome, commit) = alice.create_invite(&channel_id, charlie_kp).await.unwrap();
+    if let Some(commit_bytes) = commit {
+        bob.process_commit(&commit_bytes).await.unwrap();
+    }
+    charlie.join_channel(&welcome).await.unwrap();
     
     // Add Dave
     let dave_kp = dave.generate_key_package().await.unwrap();
-    let (welcome, commit) = alice.create_invite(&channel_id, &dave_kp).await.unwrap();
-    bob.process_commit(&commit).await.unwrap();
-    charlie.process_commit(&commit).await.unwrap();
-    dave.join_channel(&welcome, None).await.unwrap();
+    let (welcome, commit) = alice.create_invite(&channel_id, dave_kp).await.unwrap();
+    if let Some(commit_bytes) = commit {
+        bob.process_commit(&commit_bytes).await.unwrap();
+        charlie.process_commit(&commit_bytes).await.unwrap();
+    }
+    dave.join_channel(&welcome).await.unwrap();
     
     println!("✓ 4-person group established");
     
@@ -155,8 +159,8 @@ async fn test_remove_self() {
     let channel_id = alice.create_channel("test".to_string(), false).await.unwrap();
     
     let bob_kp = bob.generate_key_package().await.unwrap();
-    let (welcome, _) = alice.create_invite(&channel_id, &bob_kp).await.unwrap();
-    bob.join_channel(&welcome, None).await.unwrap();
+    let (welcome, _) = alice.create_invite(&channel_id, bob_kp).await.unwrap();
+    bob.join_channel(&welcome).await.unwrap();
     
     // Alice tries to remove herself
     let alice_identity = alice.identity().user_id.0.as_bytes();
@@ -185,19 +189,23 @@ async fn test_sequential_removals() {
     let channel_id = alice.create_channel("test".to_string(), false).await.unwrap();
     
     let bob_kp = bob.generate_key_package().await.unwrap();
-    let (welcome, _) = alice.create_invite(&channel_id, &bob_kp).await.unwrap();
-    bob.join_channel(&welcome, None).await.unwrap();
+    let (welcome, _) = alice.create_invite(&channel_id, bob_kp).await.unwrap();
+    bob.join_channel(&welcome).await.unwrap();
     
     let charlie_kp = charlie.generate_key_package().await.unwrap();
-    let (welcome, commit) = alice.create_invite(&channel_id, &charlie_kp).await.unwrap();
-    bob.process_commit(&commit).await.unwrap();
-    charlie.join_channel(&welcome, None).await.unwrap();
+    let (welcome, commit) = alice.create_invite(&channel_id, charlie_kp).await.unwrap();
+    if let Some(commit_bytes) = commit {
+        bob.process_commit(&commit_bytes).await.unwrap();
+    }
+    charlie.join_channel(&welcome).await.unwrap();
     
     let dave_kp = dave.generate_key_package().await.unwrap();
-    let (welcome, commit) = alice.create_invite(&channel_id, &dave_kp).await.unwrap();
-    bob.process_commit(&commit).await.unwrap();
-    charlie.process_commit(&commit).await.unwrap();
-    dave.join_channel(&welcome, None).await.unwrap();
+    let (welcome, commit) = alice.create_invite(&channel_id, dave_kp).await.unwrap();
+    if let Some(commit_bytes) = commit {
+        bob.process_commit(&commit_bytes).await.unwrap();
+        charlie.process_commit(&commit_bytes).await.unwrap();
+    }
+    dave.join_channel(&welcome).await.unwrap();
     
     println!("✓ 4-person group established");
     
