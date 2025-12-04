@@ -403,3 +403,118 @@ async fn test_four_party_group() -> MvpResult<()> {
     println!("\n=== ✅ FOUR-PARTY GROUP TEST PASSED! ===\n");
     Ok(())
 }
+
+/// Test removing a member from a four-party group
+///
+/// Tests:
+/// 1. Create four-party group (Alice, Bob, Charlie, Dave)
+/// 2. Verify all can communicate
+/// 3. Alice removes Bob
+/// 4. Remaining members (Charlie, Dave) process removal commit
+/// 5. Verify only remaining members can decrypt new messages
+/// 6. Verify removed member (Bob) cannot decrypt or send
+#[tokio::test]
+async fn test_four_party_member_removal() -> MvpResult<()> {
+    println!("\n=== FOUR-PARTY MEMBER REMOVAL TEST ===\n");
+
+    // Setup: Create all four members
+    let (alice_manager, _alice_dir) = create_test_manager("alice").await;
+    let (bob_manager, _bob_dir) = create_test_manager("bob").await;
+    let (charlie_manager, _charlie_dir) = create_test_manager("charlie").await;
+    let (dave_manager, _dave_dir) = create_test_manager("dave").await;
+    println!("✓ All four members created");
+
+    // Build the group
+    let channel_id = alice_manager
+        .create_channel("removal-test".to_string(), false)
+        .await?;
+    println!("✓ Alice created channel");
+
+    // Add members with epoch sync
+    let bob_kp = bob_manager.generate_key_package().await?;
+    let (bob_invite, _) = alice_manager.create_invite(&channel_id, bob_kp).await?;
+    bob_manager.join_channel(&bob_invite).await?;
+    println!("  ✓ Bob joined (2 members)");
+    
+    let charlie_kp = charlie_manager.generate_key_package().await?;
+    let (charlie_invite, c1) = alice_manager.create_invite(&channel_id, charlie_kp).await?;
+    if let Some(c) = c1 { bob_manager.process_commit(&c).await?; }
+    charlie_manager.join_channel(&charlie_invite).await?;
+    println!("  ✓ Charlie joined (3 members)");
+    
+    let dave_kp = dave_manager.generate_key_package().await?;
+    let (dave_invite, c2) = alice_manager.create_invite(&channel_id, dave_kp).await?;
+    if let Some(c) = c2 {
+        bob_manager.process_commit(&c).await?;
+        charlie_manager.process_commit(&c).await?;
+    }
+    dave_manager.join_channel(&dave_invite).await?;
+    println!("  ✓ Dave joined (4 members)");
+
+    // Verify all can communicate before removal
+    println!("\nVerifying pre-removal communication...");
+    let pre_msg = b"Before removal";
+    let ct = alice_manager.send_message(&channel_id, pre_msg).await?;
+    assert_eq!(bob_manager.receive_message(&ct).await?, pre_msg);
+    assert_eq!(charlie_manager.receive_message(&ct).await?, pre_msg);
+    assert_eq!(dave_manager.receive_message(&ct).await?, pre_msg);
+    println!("  ✓ All members can communicate");
+
+    // Remove Bob
+    println!("\nRemoving Bob from the group...");
+    let bob_identity = bob_manager.identity().user_id.0.as_bytes();
+    let removal_commit = alice_manager
+        .remove_member(&channel_id, bob_identity)
+        .await?;
+    println!("  ✓ Removal commit generated ({} bytes)", removal_commit.len());
+
+    // Remaining members process removal
+    println!("Processing removal commit for remaining members...");
+    charlie_manager.process_commit(&removal_commit).await?;
+    dave_manager.process_commit(&removal_commit).await?;
+    println!("  ✓ Charlie and Dave processed removal");
+
+    // Test post-removal messaging
+    println!("\nTesting post-removal messaging...");
+    let post_msg = b"After Bob was removed";
+    let ct_after = alice_manager.send_message(&channel_id, post_msg).await?;
+    
+    // Charlie and Dave can decrypt
+    assert_eq!(charlie_manager.receive_message(&ct_after).await?, post_msg);
+    println!("  ✓ Charlie can decrypt post-removal message");
+    
+    assert_eq!(dave_manager.receive_message(&ct_after).await?, post_msg);
+    println!("  ✓ Dave can decrypt post-removal message");
+
+    // Bob CANNOT decrypt (should fail)
+    println!("\nVerifying Bob cannot decrypt post-removal...");
+    let bob_result = bob_manager.receive_message(&ct_after).await;
+    assert!(
+        bob_result.is_err(),
+        "Bob should not be able to decrypt after removal"
+    );
+    println!("  ✓ Bob correctly cannot decrypt (removed from group)");
+
+    // Bob CANNOT send (should fail)
+    println!("Verifying Bob cannot send post-removal...");
+    let bob_send_result = bob_manager
+        .send_message(&channel_id, b"Bob tries to send")
+        .await;
+    assert!(
+        bob_send_result.is_err(),
+        "Bob should not be able to send after removal"
+    );
+    println!("  ✓ Bob correctly cannot send (removed from group)");
+
+    // Remaining members can still communicate with each other
+    println!("\nVerifying remaining members can still communicate...");
+    let charlie_msg = b"Charlie confirms functionality";
+    let ct_charlie = charlie_manager.send_message(&channel_id, charlie_msg).await?;
+    assert_eq!(alice_manager.receive_message(&ct_charlie).await?, charlie_msg);
+    assert_eq!(dave_manager.receive_message(&ct_charlie).await?, charlie_msg);
+    println!("  ✓ Remaining members can communicate");
+
+    println!("\n=== ✅ MEMBER REMOVAL TEST PASSED! ===\n");
+    Ok(())
+}
+

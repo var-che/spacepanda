@@ -114,6 +114,15 @@ impl ChannelManager {
         }
     }
 
+    /// Get a reference to the user's identity
+    ///
+    /// # Returns
+    ///
+    /// Reference to the user's Identity
+    pub fn identity(&self) -> &Identity {
+        &self.identity
+    }
+
     /// Generate a key package for joining channels
     ///
     /// Creates a KeyPackageBundle with cryptographic material and stores it
@@ -548,6 +557,94 @@ impl ChannelManager {
         Err(MvpError::InvalidMessage(
             "Could not process commit".to_string(),
         ))
+    }
+
+    /// Remove a member from the channel
+    ///
+    /// This generates an MLS commit that removes the specified member.
+    /// All remaining members must process this commit to stay in sync.
+    ///
+    /// # Arguments
+    ///
+    /// * `channel_id` - Target channel
+    /// * `member_identity` - Identity bytes of the member to remove
+    ///
+    /// # Returns
+    ///
+    /// Serialized commit message to broadcast to remaining members
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Alice removes Bob from the channel
+    /// let bob_identity = bob_user_id.0.as_bytes();
+    /// let commit = alice.remove_member(&channel_id, bob_identity).await?;
+    /// 
+    /// // Charlie and Dave process the removal commit
+    /// charlie.process_commit(&commit).await?;
+    /// dave.process_commit(&commit).await?;
+    /// ```
+    pub async fn remove_member(
+        &self,
+        channel_id: &ChannelId,
+        member_identity: &[u8],
+    ) -> MvpResult<Vec<u8>> {
+        info!(
+            channel_id = %channel_id,
+            member = ?std::str::from_utf8(member_identity).unwrap_or("<non-utf8>"),
+            "Removing member from channel"
+        );
+
+        // Map channel ID to group ID
+        let group_id = GroupId::new(channel_id.0.as_bytes().to_vec());
+
+        // Get group metadata to find the member's leaf index
+        let metadata = self
+            .mls_service
+            .get_group_metadata(&group_id)
+            .await
+            .map_err(|e| {
+                warn!(error = ?e, "Failed to get group metadata");
+                MvpError::Mls(e)
+            })?;
+
+        // Find the member's leaf index
+        let leaf_index = metadata
+            .members
+            .iter()
+            .find(|m| m.identity == member_identity)
+            .map(|m| m.leaf_index)
+            .ok_or_else(|| {
+                warn!(
+                    member = ?std::str::from_utf8(member_identity).unwrap_or("<non-utf8>"),
+                    "Member not found in group"
+                );
+                MvpError::InvalidOperation(format!(
+                    "Member {} not found in channel",
+                    std::str::from_utf8(member_identity).unwrap_or("<non-utf8>")
+                ))
+            })?;
+
+        debug!(leaf_index, "Found member's leaf index");
+
+        // Remove the member via MLS service
+        let commit = self
+            .mls_service
+            .remove_members(&group_id, vec![leaf_index])
+            .await
+            .map_err(|e| {
+                warn!(error = ?e, "Failed to remove member");
+                MvpError::Mls(e)
+            })?;
+
+        info!(
+            channel_id = %channel_id,
+            leaf_index,
+            commit_size = commit.len(),
+            "Member removed successfully"
+        );
+
+        Ok(commit)
     }
 
     /// Get channel metadata
