@@ -116,9 +116,8 @@ impl MlsService {
     ///
     /// Should be called on service initialization to restore previous session state.
     /// 
-    /// Note: Currently this loads snapshot metadata but doesn't fully restore group state.
-    /// OpenMLS groups need their internal storage to be restored, which requires a different
-    /// persistence strategy. This implementation logs the available groups for now.
+    /// This implementation uses OpenMLS native persistence to restore groups
+    /// from the PersistentProvider's storage. Groups are fully functional after loading.
     pub async fn load_persisted_groups(&self) -> MlsResult<usize> {
         let Some(storage) = &self.storage else {
             debug!("No storage configured, cannot load persisted groups");
@@ -137,38 +136,97 @@ impl MlsService {
         
         info!("Found {} persisted group snapshot(s)", group_ids.len());
         
-        // Load snapshot metadata for each group
+        // Restore groups from OpenMLS provider storage
         let mut loaded = 0;
+        let mut groups = self.groups.write().await;
+        
         for gid in &group_ids {
-            match storage.load_group_snapshot(gid).await {
-                Ok(snapshot) => {
+            // Parse group ID - the snapshot storage uses hex-encoded strings as keys
+            let group_id = match std::str::from_utf8(gid) {
+                Ok(s) => GroupId::new(s.as_bytes().to_vec()),
+                Err(_) => {
+                    // If not valid UTF-8, treat as raw bytes
+                    GroupId::new(gid.clone())
+                }
+            };
+            
+            // Load group using OpenMLS native load
+            let openmls_group_id = openmls::prelude::GroupId::from_slice(group_id.as_bytes());
+            
+            match openmls::prelude::MlsGroup::load(
+                self.provider.storage(),
+                &openmls_group_id
+            ) {
+                Ok(Some(mls_group)) => {
                     info!(
-                        "Loaded snapshot for group {}: epoch={}, size={} bytes",
-                        hex::encode(gid),
-                        snapshot.epoch,
-                        snapshot.serialized_group.len()
+                        "Restored group {} from OpenMLS storage at epoch {}",
+                        group_id,
+                        mls_group.epoch()
                     );
                     
-                    // TODO: Full group restoration requires OpenMLS to support
-                    // deserialization of MlsGroup from exported state.
-                    // For now, we just verify the snapshot is loadable.
-                    // Users will need to be re-invited to groups after restart.
+                    // Load snapshot to get additional metadata
+                    let snapshot = match storage.load_group_snapshot(gid).await {
+                        Ok(s) => s,
+                        Err(e) => {
+                            warn!("Failed to load snapshot metadata for {}: {}", group_id, e);
+                            continue;
+                        }
+                    };
                     
+                    // Extract credential from the loaded group
+                    let own_leaf = mls_group.own_leaf().expect("Group must have own leaf");
+                    let credential = own_leaf.credential().clone();
+                    let signature_key = own_leaf.signature_key().clone();
+                    
+                    // Retrieve signature keys from provider storage
+                    let signature_keys = openmls_basic_credential::SignatureKeyPair::read(
+                        self.provider.storage(),
+                        signature_key.as_slice(),
+                        mls_group.ciphersuite().signature_algorithm()
+                    ).ok_or_else(|| {
+                        MlsError::CryptoError(format!(
+                            "Failed to retrieve signature keys for group {}",
+                            group_id
+                        ))
+                    })?;
+                    
+                    // Create credential bundle
+                    let credential_bundle = openmls::prelude::CredentialWithKey {
+                        credential,
+                        signature_key,
+                    };
+                    
+                    // Create engine from loaded group
+                    use crate::core_mls::engine::openmls_engine::OpenMlsEngine;
+                    let engine = OpenMlsEngine::from_group_with_provider(
+                        mls_group,
+                        self.provider.clone(),
+                        self.config.clone(),
+                        signature_keys,
+                        credential_bundle,
+                    );
+                    
+                    // Wrap in adapter
+                    use crate::core_mls::engine::adapter::OpenMlsHandleAdapter;
+                    let adapter = OpenMlsHandleAdapter::from_engine(engine, self.config.clone());
+                    
+                    // Add to active groups
+                    groups.insert(group_id.clone(), Arc::new(adapter));
                     loaded += 1;
+                    
+                    info!("✅ Successfully restored group {} to active state", group_id);
+                }
+                Ok(None) => {
+                    debug!("Group {} not found in OpenMLS storage", group_id);
                 }
                 Err(e) => {
-                    warn!("Failed to load snapshot for group {}: {}", hex::encode(gid), e);
+                    warn!("Failed to load group {} from OpenMLS storage: {:?}", group_id, e);
                 }
             }
         }
         
         if loaded > 0 {
-            warn!(
-                "Loaded {} snapshot(s), but full group restoration is not yet implemented.",
-                loaded
-            );
-            warn!("Groups must be re-created or re-joined after restart.");
-            warn!("This is a known limitation - see docs/mls-persistence-status.md");
+            info!("✅ Successfully restored {} group(s) from persistence!", loaded);
         }
         
         Ok(loaded)

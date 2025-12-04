@@ -53,6 +53,16 @@ impl<P: OpenMlsProvider + 'static> OpenMlsHandleAdapter<P> {
         Ok(Self { engine: Arc::new(RwLock::new(engine)), config })
     }
 
+    /// Create adapter from an existing OpenMlsEngine
+    ///
+    /// This is used when restoring groups from persistence.
+    pub fn from_engine(engine: OpenMlsEngine<P>, config: MlsConfig) -> Self {
+        Self {
+            engine: Arc::new(RwLock::new(engine)),
+            config,
+        }
+    }
+
     /// Join an existing group from a Welcome message
     ///
     /// # Arguments
