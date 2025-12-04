@@ -31,6 +31,7 @@ use crate::{
     core_mvp::{
         errors::{MvpError, MvpResult},
         network::NetworkLayer,
+        peer_discovery::PeerDiscoveryService,
         types::{
             ChannelDescriptor, ChatMessage, InviteToken, MessageWithThread, Reaction,
             ReactionSummary, ThreadInfo,
@@ -65,6 +66,9 @@ pub struct ChannelManager {
 
     /// Optional network layer for P2P messaging
     network: Option<Arc<NetworkLayer>>,
+
+    /// Optional peer discovery service
+    peer_discovery: Option<PeerDiscoveryService>,
 
     /// In-memory reaction storage (MessageId -> Vec<Reaction>)
     /// TODO: Persist to CRDT in production
@@ -128,6 +132,7 @@ impl ChannelManager {
             identity,
             config,
             network: None,
+            peer_discovery: None,
             reactions: Arc::new(RwLock::new(HashMap::new())),
             messages: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -145,9 +150,33 @@ impl ChannelManager {
         self
     }
 
+    /// Attach a peer discovery service
+    ///
+    /// This enables automatic discovery of peer IDs for users
+    ///
+    /// # Arguments
+    /// * `discovery` - Peer discovery service
+    pub fn with_peer_discovery(mut self, discovery: PeerDiscoveryService) -> Self {
+        info!("Attaching peer discovery service to ChannelManager");
+        self.peer_discovery = Some(discovery);
+        self
+    }
+
     /// Check if network layer is enabled
     pub fn is_network_enabled(&self) -> bool {
         self.network.is_some()
+    }
+
+    /// Get list of member user IDs in a channel
+    ///
+    /// Returns the identities from the MLS group membership
+    pub async fn get_channel_members(&self, channel_id: &ChannelId) -> MvpResult<Vec<Vec<u8>>> {
+        let group_id = GroupId::new(channel_id.0.as_bytes().to_vec());
+        
+        // Get group metadata
+        let metadata = self.mls_service.get_metadata(&group_id).await?;
+        
+        Ok(metadata.members.into_iter().map(|m| m.identity).collect())
     }
 
     /// Get a reference to the user's identity
@@ -280,6 +309,14 @@ impl ChannelManager {
             "Channel created successfully"
         );
 
+        // Trigger peer discovery if network is enabled
+        if let Some(ref network) = self.network {
+            debug!("Network enabled, registering creator in peer discovery");
+            if let Err(e) = self.discover_and_register_peers(&channel_id, network).await {
+                warn!(error = %e, "Failed to discover peers after creating channel");
+            }
+        }
+
         Ok(channel_id)
     }
 
@@ -360,6 +397,14 @@ impl ChannelManager {
             invite_size = invite.welcome_blob.len(),
             "Invite created successfully"
         );
+
+        // Trigger peer discovery after adding member
+        if let Some(ref network) = self.network {
+            debug!("Network enabled, updating peer discovery after adding member");
+            if let Err(e) = self.discover_and_register_peers(channel_id, network).await {
+                warn!(error = %e, "Failed to discover peers after adding member");
+            }
+        }
 
         // Return invite and the commit for existing members
         let commit_opt = if commit.is_empty() { None } else { Some(commit) };
@@ -449,6 +494,14 @@ impl ChannelManager {
             channel_id = %invite.channel_id,
             "Successfully joined channel"
         );
+
+        // Trigger peer discovery if network is enabled
+        if let Some(ref network) = self.network {
+            debug!("Network enabled, triggering peer discovery for channel members");
+            if let Err(e) = self.discover_and_register_peers(&invite.channel_id, network).await {
+                warn!(error = %e, "Failed to discover peers after joining channel");
+            }
+        }
 
         Ok(invite.channel_id.clone())
     }
@@ -1420,6 +1473,68 @@ impl ChannelManager {
         threads.sort_by(|a, b| b.message.timestamp.cmp(&a.message.timestamp));
 
         Ok(threads)
+    }
+
+    /// Helper method to discover and register peers for a channel
+    ///
+    /// This is called automatically when network is enabled after:
+    /// - Creating a channel
+    /// - Joining a channel
+    /// - Adding members to a channel
+    async fn discover_and_register_peers(
+        &self,
+        channel_id: &ChannelId,
+        network: &Arc<NetworkLayer>,
+    ) -> MvpResult<()> {
+        debug!(channel_id = %channel_id, "Discovering peers for channel");
+
+        // Get members from MLS group
+        let member_identities = self.get_channel_members(channel_id).await?;
+
+        debug!("Found {} members in channel", member_identities.len());
+
+        // If we have peer discovery, use it
+        if let Some(ref discovery) = self.peer_discovery {
+            let mut discovered = 0;
+            let mut failed = 0;
+
+            for identity in member_identities {
+                // Lookup peer ID for this identity
+                match discovery.lookup_peer_id(&identity).await {
+                    Ok(Some(peer_id)) => {
+                        // Parse UserId from identity
+                        if let Ok(user_id_str) = String::from_utf8(identity.clone()) {
+                            let user_id = UserId(user_id_str);
+                            network.register_channel_member(channel_id, user_id, peer_id).await;
+                            discovered += 1;
+                            debug!("Discovered and registered peer for identity");
+                        } else {
+                            warn!("Failed to parse identity as UTF-8");
+                            failed += 1;
+                        }
+                    }
+                    Ok(None) => {
+                        debug!(identity = ?identity, "Peer ID not found in discovery service");
+                        failed += 1;
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to lookup peer ID");
+                        failed += 1;
+                    }
+                }
+            }
+
+            info!(
+                channel_id = %channel_id,
+                discovered = discovered,
+                failed = failed,
+                "Peer discovery complete"
+            );
+        } else {
+            debug!("No peer discovery service configured, skipping discovery");
+        }
+
+        Ok(())
     }
 }
 

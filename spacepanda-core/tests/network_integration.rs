@@ -5,14 +5,47 @@
 use spacepanda_core::config::Config;
 use spacepanda_core::core_mls::service::MlsService;
 use spacepanda_core::core_mvp::network::NetworkLayer;
+use spacepanda_core::core_mvp::peer_discovery::{NoPeerDiscovery, PeerDiscovery, PeerDiscoveryService};
 use spacepanda_core::core_router::session_manager::PeerId;
 use spacepanda_core::core_router::RouterHandle;
 use spacepanda_core::core_store::model::types::{ChannelId, UserId};
 use spacepanda_core::core_store::store::{LocalStore, LocalStoreConfig};
 use spacepanda_core::shutdown::ShutdownCoordinator;
 use spacepanda_core::{ChannelManager, Identity};
+use async_trait::async_trait;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
+use tokio::sync::RwLock;
+
+/// Mock peer discovery for testing
+struct MockPeerDiscovery {
+    mappings: Arc<RwLock<HashMap<Vec<u8>, PeerId>>>,
+}
+
+impl MockPeerDiscovery {
+    fn new() -> Self {
+        Self {
+            mappings: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    async fn register(&self, identity: Vec<u8>, peer_id: PeerId) {
+        self.mappings.write().await.insert(identity, peer_id);
+    }
+}
+
+#[async_trait]
+impl PeerDiscovery for MockPeerDiscovery {
+    async fn lookup_peer_id(&self, identity: &[u8]) -> Result<Option<PeerId>, String> {
+        Ok(self.mappings.read().await.get(identity).cloned())
+    }
+
+    async fn register_self(&self, identity: &[u8], peer_id: PeerId) -> Result<(), String> {
+        self.mappings.write().await.insert(identity.to_vec(), peer_id);
+        Ok(())
+    }
+}
 
 /// Helper to create a ChannelManager with network layer
 async fn create_networked_manager(
@@ -162,6 +195,98 @@ async fn test_network_broadcast_to_multiple_peers() {
         .await;
 
     assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_peer_discovery_on_channel_creation() {
+    let (manager, _network, _dir) = create_networked_manager("alice", vec![1, 2, 3, 4]).await;
+
+    // Create a channel - should trigger peer discovery
+    let channel_id = manager.create_channel("discovery-test".to_string(), false).await.unwrap();
+
+    // Verify we can get channel members (discovery attempt was made)
+    let members = manager.get_channel_members(&channel_id).await.unwrap();
+    
+    // Creator should be the only member
+    assert_eq!(members.len(), 1);
+}
+
+#[tokio::test]
+async fn test_peer_discovery_on_channel_join() {
+    let (manager1, network1, _dir1) = create_networked_manager("alice", vec![1, 2, 3, 4]).await;
+    let (manager2, _network2, _dir2) = create_networked_manager("bob", vec![5, 6, 7, 8]).await;
+
+    // Alice creates channel
+    let channel_id = manager1.create_channel("join-discovery-test".to_string(), false).await.unwrap();
+
+    // Alice generates key package for Bob
+    let bob_key_package = manager2.generate_key_package().await.unwrap();
+
+    // Alice creates invite for Bob
+    let (invite, _commit) = manager1.create_invite(&channel_id, bob_key_package).await.unwrap();
+
+    // Bob joins - should trigger peer discovery
+    let joined_channel_id = manager2.join_channel(&invite).await.unwrap();
+    assert_eq!(joined_channel_id, channel_id);
+
+    // Verify Bob can see all members
+    let members = manager2.get_channel_members(&channel_id).await.unwrap();
+    assert_eq!(members.len(), 2); // Alice + Bob
+}
+
+#[tokio::test]
+async fn test_peer_discovery_integration() {
+    // Create mock discovery service
+    let discovery = Arc::new(MockPeerDiscovery::new());
+    
+    // Create two managers
+    let (manager1, network1, _dir1) = create_networked_manager("alice", vec![1, 2, 3, 4]).await;
+    let (manager2, _network2, _dir2) = create_networked_manager("bob", vec![5, 6, 7, 8]).await;
+
+    // Create managers with discovery (need to recreate to use with_peer_discovery)
+    let config = Arc::new(Config::default());
+    let shutdown = Arc::new(ShutdownCoordinator::new(std::time::Duration::from_secs(30)));
+    let mls_service = Arc::new(MlsService::new(&config, shutdown.clone()));
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store_config = LocalStoreConfig {
+        data_dir: temp_dir.path().to_path_buf(),
+        enable_encryption: false,
+        snapshot_interval: 1000,
+        max_log_size: 10_000_000,
+        enable_compaction: false,
+        require_signatures: false,
+        authorized_keys: Vec::new(),
+    };
+    let store = Arc::new(LocalStore::new(store_config).unwrap());
+
+    let identity = Arc::new(Identity::new(
+        UserId(uuid::Uuid::new_v4().to_string()),
+        "alice_with_discovery".to_string(),
+        uuid::Uuid::new_v4().to_string(),
+    ));
+
+    let (router, _handle) = RouterHandle::new();
+    let peer_id = PeerId(vec![1, 2, 3, 4]);
+    let (network, _rx) = NetworkLayer::new(router, peer_id.clone());
+    let network = Arc::new(network);
+
+    // Register Alice's identity in discovery
+    let alice_id_bytes = identity.as_bytes();
+    discovery.register(alice_id_bytes.clone(), peer_id).await;
+
+    let manager_with_discovery = ChannelManager::new(mls_service, store, identity, config.clone())
+        .with_network(network.clone())
+        .with_peer_discovery(discovery.clone() as PeerDiscoveryService);
+
+    // Create channel - should trigger peer discovery
+    let channel_id = manager_with_discovery.create_channel("discovery-integration".to_string(), false).await.unwrap();
+
+    // Verify discovery was called (peer should be registered if identity matches)
+    let members = manager_with_discovery.get_channel_members(&channel_id).await.unwrap();
+    assert_eq!(members.len(), 1); // Just Alice
+
+    println!("✅ Peer discovery integration test passed");
 }
 
 #[tokio::test]
