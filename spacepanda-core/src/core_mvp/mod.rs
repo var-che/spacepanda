@@ -7,6 +7,7 @@ pub mod adapters;
 pub mod channel_manager;
 pub mod errors;
 pub mod group_provider;
+pub mod network;
 pub mod test_harness;
 pub mod types;
 

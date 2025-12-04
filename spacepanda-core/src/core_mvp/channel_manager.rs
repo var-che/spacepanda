@@ -30,6 +30,7 @@ use crate::{
     },
     core_mvp::{
         errors::{MvpError, MvpResult},
+        network::NetworkLayer,
         types::{
             ChannelDescriptor, ChatMessage, InviteToken, MessageWithThread, Reaction,
             ReactionSummary, ThreadInfo,
@@ -61,6 +62,9 @@ pub struct ChannelManager {
 
     /// Configuration
     config: Arc<Config>,
+
+    /// Optional network layer for P2P messaging
+    network: Option<Arc<NetworkLayer>>,
 
     /// In-memory reaction storage (MessageId -> Vec<Reaction>)
     /// TODO: Persist to CRDT in production
@@ -123,9 +127,27 @@ impl ChannelManager {
             store,
             identity,
             config,
+            network: None,
             reactions: Arc::new(RwLock::new(HashMap::new())),
             messages: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Attach a network layer for P2P messaging
+    ///
+    /// This enables actual multi-user communication over the network.
+    ///
+    /// # Arguments
+    /// * `network` - Network layer instance
+    pub fn with_network(mut self, network: Arc<NetworkLayer>) -> Self {
+        info!("Attaching network layer to ChannelManager");
+        self.network = Some(network);
+        self
+    }
+
+    /// Check if network layer is enabled
+    pub fn is_network_enabled(&self) -> bool {
+        self.network.is_some()
     }
 
     /// Get a reference to the user's identity
@@ -466,10 +488,28 @@ impl ChannelManager {
         // Encrypt message via MLS service
         let ciphertext = self.mls_service.send_message(&group_id, plaintext).await?;
 
+        // If network layer is enabled, broadcast to channel members
+        if let Some(network) = &self.network {
+            debug!(
+                channel_id = %channel_id,
+                "Broadcasting message over network"
+            );
+            
+            network
+                .broadcast_message(channel_id, ciphertext.clone(), &self.identity.user_id)
+                .await?;
+        } else {
+            debug!(
+                channel_id = %channel_id,
+                "Network layer not enabled, message not broadcast"
+            );
+        }
+
         info!(
             channel_id = %channel_id,
             plaintext_size = plaintext.len(),
             ciphertext_size = ciphertext.len(),
+            network_broadcast = self.network.is_some(),
             "Message encrypted successfully"
         );
 

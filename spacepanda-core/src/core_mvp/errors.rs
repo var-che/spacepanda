@@ -51,6 +51,10 @@ pub enum MvpError {
     /// Serialization error
     #[error("Serialization error: {0}")]
     Serialization(String),
+    
+    /// Serialization error (alias for network layer compatibility)
+    #[error("Serialization error: {0}")]
+    SerializationError(String),
 
     /// Invalid operation
     #[error("Invalid operation: {0}")]
@@ -59,6 +63,14 @@ pub enum MvpError {
     /// Configuration error
     #[error("Configuration error: {0}")]
     Config(String),
+    
+    /// Network error
+    #[error("Network error: {0}")]
+    NetworkError(String),
+    
+    /// Message not found
+    #[error("Message not found: {0}")]
+    MessageNotFound(String),
 
     /// Internal error (should not happen)
     #[error("Internal error: {0}")]
