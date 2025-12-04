@@ -51,6 +51,8 @@ curve25519-dalek = "4.1"
 hpke = "0.12"  # RFC 9180 compliant HPKE
 hpke-rs-crypto = "0.2"  # Crypto backend for hpke
 num_cpus = "1.16"  # For system metrics
+clap = { version = "4.5", features = ["derive"] }  # CLI argument parsing
+axum = "0.7"  # HTTP web framework for test harness
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

@@ -20,6 +20,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/channels/:id/invite", post(handlers::create_invite))
         .route("/channels/:id/join", post(handlers::join_channel))
         .route("/channels/:id/members", get(handlers::list_members))
+        .route("/channels/:id/remove-member", post(handlers::remove_member))
         .route("/channels/:id/process-commit", post(handlers::process_commit))
         // Message routes
         .route("/channels/:id/send", post(handlers::send_message))
