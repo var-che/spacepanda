@@ -1003,12 +1003,23 @@ impl ChannelManager {
         let mut channels = Vec::new();
         for group_id in group_ids {
             // Convert group ID to channel ID
-            // For MVP, we use a simple conversion (group ID bytes → string → ChannelId)
-            let channel_id_str = String::from_utf8_lossy(group_id.as_bytes()).to_string();
-            let channel_id = ChannelId(channel_id_str);
-
-            if let Ok(descriptor) = self.get_channel(&channel_id).await {
-                channels.push(descriptor);
+            // GroupId is created from ChannelId UUID string bytes, so reverse the conversion
+            match String::from_utf8(group_id.as_bytes().to_vec()) {
+                Ok(channel_id_str) => {
+                    let channel_id = ChannelId(channel_id_str);
+                    if let Ok(descriptor) = self.get_channel(&channel_id).await {
+                        channels.push(descriptor);
+                    } else {
+                        debug!(channel_id = %channel_id, "Channel not found in store");
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        group_id = %group_id,
+                        error = %e,
+                        "Failed to convert GroupId to ChannelId UTF-8 string"
+                    );
+                }
             }
         }
 

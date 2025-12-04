@@ -249,6 +249,13 @@ async fn load_manager(data_dir: &PathBuf) -> Result<Arc<ChannelManager>> {
     
     let store = Arc::new(LocalStore::new(store_config)?);
     
+    // Load existing channel state from snapshots
+    if let Err(e) = store.load() {
+        warn!("Failed to load persisted channel state: {}", e);
+    } else {
+        debug!("Successfully loaded channel state from storage");
+    }
+    
     // Create manager
     let manager = Arc::new(ChannelManager::new(
         mls_service,
