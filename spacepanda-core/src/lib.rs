@@ -64,6 +64,7 @@ pub use core_identity::{
     Keypair, StoredIdentity, UserId, UserMetadata,
 };
 pub use core_mls::{GroupId, MlsConfig, MlsError, MlsResult};
+pub use core_mvp::{ChannelManager, Identity, MvpError, MvpResult};
 pub use core_router::{TransportCommand, TransportEvent, TransportManager};
 pub use logging::{init_logging, LogLevel};
 

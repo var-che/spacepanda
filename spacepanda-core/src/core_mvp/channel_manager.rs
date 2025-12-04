@@ -591,7 +591,7 @@ impl ChannelManager {
         let group_id = GroupId::new(channel_id.0.as_bytes().to_vec());
         let metadata = self
             .mls_service
-            .get_group_metadata(&group_id)
+            .get_metadata(&group_id)
             .await
             .map_err(|e| MvpError::Mls(e))?;
 
@@ -709,7 +709,7 @@ impl ChannelManager {
         // Get group metadata to find the member's leaf index
         let metadata = self
             .mls_service
-            .get_group_metadata(&group_id)
+            .get_metadata(&group_id)
             .await
             .map_err(|e| {
                 warn!(error = ?e, "Failed to get group metadata");

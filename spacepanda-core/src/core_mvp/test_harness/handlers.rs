@@ -303,7 +303,7 @@ pub async fn promote_member(
 pub async fn demote_member(
     State(state): State<Arc<AppState>>,
     Path(channel_id): Path<String>,
-    Json(req): Json(DemoteMemberRequest>,
+    Json(req): Json<DemoteMemberRequest>,
 ) -> ApiResult<Json<DemoteMemberResponse>> {
     let channel_id = ChannelId(channel_id);
     let member_identity = req.member_id.as_bytes();
@@ -460,9 +460,9 @@ pub async fn get_thread_replies(
     let replies_http: Vec<MessageInfoHttp> = replies
         .into_iter()
         .map(|msg| MessageInfoHttp {
-            message_id: msg.message_id.0,
-            channel_id: msg.channel_id.0,
-            sender: msg.sender.0,
+            message_id: msg.message_id.0.clone(),
+            channel_id: msg.channel_id.0.clone(),
+            sender: msg.sender.0.clone(),
             timestamp: msg.timestamp.0,
             body: msg.body_as_string().unwrap_or_else(|| "<binary>".to_string()),
             reply_to: msg.reply_to.map(|id| id.0),
@@ -492,9 +492,9 @@ pub async fn get_message_with_thread(
     match msg_with_thread {
         Some(mwt) => {
             let message = MessageInfoHttp {
-                message_id: mwt.message.message_id.0,
-                channel_id: mwt.message.channel_id.0,
-                sender: mwt.message.sender.0,
+                message_id: mwt.message.message_id.0.clone(),
+                channel_id: mwt.message.channel_id.0.clone(),
+                sender: mwt.message.sender.0.clone(),
                 timestamp: mwt.message.timestamp.0,
                 body: mwt.message.body_as_string().unwrap_or_else(|| "<binary>".to_string()),
                 reply_to: mwt.message.reply_to.clone().map(|id| id.0),
@@ -511,9 +511,9 @@ pub async fn get_message_with_thread(
 
             let parent_message = mwt.parent_message.map(|parent| {
                 Box::new(MessageInfoHttp {
-                    message_id: parent.message_id.0,
-                    channel_id: parent.channel_id.0,
-                    sender: parent.sender.0,
+                    message_id: parent.message_id.0.clone(),
+                    channel_id: parent.channel_id.0.clone(),
+                    sender: parent.sender.0.clone(),
                     timestamp: parent.timestamp.0,
                     body: parent.body_as_string().unwrap_or_else(|| "<binary>".to_string()),
                     reply_to: parent.reply_to.map(|id| id.0),
@@ -548,9 +548,9 @@ pub async fn get_channel_threads(
         .into_iter()
         .map(|thread| {
             let message = MessageInfoHttp {
-                message_id: thread.message.message_id.0,
-                channel_id: thread.message.channel_id.0,
-                sender: thread.message.sender.0,
+                message_id: thread.message.message_id.0.clone(),
+                channel_id: thread.message.channel_id.0.clone(),
+                sender: thread.message.sender.0.clone(),
                 timestamp: thread.message.timestamp.0,
                 body: thread.message.body_as_string().unwrap_or_else(|| "<binary>".to_string()),
                 reply_to: thread.message.reply_to.map(|id| id.0),

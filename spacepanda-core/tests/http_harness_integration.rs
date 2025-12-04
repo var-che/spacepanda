@@ -4,7 +4,7 @@
 
 use spacepanda_core::config::Config;
 use spacepanda_core::core_mls::service::MlsService;
-use spacepanda_core::core_mvp::{ChannelManager, Identity};
+use spacepanda_core::{ChannelManager, Identity};
 use spacepanda_core::core_store::store::{LocalStore, LocalStoreConfig};
 use spacepanda_core::core_store::model::types::UserId;
 use spacepanda_core::shutdown::ShutdownCoordinator;
@@ -58,13 +58,13 @@ async fn test_http_member_removal_flow() {
     // Alice invites Bob
     let bob_key_package = bob_manager.generate_key_package().await.unwrap();
     let (welcome, _commit) = alice_manager
-        .create_invite(&channel_id, &bob_key_package)
+        .create_invite(&channel_id, bob_key_package)
         .await
         .expect("Alice should create invite for Bob");
     
     // Bob joins
     let bob_channel_id = bob_manager
-        .join_channel(&welcome, None)
+        .join_channel(&welcome)
         .await
         .expect("Bob should join");
     assert_eq!(channel_id.0, bob_channel_id.0);
@@ -72,19 +72,21 @@ async fn test_http_member_removal_flow() {
     // Alice invites Charlie
     let charlie_key_package = charlie_manager.generate_key_package().await.unwrap();
     let (welcome, commit) = alice_manager
-        .create_invite(&channel_id, &charlie_key_package)
+        .create_invite(&channel_id, charlie_key_package)
         .await
         .expect("Alice should create invite for Charlie");
     
     // Bob processes commit
-    bob_manager
-        .process_commit(&commit)
-        .await
-        .expect("Bob should process Charlie's join");
+    if let Some(commit_bytes) = commit {
+        bob_manager
+            .process_commit(&commit_bytes)
+            .await
+            .expect("Bob should process Charlie's join");
+    }
     
     // Charlie joins
     charlie_manager
-        .join_channel(&welcome, None)
+        .join_channel(&welcome)
         .await
         .expect("Charlie should join");
     

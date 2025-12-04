@@ -134,7 +134,7 @@ impl fmt::Display for MessageId {
 }
 
 /// User identifier (references identity from core_identity)
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct UserId(pub String);
 
 impl UserId {
