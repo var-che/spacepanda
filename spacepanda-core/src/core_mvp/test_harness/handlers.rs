@@ -13,15 +13,29 @@ use axum::{
 use std::sync::Arc;
 
 /// Custom error type for API responses
-pub struct ApiError(anyhow::Error);
+pub enum ApiError {
+    Internal(anyhow::Error),
+    NotFound(String),
+}
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let error_response = ErrorResponse {
-            error: self.0.to_string(),
-            details: None,
-        };
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(error_response)).into_response()
+        match self {
+            ApiError::Internal(err) => {
+                let error_response = ErrorResponse {
+                    error: err.to_string(),
+                    details: None,
+                };
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(error_response)).into_response()
+            }
+            ApiError::NotFound(msg) => {
+                let error_response = ErrorResponse {
+                    error: msg,
+                    details: None,
+                };
+                (StatusCode::NOT_FOUND, Json(error_response)).into_response()
+            }
+        }
     }
 }
 
@@ -30,7 +44,7 @@ where
     E: Into<anyhow::Error>,
 {
     fn from(err: E) -> Self {
-        ApiError(err.into())
+        ApiError::Internal(err.into())
     }
 }
 
@@ -396,6 +410,171 @@ pub async fn get_reactions(
     Ok(Json(GetReactionsResponse {
         message_id,
         reactions,
+    }))
+}
+
+/// GET /messages/:id/thread - Get thread info for a message
+pub async fn get_thread_info(
+    State(state): State<Arc<AppState>>,
+    Path(message_id): Path<String>,
+) -> ApiResult<Json<GetThreadInfoResponse>> {
+    use crate::core_store::model::types::MessageId;
+    
+    let message_id_obj = MessageId(message_id.clone());
+    
+    let thread_info = state
+        .channel_manager
+        .get_thread_info(&message_id_obj)
+        .await?;
+    
+    match thread_info {
+        Some(info) => Ok(Json(GetThreadInfoResponse {
+            root_message_id: info.root_message_id.0,
+            reply_count: info.reply_count,
+            participant_count: info.participant_count,
+            participants: info.participants.into_iter().map(|u| u.0).collect(),
+            last_reply_at: info.last_reply_at.map(|t| t.0),
+            last_reply_preview: info.last_reply_preview,
+        })),
+        None => Err(ApiError::NotFound(format!(
+            "No thread found for message {}",
+            message_id
+        ))),
+    }
+}
+
+/// GET /messages/:id/replies - Get all replies to a message
+pub async fn get_thread_replies(
+    State(state): State<Arc<AppState>>,
+    Path(message_id): Path<String>,
+) -> ApiResult<Json<GetThreadRepliesResponse>> {
+    use crate::core_store::model::types::MessageId;
+    
+    let message_id_obj = MessageId(message_id.clone());
+    
+    let replies = state
+        .channel_manager
+        .get_thread_replies(&message_id_obj)
+        .await?;
+    
+    let replies_http: Vec<MessageInfoHttp> = replies
+        .into_iter()
+        .map(|msg| MessageInfoHttp {
+            message_id: msg.message_id.0,
+            channel_id: msg.channel_id.0,
+            sender: msg.sender.0,
+            timestamp: msg.timestamp.0,
+            body: msg.body_as_string().unwrap_or_else(|| "<binary>".to_string()),
+            reply_to: msg.reply_to.map(|id| id.0),
+        })
+        .collect();
+    
+    Ok(Json(GetThreadRepliesResponse {
+        root_message_id: message_id,
+        replies: replies_http,
+    }))
+}
+
+/// GET /messages/:id/context - Get message with full thread context
+pub async fn get_message_with_thread(
+    State(state): State<Arc<AppState>>,
+    Path(message_id): Path<String>,
+) -> ApiResult<Json<GetMessageWithThreadResponse>> {
+    use crate::core_store::model::types::MessageId;
+    
+    let message_id_obj = MessageId(message_id.clone());
+    
+    let msg_with_thread = state
+        .channel_manager
+        .get_message_with_thread(&message_id_obj)
+        .await?;
+    
+    match msg_with_thread {
+        Some(mwt) => {
+            let message = MessageInfoHttp {
+                message_id: mwt.message.message_id.0,
+                channel_id: mwt.message.channel_id.0,
+                sender: mwt.message.sender.0,
+                timestamp: mwt.message.timestamp.0,
+                body: mwt.message.body_as_string().unwrap_or_else(|| "<binary>".to_string()),
+                reply_to: mwt.message.reply_to.clone().map(|id| id.0),
+            };
+
+            let thread_info = mwt.thread_info.map(|info| GetThreadInfoResponse {
+                root_message_id: info.root_message_id.0,
+                reply_count: info.reply_count,
+                participant_count: info.participant_count,
+                participants: info.participants.into_iter().map(|u| u.0).collect(),
+                last_reply_at: info.last_reply_at.map(|t| t.0),
+                last_reply_preview: info.last_reply_preview,
+            });
+
+            let parent_message = mwt.parent_message.map(|parent| {
+                Box::new(MessageInfoHttp {
+                    message_id: parent.message_id.0,
+                    channel_id: parent.channel_id.0,
+                    sender: parent.sender.0,
+                    timestamp: parent.timestamp.0,
+                    body: parent.body_as_string().unwrap_or_else(|| "<binary>".to_string()),
+                    reply_to: parent.reply_to.map(|id| id.0),
+                })
+            });
+
+            Ok(Json(GetMessageWithThreadResponse {
+                message,
+                thread_info,
+                parent_message,
+            }))
+        }
+        None => Err(ApiError::NotFound(format!("Message {} not found", message_id))),
+    }
+}
+
+/// GET /channels/:id/threads - Get all threads in a channel
+pub async fn get_channel_threads(
+    State(state): State<Arc<AppState>>,
+    Path(channel_id): Path<String>,
+) -> ApiResult<Json<GetChannelThreadsResponse>> {
+    use crate::core_store::model::types::ChannelId;
+    
+    let channel_id_obj = ChannelId(channel_id.clone());
+    
+    let threads = state
+        .channel_manager
+        .get_channel_threads(&channel_id_obj)
+        .await?;
+    
+    let threads_http: Vec<ThreadSummaryHttp> = threads
+        .into_iter()
+        .map(|thread| {
+            let message = MessageInfoHttp {
+                message_id: thread.message.message_id.0,
+                channel_id: thread.message.channel_id.0,
+                sender: thread.message.sender.0,
+                timestamp: thread.message.timestamp.0,
+                body: thread.message.body_as_string().unwrap_or_else(|| "<binary>".to_string()),
+                reply_to: thread.message.reply_to.map(|id| id.0),
+            };
+
+            let thread_info = thread.thread_info.map(|info| GetThreadInfoResponse {
+                root_message_id: info.root_message_id.0,
+                reply_count: info.reply_count,
+                participant_count: info.participant_count,
+                participants: info.participants.into_iter().map(|u| u.0).collect(),
+                last_reply_at: info.last_reply_at.map(|t| t.0),
+                last_reply_preview: info.last_reply_preview,
+            });
+
+            ThreadSummaryHttp {
+                message,
+                thread_info,
+            }
+        })
+        .collect();
+    
+    Ok(Json(GetChannelThreadsResponse {
+        channel_id,
+        threads: threads_http,
     }))
 }
 

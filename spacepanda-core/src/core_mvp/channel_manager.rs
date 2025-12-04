@@ -30,7 +30,10 @@ use crate::{
     },
     core_mvp::{
         errors::{MvpError, MvpResult},
-        types::{ChannelDescriptor, ChatMessage, InviteToken, Reaction, ReactionSummary},
+        types::{
+            ChannelDescriptor, ChatMessage, InviteToken, MessageWithThread, Reaction,
+            ReactionSummary, ThreadInfo,
+        },
     },
     core_store::{
         model::{
@@ -62,6 +65,10 @@ pub struct ChannelManager {
     /// In-memory reaction storage (MessageId -> Vec<Reaction>)
     /// TODO: Persist to CRDT in production
     reactions: Arc<RwLock<HashMap<MessageId, Vec<Reaction>>>>,
+
+    /// In-memory message storage (ChannelId -> Vec<ChatMessage>)
+    /// TODO: Persist to CRDT in production
+    messages: Arc<RwLock<HashMap<ChannelId, Vec<ChatMessage>>>>,
 }
 
 /// Simple identity holder (will integrate with core_identity later)
@@ -117,6 +124,7 @@ impl ChannelManager {
             identity,
             config,
             reactions: Arc::new(RwLock::new(HashMap::new())),
+            messages: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -1051,6 +1059,214 @@ impl ChannelManager {
         });
 
         Ok(summaries)
+    }
+
+    /// Store a message (for testing/MVP)
+    ///
+    /// In production, messages would be stored in CRDT and synced via DHT.
+    /// For MVP, we store in-memory for thread queries.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - ChatMessage to store
+    pub async fn store_message(&self, message: ChatMessage) -> MvpResult<()> {
+        let mut messages = self.messages.write().await;
+        messages
+            .entry(message.channel_id.clone())
+            .or_insert_with(Vec::new)
+            .push(message);
+        Ok(())
+    }
+
+    /// Get thread information for a message
+    ///
+    /// Returns statistics about the thread (replies) for a given message.
+    ///
+    /// # Arguments
+    ///
+    /// * `message_id` - Root message ID
+    ///
+    /// # Returns
+    ///
+    /// ThreadInfo with reply count, participants, and last reply info
+    pub async fn get_thread_info(&self, message_id: &MessageId) -> MvpResult<Option<ThreadInfo>> {
+        let messages_lock = self.messages.read().await;
+        
+        // Find all messages across all channels that reply to this message
+        let mut replies: Vec<&ChatMessage> = Vec::new();
+        
+        for channel_messages in messages_lock.values() {
+            for msg in channel_messages {
+                if let Some(reply_to) = &msg.reply_to {
+                    if reply_to == message_id {
+                        replies.push(msg);
+                    }
+                }
+            }
+        }
+
+        if replies.is_empty() {
+            return Ok(None);
+        }
+
+        // Collect unique participants
+        let mut participants: Vec<UserId> = replies
+            .iter()
+            .map(|msg| msg.sender.clone())
+            .collect();
+        participants.sort();
+        participants.dedup();
+
+        // Get last reply
+        let last_reply = replies
+            .iter()
+            .max_by_key(|msg| msg.timestamp)
+            .unwrap();
+
+        let last_reply_preview = last_reply
+            .body_as_string()
+            .map(|s| {
+                if s.len() > 100 {
+                    format!("{}...", &s[..100])
+                } else {
+                    s
+                }
+            });
+
+        Ok(Some(ThreadInfo {
+            root_message_id: message_id.clone(),
+            reply_count: replies.len(),
+            participant_count: participants.len(),
+            participants,
+            last_reply_at: Some(last_reply.timestamp),
+            last_reply_preview,
+        }))
+    }
+
+    /// Get all replies to a message (thread view)
+    ///
+    /// # Arguments
+    ///
+    /// * `message_id` - Root message ID
+    ///
+    /// # Returns
+    ///
+    /// Vector of ChatMessages that reply to the given message, sorted by timestamp
+    pub async fn get_thread_replies(&self, message_id: &MessageId) -> MvpResult<Vec<ChatMessage>> {
+        let messages_lock = self.messages.read().await;
+        
+        let mut replies: Vec<ChatMessage> = Vec::new();
+        
+        for channel_messages in messages_lock.values() {
+            for msg in channel_messages {
+                if let Some(reply_to) = &msg.reply_to {
+                    if reply_to == message_id {
+                        replies.push(msg.clone());
+                    }
+                }
+            }
+        }
+
+        // Sort by timestamp
+        replies.sort_by_key(|msg| msg.timestamp);
+
+        Ok(replies)
+    }
+
+    /// Get message with thread context
+    ///
+    /// # Arguments
+    ///
+    /// * `message_id` - Message ID to query
+    ///
+    /// # Returns
+    ///
+    /// MessageWithThread containing the message, thread info, and parent if it's a reply
+    pub async fn get_message_with_thread(
+        &self,
+        message_id: &MessageId,
+    ) -> MvpResult<Option<MessageWithThread>> {
+        let messages_lock = self.messages.read().await;
+        
+        // Find the message
+        let mut found_message: Option<ChatMessage> = None;
+        for channel_messages in messages_lock.values() {
+            if let Some(msg) = channel_messages.iter().find(|m| &m.message_id == message_id) {
+                found_message = Some(msg.clone());
+                break;
+            }
+        }
+
+        let message = match found_message {
+            Some(msg) => msg,
+            None => return Ok(None),
+        };
+
+        // Get thread info (if this message has replies)
+        let thread_info = self.get_thread_info(message_id).await?;
+
+        // Get parent message (if this is a reply)
+        let parent_message = if let Some(parent_id) = &message.reply_to {
+            for channel_messages in messages_lock.values() {
+                if let Some(parent) = channel_messages.iter().find(|m| &m.message_id == parent_id) {
+                    return Ok(Some(MessageWithThread {
+                        message,
+                        thread_info,
+                        parent_message: Some(Box::new(parent.clone())),
+                    }));
+                }
+            }
+            None
+        } else {
+            None
+        };
+
+        Ok(Some(MessageWithThread {
+            message,
+            thread_info,
+            parent_message,
+        }))
+    }
+
+    /// Get all root messages (messages that are not replies) in a channel
+    ///
+    /// # Arguments
+    ///
+    /// * `channel_id` - Channel to query
+    ///
+    /// # Returns
+    ///
+    /// Vector of root messages with their thread info
+    pub async fn get_channel_threads(
+        &self,
+        channel_id: &ChannelId,
+    ) -> MvpResult<Vec<MessageWithThread>> {
+        let messages_lock = self.messages.read().await;
+        
+        let channel_messages = match messages_lock.get(channel_id) {
+            Some(msgs) => msgs,
+            None => return Ok(Vec::new()),
+        };
+
+        let mut threads: Vec<MessageWithThread> = Vec::new();
+
+        for msg in channel_messages {
+            // Only process root messages (not replies)
+            if msg.reply_to.is_none() {
+                let thread_info = self.get_thread_info(&msg.message_id).await?;
+                
+                threads.push(MessageWithThread {
+                    message: msg.clone(),
+                    thread_info,
+                    parent_message: None,
+                });
+            }
+        }
+
+        // Sort by timestamp (newest first)
+        threads.sort_by(|a, b| b.message.timestamp.cmp(&a.message.timestamp));
+
+        Ok(threads)
     }
 }
 

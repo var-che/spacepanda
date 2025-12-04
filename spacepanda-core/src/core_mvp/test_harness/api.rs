@@ -32,6 +32,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/messages/:id/reactions", post(handlers::add_reaction))
         .route("/messages/:id/reactions", get(handlers::get_reactions))
         .route("/messages/:id/reactions/:emoji", delete(handlers::remove_reaction))
+        // Thread routes
+        .route("/messages/:id/thread", get(handlers::get_thread_info))
+        .route("/messages/:id/replies", get(handlers::get_thread_replies))
+        .route("/messages/:id/context", get(handlers::get_message_with_thread))
+        .route("/channels/:id/threads", get(handlers::get_channel_threads))
         // State
         .with_state(state)
 }

@@ -225,6 +225,34 @@ pub struct ReactionSummary {
     pub user_reacted: bool,
 }
 
+/// Thread metadata for a message
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ThreadInfo {
+    /// The root message ID (top of thread)
+    pub root_message_id: MessageId,
+    /// Total number of replies in the thread
+    pub reply_count: usize,
+    /// Unique participants in the thread
+    pub participant_count: usize,
+    /// List of participants (user IDs)
+    pub participants: Vec<UserId>,
+    /// Timestamp of the last reply
+    pub last_reply_at: Option<Timestamp>,
+    /// Preview of the last reply (first 100 chars)
+    pub last_reply_preview: Option<String>,
+}
+
+/// A message with its thread context
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MessageWithThread {
+    /// The message itself
+    pub message: ChatMessage,
+    /// Thread info if this message has replies
+    pub thread_info: Option<ThreadInfo>,
+    /// If this is a reply, the parent message
+    pub parent_message: Option<Box<ChatMessage>>,
+}
+
 /// Channel creation request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateChannelRequest {

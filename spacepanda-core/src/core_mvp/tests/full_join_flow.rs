@@ -823,3 +823,205 @@ async fn test_reaction_aggregation() -> MvpResult<()> {
     Ok(())
 }
 
+/// Test message threading functionality
+#[tokio::test]
+async fn test_message_threading() -> MvpResult<()> {
+    use crate::core_store::model::types::MessageId;
+    use crate::core_mvp::types::ChatMessage;
+
+    println!("\n=== TESTING MESSAGE THREADING ===\n");
+
+    let (alice_manager, _alice_dir) = create_test_manager("alice").await;
+    let (bob_manager, _bob_dir) = create_test_manager("bob").await;
+
+    // Create channel
+    let channel_id = alice_manager
+        .create_channel("test-channel".to_string(), false)
+        .await?;
+    
+    // Bob joins
+    let bob_kp = bob_manager.generate_key_package().await?;
+    let invite = alice_manager.create_invite(&channel_id, bob_kp).await?;
+    bob_manager.join_channel(&invite).await?;
+
+    println!("Test 1: Creating a thread with replies...");
+    
+    // Alice posts root message
+    let root_msg = ChatMessage::new(
+        channel_id.clone(),
+        alice_manager.identity().user_id.clone(),
+        b"What's everyone's favorite color?".to_vec(),
+    );
+    let root_id = root_msg.message_id.clone();
+    alice_manager.store_message(root_msg).await?;
+    println!("  ✓ Root message created: {}", root_id);
+
+    // Bob replies
+    let bob_reply = ChatMessage::new(
+        channel_id.clone(),
+        bob_manager.identity().user_id.clone(),
+        b"I like blue!".to_vec(),
+    ).reply_to(root_id.clone());
+    bob_manager.store_message(bob_reply).await?;
+    println!("  ✓ Bob replied");
+
+    // Alice replies
+    let alice_reply = ChatMessage::new(
+        channel_id.clone(),
+        alice_manager.identity().user_id.clone(),
+        b"Mine is green".to_vec(),
+    ).reply_to(root_id.clone());
+    alice_manager.store_message(alice_reply).await?;
+    println!("  ✓ Alice replied");
+
+    // Test 2: Get thread info
+    println!("\nTest 2: Getting thread info...");
+    let thread_info = alice_manager.get_thread_info(&root_id).await?;
+    assert!(thread_info.is_some(), "Thread info should exist");
+    
+    let info = thread_info.unwrap();
+    assert_eq!(info.reply_count, 2, "Should have 2 replies");
+    assert_eq!(info.participant_count, 2, "Should have 2 participants");
+    assert!(info.last_reply_preview.is_some(), "Should have last reply preview");
+    println!("  ✓ Thread has {} replies from {} participants", 
+        info.reply_count, info.participant_count);
+
+    // Test 3: Get thread replies
+    println!("\nTest 3: Getting thread replies...");
+    let replies = alice_manager.get_thread_replies(&root_id).await?;
+    assert_eq!(replies.len(), 2, "Should get 2 replies");
+    assert_eq!(
+        replies[0].body_as_string().unwrap(),
+        "I like blue!",
+        "First reply should be from Bob"
+    );
+    assert_eq!(
+        replies[1].body_as_string().unwrap(),
+        "Mine is green",
+        "Second reply should be from Alice"
+    );
+    println!("  ✓ Retrieved {} replies in correct order", replies.len());
+
+    // Test 4: Get message with thread context
+    println!("\nTest 4: Getting message with thread context...");
+    let msg_with_thread = alice_manager.get_message_with_thread(&root_id).await?;
+    assert!(msg_with_thread.is_some(), "Should find message");
+    
+    let mwt = msg_with_thread.unwrap();
+    assert_eq!(mwt.message.message_id, root_id, "Should be the root message");
+    assert!(mwt.thread_info.is_some(), "Should have thread info");
+    assert!(mwt.parent_message.is_none(), "Root message has no parent");
+    println!("  ✓ Message has thread context");
+
+    // Test 5: Get reply with parent context
+    println!("\nTest 5: Getting reply with parent context...");
+    let reply_id = replies[0].message_id.clone();
+    let reply_with_context = alice_manager.get_message_with_thread(&reply_id).await?;
+    assert!(reply_with_context.is_some(), "Should find reply");
+    
+    let rwc = reply_with_context.unwrap();
+    assert!(rwc.parent_message.is_some(), "Reply should have parent");
+    assert_eq!(
+        rwc.parent_message.unwrap().message_id,
+        root_id,
+        "Parent should be the root message"
+    );
+    println!("  ✓ Reply has parent message context");
+
+    println!("\n=== ✅ MESSAGE THREADING TESTS PASSED! ===\n");
+    Ok(())
+}
+
+/// Test channel threads listing
+#[tokio::test]
+async fn test_channel_threads_listing() -> MvpResult<()> {
+    use crate::core_mvp::types::ChatMessage;
+
+    println!("\n=== TESTING CHANNEL THREADS LISTING ===\n");
+
+    let (alice_manager, _alice_dir) = create_test_manager("alice").await;
+
+    // Create channel
+    let channel_id = alice_manager
+        .create_channel("general".to_string(), false)
+        .await?;
+
+    println!("Creating multiple threads in channel...");
+
+    // Thread 1: "Project updates"
+    let thread1_root = ChatMessage::new(
+        channel_id.clone(),
+        alice_manager.identity().user_id.clone(),
+        b"Project updates thread".to_vec(),
+    );
+    let thread1_id = thread1_root.message_id.clone();
+    alice_manager.store_message(thread1_root).await?;
+    
+    // Add 2 replies to thread 1
+    for i in 1..=2 {
+        let reply = ChatMessage::new(
+            channel_id.clone(),
+            alice_manager.identity().user_id.clone(),
+            format!("Update {}", i).into_bytes(),
+        ).reply_to(thread1_id.clone());
+        alice_manager.store_message(reply).await?;
+    }
+    println!("  ✓ Thread 1: Project updates (2 replies)");
+
+    // Thread 2: "Random chat"
+    let thread2_root = ChatMessage::new(
+        channel_id.clone(),
+        alice_manager.identity().user_id.clone(),
+        b"Random chat thread".to_vec(),
+    );
+    let thread2_id = thread2_root.message_id.clone();
+    alice_manager.store_message(thread2_root).await?;
+    
+    // Add 3 replies to thread 2
+    for i in 1..=3 {
+        let reply = ChatMessage::new(
+            channel_id.clone(),
+            alice_manager.identity().user_id.clone(),
+            format!("Chat {}", i).into_bytes(),
+        ).reply_to(thread2_id.clone());
+        alice_manager.store_message(reply).await?;
+    }
+    println!("  ✓ Thread 2: Random chat (3 replies)");
+
+    // Thread 3: No replies
+    let thread3_root = ChatMessage::new(
+        channel_id.clone(),
+        alice_manager.identity().user_id.clone(),
+        b"Silent thread".to_vec(),
+    );
+    alice_manager.store_message(thread3_root).await?;
+    println!("  ✓ Thread 3: Silent (0 replies)");
+
+    // Test: Get all channel threads
+    println!("\nGetting all threads from channel...");
+    let threads = alice_manager.get_channel_threads(&channel_id).await?;
+    
+    assert_eq!(threads.len(), 3, "Should have 3 root threads");
+    println!("  ✓ Found {} threads", threads.len());
+
+    // Verify thread 1
+    let t1 = threads.iter().find(|t| t.message.message_id == thread1_id).unwrap();
+    assert!(t1.thread_info.is_some(), "Thread 1 should have info");
+    assert_eq!(t1.thread_info.as_ref().unwrap().reply_count, 2, "Thread 1 should have 2 replies");
+    println!("  ✓ Thread 1 has {} replies", t1.thread_info.as_ref().unwrap().reply_count);
+
+    // Verify thread 2
+    let t2 = threads.iter().find(|t| t.message.message_id == thread2_id).unwrap();
+    assert!(t2.thread_info.is_some(), "Thread 2 should have info");
+    assert_eq!(t2.thread_info.as_ref().unwrap().reply_count, 3, "Thread 2 should have 3 replies");
+    println!("  ✓ Thread 2 has {} replies", t2.thread_info.as_ref().unwrap().reply_count);
+
+    // Verify thread 3
+    let t3 = threads.iter().find(|t| t.message.body_as_string().unwrap() == "Silent thread").unwrap();
+    assert!(t3.thread_info.is_none(), "Thread 3 should have no thread info (no replies)");
+    println!("  ✓ Thread 3 has no replies");
+
+    println!("\n=== ✅ CHANNEL THREADS LISTING TESTS PASSED! ===\n");
+    Ok(())
+}
+

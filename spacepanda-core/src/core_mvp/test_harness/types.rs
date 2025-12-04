@@ -221,6 +221,55 @@ pub struct ReactionSummaryHttp {
 }
 
 // ============================================================================
+// Thread Types
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetThreadInfoResponse {
+    pub root_message_id: String,
+    pub reply_count: usize,
+    pub participant_count: usize,
+    pub participants: Vec<String>,
+    pub last_reply_at: Option<u64>,
+    pub last_reply_preview: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetThreadRepliesResponse {
+    pub root_message_id: String,
+    pub replies: Vec<MessageInfoHttp>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageInfoHttp {
+    pub message_id: String,
+    pub channel_id: String,
+    pub sender: String,
+    pub timestamp: u64,
+    pub body: String,
+    pub reply_to: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetMessageWithThreadResponse {
+    pub message: MessageInfoHttp,
+    pub thread_info: Option<GetThreadInfoResponse>,
+    pub parent_message: Option<Box<MessageInfoHttp>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetChannelThreadsResponse {
+    pub channel_id: String,
+    pub threads: Vec<ThreadSummaryHttp>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreadSummaryHttp {
+    pub message: MessageInfoHttp,
+    pub thread_info: Option<GetThreadInfoResponse>,
+}
+
+// ============================================================================
 // Error Types
 // ============================================================================
 
