@@ -11,6 +11,7 @@ Location: `spacepanda-cli/tests/integration_tests.rs`
 ### Test Infrastructure
 
 **TestActor** - Simulates a complete user with:
+
 - Isolated data directory (using tempfile)
 - Dedicated MLS service with persistent storage
 - Local store for channel metadata
@@ -20,29 +21,35 @@ Location: `spacepanda-cli/tests/integration_tests.rs`
 ### Test Scenarios (8 total)
 
 #### 1. Four-Party Channel Creation and Messaging ✅
+
 **Purpose**: Validate basic multi-party channel workflow
 
 **Flow**:
+
 1. Alice creates channel
 2. Alice invites Bob, Charlie, and Diana using their KeyPackages
 3. All members join successfully
 4. All members send messages
 
 **Validates**:
+
 - Channel creation
 - Multi-party invitations
 - KeyPackage-based join flow
 - Message encryption/decryption
 
 #### 2. Member Removal by Creator ✅
+
 **Purpose**: Test channel admin can remove members
 
 **Flow**:
+
 1. Alice creates channel and invites all members
 2. Alice removes Charlie
 3. Remaining members (Alice, Bob, Diana) can still communicate
 
 **Validates**:
+
 - Admin removal permissions
 - Group state updates after removal
 - Remaining members can continue messaging
@@ -50,24 +57,29 @@ Location: `spacepanda-cli/tests/integration_tests.rs`
 **Note**: Network sync limitations mean removed members' local state isn't updated in isolated tests.
 
 #### 3. Moderator Permissions ✅
+
 **Purpose**: Test admin promotion workflow
 
 **Flow**:
+
 1. Alice creates channel and invites all members
 2. Alice promotes Bob to admin
 3. Alice (as admin) removes Charlie
 4. Remaining members communicate
 
 **Validates**:
+
 - Admin promotion API works
 - Original admin retains removal permissions
 
 **Note**: In isolated tests, promoted members don't receive the commit, so they won't have admin permissions in their local state without network sync.
 
 #### 4. Sequential Member Removals ✅
+
 **Purpose**: Test removing multiple members one by one
 
 **Flow**:
+
 1. All 4 members join channel
 2. All send initial messages
 3. Alice removes Diana (4 → 3 members)
@@ -76,14 +88,17 @@ Location: `spacepanda-cli/tests/integration_tests.rs`
 6. Remaining 2 (Alice, Bob) send messages
 
 **Validates**:
+
 - Sequential group modifications
 - Group remains functional after multiple removals
 - Admin can perform multiple removals
 
 #### 5. Non-Admin Cannot Remove Members ✅
+
 **Purpose**: Test permission enforcement
 
 **Flow**:
+
 1. Alice creates channel, invites all members
 2. Bob (non-admin) attempts to remove Charlie
 3. Attempt fails with permission error
@@ -91,29 +106,35 @@ Location: `spacepanda-cli/tests/integration_tests.rs`
 5. Alice (admin) successfully removes Charlie
 
 **Validates**:
+
 - Permission checks prevent unauthorized removals
 - Failed removal doesn't corrupt group state
 - Admin permissions work correctly
 
 #### 6. Multiple Moderators Can Be Promoted ✅
+
 **Purpose**: Test promoting multiple admins
 
 **Flow**:
+
 1. Alice creates channel and invites all members
 2. Alice promotes both Bob and Charlie to admin
 3. Alice removes Diana
 4. All remaining members communicate
 
 **Validates**:
+
 - Multiple admin promotions succeed
 - Original admin retains full permissions
 
 **Note**: Promoted admins need network sync to exercise their permissions.
 
 #### 7. Disconnection and Reconnection Simulation ✅
+
 **Purpose**: Test asynchronous messaging patterns
 
 **Flow**:
+
 1. All members join and send initial messages
 2. Charlie "disconnects" (stops sending)
 3. Other members continue messaging
@@ -121,14 +142,17 @@ Location: `spacepanda-cli/tests/integration_tests.rs`
 5. All members active again
 
 **Validates**:
+
 - Asynchronous messaging works
 - Members can be offline and rejoin
 - No group state corruption from intermittent connectivity
 
 #### 8. Member Removal During Simulated Disconnection ✅
+
 **Purpose**: Test removals when members are offline
 
 **Flow**:
+
 1. All members join and send messages
 2. Diana "disconnects"
 3. Alice removes Charlie while Diana offline
@@ -137,6 +161,7 @@ Location: `spacepanda-cli/tests/integration_tests.rs`
 6. All remaining members communicate
 
 **Validates**:
+
 - Removals work when members offline
 - Offline members not affected by removals
 - Group remains consistent
@@ -146,6 +171,7 @@ Location: `spacepanda-cli/tests/integration_tests.rs`
 ### Isolated Testing Model
 
 Each TestActor operates independently with:
+
 - **Isolated MLS storage**: No shared group state
 - **No network layer**: Actors cannot sync commits
 - **Manual invite flow**: KeyPackages passed explicitly
@@ -167,14 +193,14 @@ Due to isolation without network synchronization:
 ✅ **MLS Group Operations**: Create, join, send, remove all function correctly  
 ✅ **Multi-Party Workflows**: 4-actor scenarios work as designed  
 ✅ **KeyPackage Flow**: Proper invite generation and join process  
-✅ **Async Patterns**: Members can be offline/online intermittently  
+✅ **Async Patterns**: Members can be offline/online intermittently
 
 ### What Requires Network Testing
 
 ⏳ **Full Removal Semantics**: Removed members actually lose send capability  
 ⏳ **Admin Promotion Effects**: Promoted members can exercise admin powers  
 ⏳ **Commit Propagation**: Changes broadcast to all members  
-⏳ **State Synchronization**: All members converge to same group state  
+⏳ **State Synchronization**: All members converge to same group state
 
 ## Running the Tests
 
@@ -194,7 +220,7 @@ nix develop --command cargo test -p spacepanda-cli --test integration_tests -- -
 ✅ **8/8 tests passing**  
 ✅ **All library tests still passing** (1205 tests)  
 ✅ **Zero compilation errors**  
-✅ **Zero runtime panics**  
+✅ **Zero runtime panics**
 
 ## Dependencies
 
@@ -224,6 +250,7 @@ To test full commit propagation and state sync:
 ## Security Considerations
 
 These tests validate:
+
 - ✅ Permission enforcement (non-admins can't remove)
 - ✅ Admin-only operations protected
 - ✅ MLS group integrity maintained
