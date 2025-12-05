@@ -7,6 +7,7 @@ use crate::core_mls::{
     engine::openmls_engine::{OpenMlsEngine, ProcessedMessage},
     errors::{MlsError, MlsResult},
     events::MlsEvent,
+    sealed_sender,
 };
 
 #[cfg(test)]
@@ -48,6 +49,12 @@ impl InboundHandler {
             });
         }
 
+        // Unseal sender identity (decrypt using group secret)
+        let group_secret = engine.export_secret("sender_key", b"", 32).await?;
+        let sender_key = sealed_sender::derive_sender_key(&group_secret);
+        let sender_id =
+            sealed_sender::unseal_sender(envelope.sealed_sender(), &sender_key, envelope.epoch())?;
+
         // Process the MLS message payload
         let processed = engine.process_message(envelope.payload()).await?;
 
@@ -57,7 +64,7 @@ impl InboundHandler {
                 // Application message received
                 let event = MlsEvent::MessageReceived {
                     group_id: envelope.group_id().as_bytes().to_vec(),
-                    sender_id: envelope.sender().to_vec(),
+                    sender_id: sender_id.clone(),
                     epoch: envelope.epoch(),
                     plaintext: plaintext.clone(),
                 };
@@ -169,13 +176,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_envelope_metadata_valid() {
+        use crate::core_mls::sealed_sender;
+        
         let handler = InboundHandler::new();
         let group_id = GroupId::random();
+        let epoch = 10;
+        
+        // Create sealed sender
+        let key = sealed_sender::derive_sender_key(b"test_secret");
+        let sealed = sealed_sender::seal_sender(b"alice@example.com", &key, epoch)
+            .expect("Sealing should succeed");
 
         let envelope = EncryptedEnvelope::new(
             group_id.clone(),
-            10,
-            b"alice@example.com".to_vec(),
+            epoch,
+            sealed,
             vec![1, 2, 3],
             MessageType::Application,
         );
@@ -186,14 +201,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_envelope_metadata_wrong_group() {
+        use crate::core_mls::sealed_sender;
+        
         let handler = InboundHandler::new();
         let group_id = GroupId::random();
         let wrong_group_id = GroupId::random();
+        let epoch = 10;
+        
+        // Create sealed sender
+        let key = sealed_sender::derive_sender_key(b"test_secret");
+        let sealed = sealed_sender::seal_sender(b"alice@example.com", &key, epoch)
+            .expect("Sealing should succeed");
 
         let envelope = EncryptedEnvelope::new(
             wrong_group_id,
-            10,
-            b"alice@example.com".to_vec(),
+            epoch,
+            sealed,
             vec![1, 2, 3],
             MessageType::Application,
         );
@@ -204,13 +227,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_envelope_metadata_epoch_too_old() {
+        use crate::core_mls::sealed_sender;
+        
         let handler = InboundHandler::new();
         let group_id = GroupId::random();
+        let epoch = 3;
+        
+        // Create sealed sender
+        let key = sealed_sender::derive_sender_key(b"test_secret");
+        let sealed = sealed_sender::seal_sender(b"alice@example.com", &key, epoch)
+            .expect("Sealing should succeed");
 
         let envelope = EncryptedEnvelope::new(
             group_id.clone(),
-            3, // Too old
-            b"alice@example.com".to_vec(),
+            epoch, // Too old
+            sealed,
             vec![1, 2, 3],
             MessageType::Application,
         );
@@ -221,13 +252,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_envelope_metadata_epoch_too_new() {
+        use crate::core_mls::sealed_sender;
+        
         let handler = InboundHandler::new();
         let group_id = GroupId::random();
+        let epoch = 20;
+        
+        // Create sealed sender
+        let key = sealed_sender::derive_sender_key(b"test_secret");
+        let sealed = sealed_sender::seal_sender(b"alice@example.com", &key, epoch)
+            .expect("Sealing should succeed");
 
         let envelope = EncryptedEnvelope::new(
             group_id.clone(),
-            20, // Too far in future
-            b"alice@example.com".to_vec(),
+            epoch, // Too far in future
+            sealed,
             vec![1, 2, 3],
             MessageType::Application,
         );

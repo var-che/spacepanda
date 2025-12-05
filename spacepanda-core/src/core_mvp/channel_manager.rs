@@ -554,11 +554,21 @@ impl ChannelManager {
             "Sending message"
         );
 
+        // Apply message padding for traffic analysis resistance
+        let padded_plaintext = crate::core_mls::padding::pad_message(plaintext)
+            .map_err(|e| MvpError::InvalidOperation(format!("Failed to pad message: {}", e)))?;
+        
+        debug!(
+            original_size = plaintext.len(),
+            padded_size = padded_plaintext.len(),
+            "Message padded for privacy"
+        );
+
         // Get group ID
         let group_id = GroupId::new(channel_id.0.as_bytes().to_vec());
 
-        // Encrypt message via MLS service
-        let ciphertext = self.mls_service.send_message(&group_id, plaintext).await?;
+        // Encrypt padded message via MLS service
+        let ciphertext = self.mls_service.send_message(&group_id, &padded_plaintext).await?;
 
         // If network layer is enabled, broadcast to channel members
         if let Some(network) = &self.network {
@@ -614,11 +624,16 @@ impl ChannelManager {
         for group_id in groups.iter() {
             // Try to process message with this group
             match self.mls_service.process_message(group_id, ciphertext).await {
-                Ok(Some(plaintext)) => {
+                Ok(Some(padded_plaintext)) => {
+                    // Remove padding to get original message
+                    let plaintext = crate::core_mls::padding::unpad_message(&padded_plaintext)
+                        .map_err(|e| MvpError::InvalidMessage(format!("Failed to unpad message: {}", e)))?;
+                    
                     info!(
                         group_id = ?group_id,
+                        padded_size = padded_plaintext.len(),
                         plaintext_size = plaintext.len(),
-                        "Message decrypted successfully"
+                        "Message decrypted and unpadded successfully"
                     );
                     return Ok(plaintext);
                 }

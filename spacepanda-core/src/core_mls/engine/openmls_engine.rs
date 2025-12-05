@@ -597,6 +597,30 @@ impl<P: OpenMlsProvider + 'static> OpenMlsEngine<P> {
         })
     }
 
+    /// Export secret for application use
+    ///
+    /// Uses the MLS exporter to derive application-specific secrets from the group secret.
+    /// This is cryptographically bound to the current epoch.
+    ///
+    /// # Arguments
+    /// * `label` - Domain separation label (e.g., "sender_key", "metadata_key")
+    /// * `context` - Additional context for derivation (can be empty)
+    /// * `key_length` - Desired output length in bytes
+    ///
+    /// # Returns
+    /// Derived secret bytes of requested length
+    pub async fn export_secret(
+        &self,
+        label: &str,
+        context: &[u8],
+        key_length: usize,
+    ) -> MlsResult<Vec<u8>> {
+        let group = self.group.read().await;
+        group
+            .export_secret(self.provider.crypto(), label, context, key_length)
+            .map_err(|e| MlsError::CryptoError(format!("Failed to export secret: {:?}", e)))
+    }
+
     /// Helper to extract members without holding the lock
     fn get_members_internal(&self, group: &MlsGroup) -> MlsResult<Vec<MemberInfo>> {
         let mut members = Vec::new();

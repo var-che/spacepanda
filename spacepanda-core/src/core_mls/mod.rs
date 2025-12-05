@@ -51,6 +51,11 @@ pub mod service;
 // Message lifecycle (envelopes, routing)
 pub mod messages;
 
+// Privacy enhancements
+pub mod padding;
+pub mod sealed_metadata;
+pub mod sealed_sender;
+
 // State management (snapshots, persistence)
 pub mod state;
 
