@@ -338,7 +338,7 @@ async fn test_storage_cleanup() {
         .unwrap();
 
     // Cleanup expired
-    let removed = node.storage.cleanup_expired();
+    let removed = node.storage.cleanup_expired().unwrap();
     assert_eq!(removed, 2, "Should remove 2 expired values");
 
     // Verify only non-expired value remains

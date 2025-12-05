@@ -30,6 +30,7 @@ use crate::{
     },
     core_mvp::{
         errors::{MvpError, MvpResult},
+        identity_scoping::IdentityScoper,
         network::NetworkLayer,
         peer_discovery::PeerDiscoveryService,
         types::{
@@ -58,8 +59,11 @@ pub struct ChannelManager {
     /// CRDT store for channel metadata
     store: Arc<LocalStore>,
 
-    /// Current user's identity
+    /// Current user's identity (global)
     identity: Arc<Identity>,
+
+    /// Identity scoping for per-channel pseudonymity
+    identity_scoper: Arc<IdentityScoper>,
 
     /// Configuration
     config: Arc<Config>,
@@ -126,10 +130,14 @@ impl ChannelManager {
             "Creating ChannelManager"
         );
 
+        // Initialize identity scoper with global identity
+        let identity_scoper = Arc::new(IdentityScoper::new(identity.clone()));
+
         Self {
             mls_service,
             store,
             identity,
+            identity_scoper,
             config,
             network: None,
             peer_discovery: None,
@@ -265,10 +273,29 @@ impl ChannelManager {
         let channel_id = ChannelId::generate();
         let group_id = GroupId::new(channel_id.0.as_bytes().to_vec());
 
+        // Get per-channel identity for privacy (OPTIONAL - currently disabled to maintain compatibility)
+        // TODO: Enable per-channel identities once full integration is complete
+        // use crate::core_mvp::identity_scoping::ChannelIdentityMode;
+        // let channel_identity = self.identity_scoper
+        //     .get_or_create_channel_identity(
+        //         &channel_id.0,
+        //         ChannelIdentityMode::PerChannel
+        //     )
+        //     .await;
+
+        // For now, use global identity for both MLS and CRDT
+        let channel_identity = self.identity.clone();
+
+        debug!(
+            channel_id = %channel_id,
+            channel_user_id = %channel_identity.user_id,
+            "Using identity for channel"
+        );
+
         // Step 1: Create MLS group
         debug!(group_id = ?group_id, "Creating MLS group");
         let actual_group_id = self.mls_service
-            .create_group(self.identity.as_bytes(), Some(group_id.clone()))
+            .create_group(channel_identity.as_bytes(), Some(group_id.clone()))
             .await
             .map_err(|e| {
                 warn!(error = ?e, "Failed to create MLS group");
