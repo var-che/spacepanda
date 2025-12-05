@@ -40,6 +40,7 @@ pub mod traits;
 pub mod integration;
 pub mod providers;
 pub mod storage;
+pub mod persistent_provider;
 
 // OpenMLS engine wrapper (Phase 3)
 pub mod engine;
@@ -49,6 +50,11 @@ pub mod service;
 
 // Message lifecycle (envelopes, routing)
 pub mod messages;
+
+// Privacy enhancements
+pub mod padding;
+pub mod sealed_metadata;
+pub mod sealed_sender;
 
 // State management (snapshots, persistence)
 pub mod state;

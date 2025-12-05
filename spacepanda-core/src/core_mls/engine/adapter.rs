@@ -10,7 +10,7 @@ use crate::core_mls::{
     types::{GroupId, GroupMetadata, MlsConfig},
 };
 use openmls::prelude::KeyPackageBundle;
-use openmls_rust_crypto::OpenMlsRustCrypto;
+use openmls_traits::OpenMlsProvider;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -18,15 +18,15 @@ use tokio::sync::RwLock;
 ///
 /// This allows gradual migration from the legacy MlsGroup to OpenMLS
 /// while maintaining backward compatibility with existing code.
-pub struct OpenMlsHandleAdapter {
+pub struct OpenMlsHandleAdapter<P: OpenMlsProvider> {
     /// The underlying OpenMLS engine
-    engine: Arc<RwLock<OpenMlsEngine>>,
+    engine: Arc<RwLock<OpenMlsEngine<P>>>,
 
     /// Configuration
     config: MlsConfig,
 }
 
-impl OpenMlsHandleAdapter {
+impl<P: OpenMlsProvider + 'static> OpenMlsHandleAdapter<P> {
     /// Create a new group using OpenMLS engine
     ///
     /// # Arguments
@@ -44,13 +44,23 @@ impl OpenMlsHandleAdapter {
         group_id: Option<GroupId>,
         identity: Vec<u8>,
         config: MlsConfig,
-        provider: Arc<OpenMlsRustCrypto>,
+        provider: Arc<P>,
     ) -> MlsResult<Self> {
         let gid = group_id.unwrap_or_else(GroupId::random);
 
         let engine = OpenMlsEngine::create_group(gid, identity, config.clone(), provider).await?;
 
         Ok(Self { engine: Arc::new(RwLock::new(engine)), config })
+    }
+
+    /// Create adapter from an existing OpenMlsEngine
+    ///
+    /// This is used when restoring groups from persistence.
+    pub fn from_engine(engine: OpenMlsEngine<P>, config: MlsConfig) -> Self {
+        Self {
+            engine: Arc::new(RwLock::new(engine)),
+            config,
+        }
     }
 
     /// Join an existing group from a Welcome message
@@ -66,7 +76,7 @@ impl OpenMlsHandleAdapter {
         ratchet_tree: Option<Vec<u8>>,
         config: MlsConfig,
         key_package_bundle: Option<KeyPackageBundle>,
-        provider: Arc<OpenMlsRustCrypto>,
+        provider: Arc<P>,
     ) -> MlsResult<Self> {
         let engine =
             OpenMlsEngine::join_from_welcome(welcome_bytes, ratchet_tree, config.clone(), key_package_bundle, provider).await?;
@@ -98,7 +108,7 @@ impl OpenMlsHandleAdapter {
     }
 
     /// Get a clone of the underlying engine (for advanced operations)
-    pub fn engine(&self) -> Arc<RwLock<OpenMlsEngine>> {
+    pub fn engine(&self) -> Arc<RwLock<OpenMlsEngine<P>>> {
         Arc::clone(&self.engine)
     }
 
@@ -143,6 +153,7 @@ impl OpenMlsHandleAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use openmls_rust_crypto::OpenMlsRustCrypto;
 
     #[tokio::test]
     async fn test_adapter_create_group() {
@@ -233,7 +244,7 @@ mod tests {
         assert!(!bytes.is_empty());
 
         // Load snapshot from bytes
-        let loaded = OpenMlsHandleAdapter::load_snapshot(&bytes).expect("Failed to load snapshot");
+        let loaded = OpenMlsHandleAdapter::<openmls_rust_crypto::OpenMlsRustCrypto>::load_snapshot(&bytes).expect("Failed to load snapshot");
 
         // Verify loaded snapshot matches
         assert_eq!(loaded.group_id(), &group_id);

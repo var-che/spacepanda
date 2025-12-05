@@ -6,13 +6,16 @@
 pub mod inbound;
 pub mod outbound;
 
-use crate::core_mls::{errors::MlsResult, types::GroupId};
+use crate::core_mls::{errors::MlsResult, sealed_sender::SealedSender, types::GroupId};
 use serde::{Deserialize, Serialize};
 
 /// Wire format envelope for MLS messages
 ///
 /// Wraps raw MLS protocol messages with metadata needed for routing
 /// and processing in the distributed system.
+///
+/// **Privacy Enhancement**: Uses sealed sender to hide sender identity
+/// from network observers. Only group members can decrypt the sender.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EncryptedEnvelope {
     /// The group this message belongs to
@@ -21,8 +24,8 @@ pub struct EncryptedEnvelope {
     /// The epoch when this message was created
     pub epoch: u64,
 
-    /// Identity of the sender (for authentication/routing)
-    pub sender: Vec<u8>,
+    /// Encrypted sender identity (only group members can decrypt)
+    pub sealed_sender: SealedSender,
 
     /// The actual MLS protocol message (serialized)
     pub payload: Vec<u8>,
@@ -45,15 +48,15 @@ pub enum MessageType {
 }
 
 impl EncryptedEnvelope {
-    /// Create a new envelope wrapping an MLS message
+    /// Create a new envelope wrapping an MLS message with sealed sender
     pub fn new(
         group_id: GroupId,
         epoch: u64,
-        sender: Vec<u8>,
+        sealed_sender: SealedSender,
         payload: Vec<u8>,
         message_type: MessageType,
     ) -> Self {
-        Self { group_id, epoch, sender, payload, message_type }
+        Self { group_id, epoch, sealed_sender, payload, message_type }
     }
 
     /// Serialize the envelope for transport
@@ -91,9 +94,9 @@ impl EncryptedEnvelope {
         self.epoch
     }
 
-    /// Get the sender identity
-    pub fn sender(&self) -> &[u8] {
-        &self.sender
+    /// Get the sealed sender (encrypted)
+    pub fn sealed_sender(&self) -> &SealedSender {
+        &self.sealed_sender
     }
 
     /// Get the message type
@@ -105,14 +108,23 @@ impl EncryptedEnvelope {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core_mls::sealed_sender;
 
     #[test]
     fn test_envelope_serialization() {
         let group_id = GroupId::random();
+        let epoch = 42;
+        let sender = b"alice@example.com";
+        
+        // Seal the sender
+        let key = sealed_sender::derive_sender_key(b"test_group_secret");
+        let sealed = sealed_sender::seal_sender(sender, &key, epoch)
+            .expect("Sealing should succeed");
+        
         let envelope = EncryptedEnvelope::new(
             group_id.clone(),
-            42,
-            b"alice@example.com".to_vec(),
+            epoch,
+            sealed.clone(),
             vec![1, 2, 3, 4, 5],
             MessageType::Application,
         );
@@ -122,8 +134,8 @@ mod tests {
             EncryptedEnvelope::from_bytes(&bytes).expect("Deserialization should succeed");
 
         assert_eq!(deserialized.group_id, group_id);
-        assert_eq!(deserialized.epoch, 42);
-        assert_eq!(deserialized.sender, b"alice@example.com");
+        assert_eq!(deserialized.epoch, epoch);
+        assert_eq!(deserialized.sealed_sender, sealed);
         assert_eq!(deserialized.payload, vec![1, 2, 3, 4, 5]);
         assert_eq!(deserialized.message_type, MessageType::Application);
     }
@@ -131,17 +143,25 @@ mod tests {
     #[test]
     fn test_envelope_accessors() {
         let group_id = GroupId::random();
+        let epoch = 10;
+        let sender = b"bob@example.com";
+        
+        // Seal the sender
+        let key = sealed_sender::derive_sender_key(b"test_group_secret");
+        let sealed = sealed_sender::seal_sender(sender, &key, epoch)
+            .expect("Sealing should succeed");
+
         let envelope = EncryptedEnvelope::new(
             group_id.clone(),
-            10,
-            b"bob@example.com".to_vec(),
+            epoch,
+            sealed.clone(),
             vec![0xDE, 0xAD, 0xBE, 0xEF],
             MessageType::Commit,
         );
 
         assert_eq!(envelope.group_id(), &group_id);
-        assert_eq!(envelope.epoch(), 10);
-        assert_eq!(envelope.sender(), b"bob@example.com");
+        assert_eq!(envelope.epoch(), epoch);
+        assert_eq!(envelope.sealed_sender(), &sealed);
         assert_eq!(envelope.payload(), &[0xDE, 0xAD, 0xBE, 0xEF]);
         assert_eq!(envelope.message_type(), MessageType::Commit);
     }

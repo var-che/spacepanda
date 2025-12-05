@@ -30,6 +30,7 @@ use crate::{
     },
     core_mvp::{
         errors::{MvpError, MvpResult},
+        identity_scoping::IdentityScoper,
         network::NetworkLayer,
         peer_discovery::PeerDiscoveryService,
         types::{
@@ -58,8 +59,11 @@ pub struct ChannelManager {
     /// CRDT store for channel metadata
     store: Arc<LocalStore>,
 
-    /// Current user's identity
+    /// Current user's identity (global)
     identity: Arc<Identity>,
+
+    /// Identity scoping for per-channel pseudonymity
+    identity_scoper: Arc<IdentityScoper>,
 
     /// Configuration
     config: Arc<Config>,
@@ -126,10 +130,14 @@ impl ChannelManager {
             "Creating ChannelManager"
         );
 
+        // Initialize identity scoper with global identity
+        let identity_scoper = Arc::new(IdentityScoper::new(identity.clone()));
+
         Self {
             mls_service,
             store,
             identity,
+            identity_scoper,
             config,
             network: None,
             peer_discovery: None,
@@ -265,10 +273,29 @@ impl ChannelManager {
         let channel_id = ChannelId::generate();
         let group_id = GroupId::new(channel_id.0.as_bytes().to_vec());
 
+        // Get per-channel identity for privacy (OPTIONAL - currently disabled to maintain compatibility)
+        // TODO: Enable per-channel identities once full integration is complete
+        // use crate::core_mvp::identity_scoping::ChannelIdentityMode;
+        // let channel_identity = self.identity_scoper
+        //     .get_or_create_channel_identity(
+        //         &channel_id.0,
+        //         ChannelIdentityMode::PerChannel
+        //     )
+        //     .await;
+
+        // For now, use global identity for both MLS and CRDT
+        let channel_identity = self.identity.clone();
+
+        debug!(
+            channel_id = %channel_id,
+            channel_user_id = %channel_identity.user_id,
+            "Using identity for channel"
+        );
+
         // Step 1: Create MLS group
         debug!(group_id = ?group_id, "Creating MLS group");
         let actual_group_id = self.mls_service
-            .create_group(self.identity.as_bytes(), Some(group_id.clone()))
+            .create_group(channel_identity.as_bytes(), Some(group_id.clone()))
             .await
             .map_err(|e| {
                 warn!(error = ?e, "Failed to create MLS group");
@@ -554,11 +581,21 @@ impl ChannelManager {
             "Sending message"
         );
 
+        // Apply message padding for traffic analysis resistance
+        let padded_plaintext = crate::core_mls::padding::pad_message(plaintext)
+            .map_err(|e| MvpError::InvalidOperation(format!("Failed to pad message: {}", e)))?;
+        
+        debug!(
+            original_size = plaintext.len(),
+            padded_size = padded_plaintext.len(),
+            "Message padded for privacy"
+        );
+
         // Get group ID
         let group_id = GroupId::new(channel_id.0.as_bytes().to_vec());
 
-        // Encrypt message via MLS service
-        let ciphertext = self.mls_service.send_message(&group_id, plaintext).await?;
+        // Encrypt padded message via MLS service
+        let ciphertext = self.mls_service.send_message(&group_id, &padded_plaintext).await?;
 
         // If network layer is enabled, broadcast to channel members
         if let Some(network) = &self.network {
@@ -614,11 +651,16 @@ impl ChannelManager {
         for group_id in groups.iter() {
             // Try to process message with this group
             match self.mls_service.process_message(group_id, ciphertext).await {
-                Ok(Some(plaintext)) => {
+                Ok(Some(padded_plaintext)) => {
+                    // Remove padding to get original message
+                    let plaintext = crate::core_mls::padding::unpad_message(&padded_plaintext)
+                        .map_err(|e| MvpError::InvalidMessage(format!("Failed to unpad message: {}", e)))?;
+                    
                     info!(
                         group_id = ?group_id,
+                        padded_size = padded_plaintext.len(),
                         plaintext_size = plaintext.len(),
-                        "Message decrypted successfully"
+                        "Message decrypted and unpadded successfully"
                     );
                     return Ok(plaintext);
                 }
@@ -1003,12 +1045,23 @@ impl ChannelManager {
         let mut channels = Vec::new();
         for group_id in group_ids {
             // Convert group ID to channel ID
-            // For MVP, we use a simple conversion (group ID bytes → string → ChannelId)
-            let channel_id_str = String::from_utf8_lossy(group_id.as_bytes()).to_string();
-            let channel_id = ChannelId(channel_id_str);
-
-            if let Ok(descriptor) = self.get_channel(&channel_id).await {
-                channels.push(descriptor);
+            // GroupId is created from ChannelId UUID string bytes, so reverse the conversion
+            match String::from_utf8(group_id.as_bytes().to_vec()) {
+                Ok(channel_id_str) => {
+                    let channel_id = ChannelId(channel_id_str);
+                    if let Ok(descriptor) = self.get_channel(&channel_id).await {
+                        channels.push(descriptor);
+                    } else {
+                        debug!(channel_id = %channel_id, "Channel not found in store");
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        group_id = %group_id,
+                        error = %e,
+                        "Failed to convert GroupId to ChannelId UTF-8 string"
+                    );
+                }
             }
         }
 

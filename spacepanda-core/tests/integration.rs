@@ -350,6 +350,8 @@ async fn test_integration_full_stack_availability() {
         snapshot_interval: 100,
         max_log_size: 1_000_000,
         enable_compaction: false,
+        require_signatures: false,
+        authorized_keys: Vec::new(),
     };
     let _store = LocalStore::new(config).unwrap();
 

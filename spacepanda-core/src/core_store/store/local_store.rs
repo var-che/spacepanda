@@ -366,7 +366,39 @@ impl LocalStore {
         *self.spaces_cache.write().map_err(handle_poison)? = spaces;
         *self.channels_cache.write().map_err(handle_poison)? = channels;
 
-        // TODO: Replay commit log entries after snapshot
+        // Replay commit log entries after snapshot
+        // For now, we replay ALL entries since we don't track snapshot positions
+        let entries = self.commit_log.read().map_err(handle_poison)?.read_all()?;
+        
+        for entry in entries {
+            // Try to decrypt if encryption is enabled
+            let data = if let Some(enc) = &self.encryption {
+                enc.decrypt(&entry.data)?
+            } else {
+                entry.data.clone()
+            };
+            
+            // Try to deserialize as Channel first (most common in our case)
+            if let Ok(channel) = bincode::deserialize::<Channel>(&data) {
+                self.channels_cache
+                    .write()
+                    .map_err(handle_poison)?
+                    .insert(channel.id.clone(), channel);
+                continue;
+            }
+            
+            // Try to deserialize as Space
+            if let Ok(space) = bincode::deserialize::<Space>(&data) {
+                self.spaces_cache
+                    .write()
+                    .map_err(handle_poison)?
+                    .insert(space.id.clone(), space);
+                continue;
+            }
+            
+            // If we can't deserialize as either, skip this entry
+            // (could be a message or other data type we're not loading yet)
+        }
 
         Ok(())
     }

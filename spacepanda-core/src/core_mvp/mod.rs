@@ -7,6 +7,8 @@ pub mod adapters;
 pub mod channel_manager;
 pub mod errors;
 pub mod group_provider;
+pub mod identity_scoping;
+pub mod message_mixer;
 pub mod network;
 pub mod peer_discovery;
 pub mod test_harness;
