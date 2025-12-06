@@ -40,8 +40,8 @@ impl SqlStorageProvider {
             pool: Arc::new(pool),
         };
 
-        // Initialize schema
-        provider.init_schema()?;
+        // Run migrations to ensure schema is up to date
+        super::migrations::migrate(&provider.pool)?;
 
         Ok(provider)
     }
@@ -152,113 +152,6 @@ impl SqlStorageProvider {
     }
 
     /// Initialize database schema
-    fn init_schema(&self) -> MlsResult<()> {
-        let conn = self
-            .pool
-            .get()
-            .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
-
-        conn.execute_batch(
-            r#"
-            -- Schema version tracking
-            CREATE TABLE IF NOT EXISTS schema_version (
-                version INTEGER PRIMARY KEY,
-                applied_at INTEGER NOT NULL
-            );
-
-            -- MLS group snapshots
-            CREATE TABLE IF NOT EXISTS group_snapshots (
-                group_id BLOB PRIMARY KEY,
-                snapshot_data BLOB NOT NULL,
-                epoch INTEGER NOT NULL,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
-            );
-
-            -- Key packages (for invites)
-            CREATE TABLE IF NOT EXISTS key_packages (
-                key_package_id BLOB PRIMARY KEY,
-                key_package_data BLOB NOT NULL,
-                credential_id BLOB NOT NULL,
-                created_at INTEGER NOT NULL,
-                expires_at INTEGER,
-                used BOOLEAN NOT NULL DEFAULT 0
-            );
-
-            -- Create index for expiration cleanup
-            CREATE INDEX IF NOT EXISTS idx_key_packages_expires 
-                ON key_packages(expires_at) WHERE expires_at IS NOT NULL;
-
-            -- Signature keys
-            CREATE TABLE IF NOT EXISTS signature_keys (
-                key_id BLOB PRIMARY KEY,
-                public_key BLOB NOT NULL,
-                private_key BLOB NOT NULL,
-                created_at INTEGER NOT NULL
-            );
-
-            -- Pre-shared keys (PSKs)
-            CREATE TABLE IF NOT EXISTS psks (
-                psk_id BLOB PRIMARY KEY,
-                psk_data BLOB NOT NULL,
-                created_at INTEGER NOT NULL,
-                expires_at INTEGER
-            );
-
-            -- Generic key-value blob storage
-            CREATE TABLE IF NOT EXISTS kv_blobs (
-                key TEXT PRIMARY KEY,
-                value BLOB NOT NULL,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
-            );
-
-            -- Privacy-focused channel metadata
-            CREATE TABLE IF NOT EXISTS channels (
-                group_id BLOB PRIMARY KEY,
-                encrypted_name BLOB NOT NULL,
-                encrypted_topic BLOB,
-                created_at INTEGER NOT NULL,
-                encrypted_members BLOB NOT NULL,
-                channel_type INTEGER NOT NULL,
-                archived INTEGER NOT NULL DEFAULT 0
-            );
-
-            -- Privacy-focused message metadata
-            CREATE TABLE IF NOT EXISTS messages (
-                message_id BLOB PRIMARY KEY,
-                group_id BLOB NOT NULL,
-                encrypted_content BLOB NOT NULL,
-                sender_hash BLOB NOT NULL,
-                sequence INTEGER NOT NULL,
-                processed INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY (group_id) REFERENCES channels(group_id) ON DELETE CASCADE
-            );
-
-            -- Index for efficient message retrieval (reverse chronological by sequence)
-            CREATE INDEX IF NOT EXISTS idx_messages_group_seq 
-                ON messages(group_id, sequence DESC);
-
-            -- Index for unprocessed messages
-            CREATE INDEX IF NOT EXISTS idx_messages_unprocessed
-                ON messages(group_id, processed) WHERE processed = 0;
-
-            -- Insert initial schema version
-            INSERT OR IGNORE INTO schema_version (version, applied_at) 
-            VALUES (1, ?);
-            "#,
-        )
-        .map_err(|e| MlsError::Storage(format!("Failed to initialize schema: {}", e)))?;
-
-        conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (?, ?)",
-            params![1, current_timestamp()],
-        )
-        .map_err(|e| MlsError::Storage(format!("Failed to set schema version: {}", e)))?;
-
-        Ok(())
-    }
-
     /// Clean up expired key packages
     pub fn cleanup_expired_key_packages(&self) -> MlsResult<usize> {
         let conn = self
