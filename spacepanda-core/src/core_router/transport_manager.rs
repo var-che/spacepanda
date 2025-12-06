@@ -59,8 +59,9 @@ Internal Tasks:
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::{mpsc, Mutex};
 
 #[derive(Debug)]
@@ -73,13 +74,15 @@ pub enum TransportCommand {
 
 #[derive(Debug, Clone)]
 pub enum TransportEvent {
-    Connected(u64, String),
+    // conn_id, remote_addr, is_outgoing (true if we dialed, false if we accepted)
+    Connected(u64, String, bool),
     Data(u64, Vec<u8>),
     Disconnected(u64),
 }
 
 pub struct TransportManager {
-    connections: Arc<Mutex<HashMap<u64, TcpStream>>>,
+    // Store only write halves - read halves are owned by reader tasks
+    connections: Arc<Mutex<HashMap<u64, OwnedWriteHalf>>>,
     next_conn_id: Arc<AtomicU64>,
     event_tx: mpsc::Sender<TransportEvent>,
 }
@@ -126,16 +129,27 @@ impl TransportManager {
                     Ok((socket, peer_addr)) => {
                         let conn_id = next_conn_id.fetch_add(1, Ordering::SeqCst);
 
-                        // Store the connection
-                        connections.lock().await.insert(conn_id, socket);
+                        // Split socket into read and write halves
+                        let (read_half, write_half) = socket.into_split();
 
-                        // Emit Connected event
+                        // Store the write half
+                        connections.lock().await.insert(conn_id, write_half);
+
+                        // Emit Connected event (is_outgoing = false for accepted connections)
                         let addr_str = peer_addr.to_string();
                         if let Err(e) =
-                            event_tx.send(TransportEvent::Connected(conn_id, addr_str)).await
+                            event_tx.send(TransportEvent::Connected(conn_id, addr_str, false)).await
                         {
                             eprintln!("Failed to send Connected event: {}", e);
                         }
+                        
+                        // Spawn reader task with the read half
+                        let event_tx_clone = event_tx.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = Self::read_connection(conn_id, read_half, event_tx_clone).await {
+                                eprintln!("Connection {} read error: {}", conn_id, e);
+                            }
+                        });
                     }
                     Err(e) => {
                         eprintln!("Failed to accept connection: {}", e);
@@ -154,12 +168,24 @@ impl TransportManager {
 
         let conn_id = self.next_conn_id.fetch_add(1, Ordering::SeqCst);
 
-        self.connections.lock().await.insert(conn_id, socket);
+        // Split socket into read and write halves
+        let (read_half, write_half) = socket.into_split();
 
-        // Emit Connected event
-        if let Err(e) = self.event_tx.send(TransportEvent::Connected(conn_id, addr)).await {
+        // Store the write half
+        self.connections.lock().await.insert(conn_id, write_half);
+
+        // Emit Connected event (is_outgoing = true for dialed connections)
+        if let Err(e) = self.event_tx.send(TransportEvent::Connected(conn_id, addr, true)).await {
             eprintln!("Failed to send Connected event: {}", e);
         }
+        
+        // Spawn reader task with the read half
+        let event_tx_clone = self.event_tx.clone();
+        tokio::spawn(async move {
+            if let Err(e) = Self::read_connection(conn_id, read_half, event_tx_clone).await {
+                eprintln!("Connection {} read error: {}", conn_id, e);
+            }
+        });
 
         Ok(())
     }
@@ -182,6 +208,46 @@ impl TransportManager {
             .map_err(|e| format!("Failed to write data: {}", e))?;
 
         Ok(())
+    }
+    
+    /// Read from a connection and emit Data events
+    /// This is spawned as a separate task for each connection
+    async fn read_connection(
+        conn_id: u64,
+        mut read_half: OwnedReadHalf,
+        event_tx: mpsc::Sender<TransportEvent>,
+    ) -> Result<(), String> {
+        loop {
+            // Read length prefix (4 bytes)
+            let mut len_buf = [0u8; 4];
+            match read_half.read_exact(&mut len_buf).await {
+                Ok(_) => {},
+                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    // Connection closed gracefully
+                    let _ = event_tx.send(TransportEvent::Disconnected(conn_id)).await;
+                    return Ok(());
+                }
+                Err(e) => {
+                    return Err(format!("Failed to read length: {}", e));
+                }
+            }
+            
+            let len = u32::from_be_bytes(len_buf) as usize;
+            
+            if len == 0 || len > 10_000_000 {  // Max 10MB per message
+                return Err(format!("Invalid message length: {}", len));
+            }
+            
+            // Read message data
+            let mut data = vec![0u8; len];
+            read_half.read_exact(&mut data).await
+                .map_err(|e| format!("Failed to read data: {}", e))?;
+            
+            // Emit Data event
+            if let Err(e) = event_tx.send(TransportEvent::Data(conn_id, data)).await {
+                return Err(format!("Failed to send Data event: {}", e));
+            }
+        }
     }
 
     async fn handle_close(&self, conn_id: u64) -> Result<(), String> {
@@ -233,9 +299,10 @@ mod tests {
 
         // Verify we got a Connected event
         match event {
-            TransportEvent::Connected(conn_id, addr) => {
+            TransportEvent::Connected(conn_id, addr, is_outgoing) => {
                 assert!(conn_id > 0, "Connection ID should be positive");
                 assert!(addr.starts_with("127.0.0.1:"), "Address should be localhost");
+                assert!(!is_outgoing, "Accepted connection should not be outgoing");
             }
             _ => panic!("Expected Connected event, got {:?}", event),
         }
@@ -269,7 +336,7 @@ mod tests {
                 .expect("Timeout")
                 .expect("Channel closed");
 
-            if let TransportEvent::Connected(conn_id, _) = event {
+            if let TransportEvent::Connected(conn_id, _, _) = event {
                 conn_ids.push(conn_id);
             } else {
                 panic!("Expected Connected event");

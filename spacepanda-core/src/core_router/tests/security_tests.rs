@@ -54,7 +54,7 @@ async fn test_noise_handshake_downgrade_protection() {
         // Initiate connection
         let conn_id = 1;
         alice
-            .handle_transport_event(TransportEvent::Connected(conn_id, "bob:8080".to_string()))
+            .handle_transport_event(TransportEvent::Connected(conn_id, "bob:8080".to_string(), true))
             .await
             .expect("Handshake initiation should succeed");
 
@@ -86,7 +86,7 @@ async fn test_noise_handshake_downgrade_protection() {
 
         let conn_id = 2;
         alice
-            .handle_transport_event(TransportEvent::Connected(conn_id, "attacker:8080".to_string()))
+            .handle_transport_event(TransportEvent::Connected(conn_id, "attacker:8080".to_string(), true))
             .await
             .expect("Connection accepted");
 
@@ -110,7 +110,7 @@ async fn test_noise_handshake_downgrade_protection() {
 
         let conn_id = 3;
         alice
-            .handle_transport_event(TransportEvent::Connected(conn_id, "attacker:8080".to_string()))
+            .handle_transport_event(TransportEvent::Connected(conn_id, "attacker:8080".to_string(), true))
             .await
             .expect("Connection accepted");
 
@@ -134,7 +134,7 @@ async fn test_noise_handshake_downgrade_protection() {
 
         let conn_id = 4;
         alice
-            .handle_transport_event(TransportEvent::Connected(conn_id, "attacker:8080".to_string()))
+            .handle_transport_event(TransportEvent::Connected(conn_id, "attacker:8080".to_string(), true))
             .await
             .expect("Connection accepted");
 
@@ -156,7 +156,7 @@ async fn test_noise_handshake_downgrade_protection() {
 
         let conn_id = 5;
         alice
-            .handle_transport_event(TransportEvent::Connected(conn_id, "attacker:8080".to_string()))
+            .handle_transport_event(TransportEvent::Connected(conn_id, "attacker:8080".to_string(), true))
             .await
             .expect("Connection accepted");
 
