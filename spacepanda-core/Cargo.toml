@@ -54,6 +54,9 @@ hpke-rs-crypto = "0.2"  # Crypto backend for hpke
 num_cpus = "1.16"  # For system metrics
 clap = { version = "4.5", features = ["derive"] }  # CLI argument parsing
 axum = "0.7"  # HTTP web framework for test harness
+rusqlite = { version = "0.32", features = ["bundled", "blob", "serde_json"] }  # SQLite with bundled library
+r2d2 = "0.8"  # Connection pool for rusqlite
+r2d2_sqlite = "0.25"  # SQLite connection pool adapter
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
