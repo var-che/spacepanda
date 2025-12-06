@@ -13,8 +13,7 @@ use crate::{
         engine::{adapter::OpenMlsHandleAdapter, GroupOperations},
         errors::{MlsError, MlsResult},
         events::{EventBroadcaster, MlsEvent},
-        persistent_provider::PersistentProvider,
-        storage::file_store::FileStorageProvider,
+        providers::PersistentProvider,
         traits::storage::StorageProvider,
         types::{GroupId, GroupMetadata, MlsConfig},
     },
@@ -93,13 +92,21 @@ impl MlsService {
 
         let mls_config = MlsConfig::default();
         
-        // Create persistent provider that saves/loads OpenMLS state
-        let openmls_storage_path = storage_dir.join("openmls_state.json");
-        let provider = Arc::new(PersistentProvider::new(&openmls_storage_path)?);
+        // Create persistent provider with SQLite database
+        std::fs::create_dir_all(&storage_dir)
+            .map_err(|e| MlsError::Storage(format!("Failed to create storage directory: {}", e)))?;
         
-        // Create storage provider for our custom snapshots (optional, for debugging)
-        let snapshot_dir = storage_dir.join("snapshots");
-        let storage = Arc::new(FileStorageProvider::new(snapshot_dir, None)?);
+        let db_path = storage_dir.join("mls_state.db");
+        let persistent_provider = PersistentProvider::new(
+            db_path.to_str()
+                .ok_or_else(|| MlsError::Storage("Invalid database path".to_string()))?
+        )?;
+        
+        info!("Using SQL storage at: {:?}", db_path);
+        
+        // Get SQL storage reference before moving provider into Arc
+        let sql_storage = persistent_provider.sql_storage_arc();
+        let provider = Arc::new(persistent_provider);
 
         Ok(Self {
             groups: Arc::new(RwLock::new(HashMap::new())),
@@ -108,7 +115,7 @@ impl MlsService {
             shutdown,
             provider,
             key_package_bundles: Arc::new(RwLock::new(HashMap::new())),
-            storage: Some(storage),
+            storage: Some(sql_storage),
         })
     }
 

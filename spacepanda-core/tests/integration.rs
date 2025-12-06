@@ -31,9 +31,11 @@ async fn test_integration_identity_store_roundtrip() {
     let config = LocalStoreConfig {
         data_dir: temp_dir.path().to_path_buf(),
         enable_encryption: false,
-        snapshot_interval: 100,
-        max_log_size: 1_000_000,
+        snapshot_interval: 1000,
+        max_log_size: 10_000_000,
         enable_compaction: false,
+        require_signatures: false,
+        authorized_keys: Vec::new(),
     };
 
     let store = LocalStore::new(config.clone()).unwrap();
@@ -124,6 +126,8 @@ async fn test_integration_crdt_store_persistence() {
         snapshot_interval: 100,
         max_log_size: 1_000_000,
         enable_compaction: false,
+        require_signatures: false,
+        authorized_keys: Vec::new(),
     };
 
     let store = LocalStore::new(config.clone()).unwrap();
@@ -208,7 +212,7 @@ async fn test_integration_dht_routing_storage() {
     assert_eq!(routing_table.size(), 10);
 
     // Verify storage has values
-    let active_keys = storage.active_keys();
+    let active_keys = storage.active_keys().unwrap();
     assert_eq!(active_keys.len(), 10);
 
     // Find closest peers for a target
@@ -248,7 +252,7 @@ async fn test_integration_concurrent_store_dht() {
     }
 
     // Verify all 100 keys stored (5 threads × 20 keys)
-    let active_keys = storage.active_keys();
+    let active_keys = storage.active_keys().unwrap();
     assert_eq!(active_keys.len(), 100);
 
     println!("✅ Integration: Concurrent store + DHT operations successful");
@@ -284,6 +288,8 @@ async fn test_integration_store_snapshot_dht_versioning() {
         snapshot_interval: 50,
         max_log_size: 1_000_000,
         enable_compaction: false,
+        require_signatures: false,
+        authorized_keys: Vec::new(),
     };
 
     let store = LocalStore::new(config.clone()).unwrap();
