@@ -213,6 +213,36 @@ impl SqlStorageProvider {
                 updated_at INTEGER NOT NULL
             );
 
+            -- Privacy-focused channel metadata
+            CREATE TABLE IF NOT EXISTS channels (
+                group_id BLOB PRIMARY KEY,
+                encrypted_name BLOB NOT NULL,
+                encrypted_topic BLOB,
+                created_at INTEGER NOT NULL,
+                encrypted_members BLOB NOT NULL,
+                channel_type INTEGER NOT NULL,
+                archived INTEGER NOT NULL DEFAULT 0
+            );
+
+            -- Privacy-focused message metadata
+            CREATE TABLE IF NOT EXISTS messages (
+                message_id BLOB PRIMARY KEY,
+                group_id BLOB NOT NULL,
+                encrypted_content BLOB NOT NULL,
+                sender_hash BLOB NOT NULL,
+                sequence INTEGER NOT NULL,
+                processed INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (group_id) REFERENCES channels(group_id) ON DELETE CASCADE
+            );
+
+            -- Index for efficient message retrieval (reverse chronological by sequence)
+            CREATE INDEX IF NOT EXISTS idx_messages_group_seq 
+                ON messages(group_id, sequence DESC);
+
+            -- Index for unprocessed messages
+            CREATE INDEX IF NOT EXISTS idx_messages_unprocessed
+                ON messages(group_id, processed) WHERE processed = 0;
+
             -- Insert initial schema version
             INSERT OR IGNORE INTO schema_version (version, applied_at) 
             VALUES (1, ?);
@@ -549,6 +579,275 @@ impl StorageProvider for SqlStorageProvider {
     }
 }
 
+// Extension methods for SqlStorageProvider (beyond StorageProvider trait)
+impl SqlStorageProvider {
+    // ======================
+    // Channel Metadata CRUD
+    // ======================
+
+    /// Save channel metadata
+    pub async fn save_channel_metadata(
+        &self,
+        group_id: &[u8],
+        encrypted_name: &[u8],
+        encrypted_topic: Option<&[u8]>,
+        encrypted_members: &[u8],
+        channel_type: i32,
+    ) -> MlsResult<()> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
+
+        let now = current_timestamp();
+
+        conn.execute(
+            "INSERT OR REPLACE INTO channels 
+             (group_id, encrypted_name, encrypted_topic, created_at, encrypted_members, channel_type, archived) 
+             VALUES (?, ?, ?, COALESCE((SELECT created_at FROM channels WHERE group_id = ?), ?), ?, ?, 0)",
+            params![group_id, encrypted_name, encrypted_topic, group_id, now, encrypted_members, channel_type],
+        )
+        .map_err(|e| MlsError::Storage(format!("Failed to save channel metadata: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Load channel metadata
+    pub async fn load_channel_metadata(&self, group_id: &[u8]) -> MlsResult<(Vec<u8>, Option<Vec<u8>>, i64, Vec<u8>, i32, bool)> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
+
+        let result = conn.query_row(
+            "SELECT encrypted_name, encrypted_topic, created_at, encrypted_members, channel_type, archived 
+             FROM channels WHERE group_id = ?",
+            params![group_id],
+            |row| {
+                Ok((
+                    row.get::<_, Vec<u8>>(0)?,
+                    row.get::<_, Option<Vec<u8>>>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Vec<u8>>(3)?,
+                    row.get::<_, i32>(4)?,
+                    row.get::<_, i32>(5)? != 0,
+                ))
+            },
+        );
+
+        match result {
+            Ok(data) => Ok(data),
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                Err(MlsError::NotFound(format!("Channel not found: {:?}", group_id)))
+            }
+            Err(e) => Err(MlsError::Storage(format!("Failed to load channel metadata: {}", e))),
+        }
+    }
+
+    /// List all channels (non-archived by default)
+    pub async fn list_channels(&self, include_archived: bool) -> MlsResult<Vec<Vec<u8>>> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
+
+        let query = if include_archived {
+            "SELECT group_id FROM channels ORDER BY created_at DESC"
+        } else {
+            "SELECT group_id FROM channels WHERE archived = 0 ORDER BY created_at DESC"
+        };
+
+        let mut stmt = conn
+            .prepare(query)
+            .map_err(|e| MlsError::Storage(format!("Failed to prepare statement: {}", e)))?;
+
+        let rows = stmt
+            .query_map([], |row| row.get::<_, Vec<u8>>(0))
+            .map_err(|e| MlsError::Storage(format!("Failed to query channels: {}", e)))?;
+
+        let mut group_ids = Vec::new();
+        for row in rows {
+            group_ids.push(row.map_err(|e| MlsError::Storage(format!("Failed to read row: {}", e)))?);
+        }
+
+        Ok(group_ids)
+    }
+
+    /// Archive a channel (soft delete)
+    pub async fn archive_channel(&self, group_id: &[u8]) -> MlsResult<()> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
+
+        let updated = conn.execute(
+            "UPDATE channels SET archived = 1 WHERE group_id = ?",
+            params![group_id],
+        )
+        .map_err(|e| MlsError::Storage(format!("Failed to archive channel: {}", e)))?;
+
+        if updated == 0 {
+            return Err(MlsError::NotFound(format!("Channel not found: {:?}", group_id)));
+        }
+
+        Ok(())
+    }
+
+    /// Delete channel and all associated messages (hard delete)
+    pub async fn delete_channel(&self, group_id: &[u8]) -> MlsResult<()> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
+
+        // Messages are deleted via CASCADE foreign key
+        let deleted = conn.execute(
+            "DELETE FROM channels WHERE group_id = ?",
+            params![group_id],
+        )
+        .map_err(|e| MlsError::Storage(format!("Failed to delete channel: {}", e)))?;
+
+        if deleted == 0 {
+            return Err(MlsError::NotFound(format!("Channel not found: {:?}", group_id)));
+        }
+
+        Ok(())
+    }
+
+    // ======================
+    // Message Metadata CRUD
+    // ======================
+
+    /// Save a message
+    pub async fn save_message(
+        &self,
+        message_id: &[u8],
+        group_id: &[u8],
+        encrypted_content: &[u8],
+        sender_hash: &[u8],
+        sequence: i64,
+    ) -> MlsResult<()> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
+
+        conn.execute(
+            "INSERT OR REPLACE INTO messages 
+             (message_id, group_id, encrypted_content, sender_hash, sequence, processed) 
+             VALUES (?, ?, ?, ?, ?, 0)",
+            params![message_id, group_id, encrypted_content, sender_hash, sequence],
+        )
+        .map_err(|e| MlsError::Storage(format!("Failed to save message: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Load messages for a channel with pagination
+    pub async fn load_messages(
+        &self,
+        group_id: &[u8],
+        limit: i64,
+        offset: i64,
+    ) -> MlsResult<Vec<(Vec<u8>, Vec<u8>, Vec<u8>, i64, bool)>> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT message_id, encrypted_content, sender_hash, sequence, processed 
+                 FROM messages 
+                 WHERE group_id = ? 
+                 ORDER BY sequence DESC 
+                 LIMIT ? OFFSET ?",
+            )
+            .map_err(|e| MlsError::Storage(format!("Failed to prepare statement: {}", e)))?;
+
+        let rows = stmt
+            .query_map(params![group_id, limit, offset], |row| {
+                Ok((
+                    row.get::<_, Vec<u8>>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i32>(4)? != 0,
+                ))
+            })
+            .map_err(|e| MlsError::Storage(format!("Failed to query messages: {}", e)))?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(row.map_err(|e| MlsError::Storage(format!("Failed to read row: {}", e)))?);
+        }
+
+        Ok(messages)
+    }
+
+    /// Mark a message as processed
+    pub async fn mark_message_processed(&self, message_id: &[u8]) -> MlsResult<()> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
+
+        let updated = conn.execute(
+            "UPDATE messages SET processed = 1 WHERE message_id = ?",
+            params![message_id],
+        )
+        .map_err(|e| MlsError::Storage(format!("Failed to mark message processed: {}", e)))?;
+
+        if updated == 0 {
+            return Err(MlsError::NotFound(format!("Message not found: {:?}", message_id)));
+        }
+
+        Ok(())
+    }
+
+    /// Get count of unprocessed messages for a channel
+    pub async fn get_unprocessed_count(&self, group_id: &[u8]) -> MlsResult<i64> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
+
+        let count = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE group_id = ? AND processed = 0",
+                params![group_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|e| MlsError::Storage(format!("Failed to count unprocessed messages: {}", e)))?;
+
+        Ok(count)
+    }
+
+    /// Delete old messages (keep only last N messages per channel)
+    pub async fn prune_old_messages(&self, group_id: &[u8], keep_count: i64) -> MlsResult<usize> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
+
+        let deleted = conn
+            .execute(
+                "DELETE FROM messages 
+                 WHERE group_id = ? 
+                 AND message_id NOT IN (
+                     SELECT message_id FROM messages 
+                     WHERE group_id = ? 
+                     ORDER BY sequence DESC 
+                     LIMIT ?
+                 )",
+                params![group_id, group_id, keep_count],
+            )
+            .map_err(|e| MlsError::Storage(format!("Failed to prune messages: {}", e)))?;
+
+        Ok(deleted)
+    }
+}
+
 /// Get current Unix timestamp in seconds
 fn current_timestamp() -> i64 {
     SystemTime::now()
@@ -742,4 +1041,157 @@ mod tests {
             assert!(matches!(result, Err(MlsError::NotFound(_))));
         }
     }
+
+    #[tokio::test]
+    async fn test_channel_metadata_crud() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_channels.db");
+        let storage = SqlStorageProvider::new(&db_path).unwrap();
+
+        let group_id = b"test_channel_group";
+        let encrypted_name = b"encrypted_channel_name";
+        let encrypted_topic = b"encrypted_topic";
+        let encrypted_members = b"encrypted_member_list";
+        let channel_type = 1; // Public channel
+
+        // Save channel
+        storage
+            .save_channel_metadata(
+                group_id,
+                encrypted_name,
+                Some(encrypted_topic),
+                encrypted_members,
+                channel_type,
+            )
+            .await
+            .unwrap();
+
+        // Load channel
+        let (name, topic, created_at, members, ch_type, archived) = 
+            storage.load_channel_metadata(group_id).await.unwrap();
+        
+        assert_eq!(name, encrypted_name);
+        assert_eq!(topic, Some(encrypted_topic.to_vec()));
+        assert_eq!(members, encrypted_members);
+        assert_eq!(ch_type, channel_type);
+        assert!(!archived);
+        assert!(created_at > 0);
+
+        // List channels
+        let channels = storage.list_channels(false).await.unwrap();
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0], group_id);
+
+        // Archive channel
+        storage.archive_channel(group_id).await.unwrap();
+        let (_, _, _, _, _, archived) = storage.load_channel_metadata(group_id).await.unwrap();
+        assert!(archived);
+
+        // List should exclude archived
+        let channels = storage.list_channels(false).await.unwrap();
+        assert_eq!(channels.len(), 0);
+
+        // List with archived included
+        let channels = storage.list_channels(true).await.unwrap();
+        assert_eq!(channels.len(), 1);
+
+        // Delete channel
+        storage.delete_channel(group_id).await.unwrap();
+        let result = storage.load_channel_metadata(group_id).await;
+        assert!(matches!(result, Err(MlsError::NotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn test_message_crud() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_messages.db");
+        let storage = SqlStorageProvider::new(&db_path).unwrap();
+
+        let group_id = b"test_message_group";
+        
+        // Create channel first (required for foreign key)
+        storage
+            .save_channel_metadata(group_id, b"name", None, b"members", 1)
+            .await
+            .unwrap();
+
+        // Save messages
+        for i in 0..10 {
+            let msg_id = format!("msg_{}", i).into_bytes();
+            let content = format!("encrypted_content_{}", i).into_bytes();
+            let sender = format!("sender_hash_{}", i % 3).into_bytes();
+            
+            storage
+                .save_message(&msg_id, group_id, &content, &sender, i as i64)
+                .await
+                .unwrap();
+        }
+
+        // Load messages with pagination
+        let messages = storage.load_messages(group_id, 5, 0).await.unwrap();
+        assert_eq!(messages.len(), 5);
+        
+        // Verify reverse chronological order (latest first)
+        assert_eq!(messages[0].3, 9); // sequence
+        assert_eq!(messages[4].3, 5);
+
+        // Load next page
+        let messages = storage.load_messages(group_id, 5, 5).await.unwrap();
+        assert_eq!(messages.len(), 5);
+        assert_eq!(messages[0].3, 4);
+        assert_eq!(messages[4].3, 0);
+
+        // Mark message as processed
+        let msg_id = b"msg_5";
+        storage.mark_message_processed(msg_id).await.unwrap();
+        
+        // Get unprocessed count
+        let count = storage.get_unprocessed_count(group_id).await.unwrap();
+        assert_eq!(count, 9); // 10 total - 1 processed
+
+        // Prune old messages (keep only 5 most recent)
+        let deleted = storage.prune_old_messages(group_id, 5).await.unwrap();
+        assert_eq!(deleted, 5);
+
+        // Verify only 5 remain
+        let messages = storage.load_messages(group_id, 100, 0).await.unwrap();
+        assert_eq!(messages.len(), 5);
+        assert_eq!(messages[0].3, 9); // Most recent
+        assert_eq!(messages[4].3, 5); // Oldest kept
+    }
+
+    #[tokio::test]
+    async fn test_cascade_delete() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_cascade.db");
+        let storage = SqlStorageProvider::new(&db_path).unwrap();
+
+        let group_id = b"cascade_test_group";
+        
+        // Create channel and messages
+        storage
+            .save_channel_metadata(group_id, b"name", None, b"members", 1)
+            .await
+            .unwrap();
+
+        for i in 0..5 {
+            let msg_id = format!("msg_{}", i).into_bytes();
+            storage
+                .save_message(&msg_id, group_id, b"content", b"sender", i)
+                .await
+                .unwrap();
+        }
+
+        // Verify messages exist
+        let messages = storage.load_messages(group_id, 100, 0).await.unwrap();
+        assert_eq!(messages.len(), 5);
+
+        // Delete channel (should cascade to messages)
+        storage.delete_channel(group_id).await.unwrap();
+
+        // Verify messages are gone
+        let messages = storage.load_messages(group_id, 100, 0).await.unwrap();
+        assert_eq!(messages.len(), 0);
+    }
 }
+
