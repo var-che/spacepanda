@@ -175,6 +175,52 @@ impl ChannelManager {
         self.network.is_some()
     }
 
+    /// Start processing incoming commits from the network
+    ///
+    /// This spawns a background task that listens for commits from the network
+    /// and processes them to keep group state synchronized.
+    ///
+    /// # Arguments
+    /// * `mut commits_rx` - Receiver for incoming commits from NetworkLayer
+    ///
+    /// # Returns
+    /// JoinHandle for the background task
+    pub fn spawn_commit_processor(
+        self: Arc<Self>,
+        mut commits_rx: tokio::sync::mpsc::Receiver<crate::core_mvp::network::IncomingCommit>,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            info!("Started commit processor task");
+            
+            while let Some(incoming_commit) = commits_rx.recv().await {
+                debug!(
+                    channel_id = %incoming_commit.channel_id,
+                    size = incoming_commit.commit_data.len(),
+                    peer_id = ?incoming_commit.sender_peer_id,
+                    "Processing incoming commit"
+                );
+                
+                match self.process_commit(&incoming_commit.commit_data).await {
+                    Ok(()) => {
+                        info!(
+                            channel_id = %incoming_commit.channel_id,
+                            "Successfully processed incoming commit"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            channel_id = %incoming_commit.channel_id,
+                            error = %e,
+                            "Failed to process incoming commit"
+                        );
+                    }
+                }
+            }
+            
+            warn!("Commit processor task ended (channel closed)");
+        })
+    }
+
     /// Get list of member user IDs in a channel
     ///
     /// Returns the identities from the MLS group membership
@@ -438,6 +484,24 @@ impl ChannelManager {
             debug!("Network enabled, updating peer discovery after adding member");
             if let Err(e) = self.discover_and_register_peers(channel_id, network).await {
                 warn!(error = %e, "Failed to discover peers after adding member");
+            }
+        }
+
+        // Broadcast commit to existing channel members if network is enabled
+        if !commit.is_empty() {
+            if let Some(ref network) = self.network {
+                debug!(
+                    channel_id = %channel_id,
+                    commit_size = commit.len(),
+                    "Broadcasting add member commit to channel"
+                );
+                
+                if let Err(e) = network.broadcast_commit(channel_id, commit.clone()).await {
+                    warn!(
+                        error = %e,
+                        "Failed to broadcast commit, members won't see new member until manual sync"
+                    );
+                }
             }
         }
 
@@ -899,10 +963,27 @@ impl ChannelManager {
                 MvpError::Mls(e)
             })?;
 
+        // Broadcast removal commit to remaining channel members
+        if let Some(ref network) = self.network {
+            debug!(
+                channel_id = %channel_id,
+                commit_size = commit.len(),
+                "Broadcasting removal commit to channel"
+            );
+            
+            if let Err(e) = network.broadcast_commit(channel_id, commit.clone()).await {
+                warn!(
+                    error = %e,
+                    "Failed to broadcast removal commit, members may be out of sync"
+                );
+            }
+        }
+
         info!(
             channel_id = %channel_id,
             leaf_index,
             commit_size = commit.len(),
+            network_broadcast = self.network.is_some(),
             "Member removed successfully"
         );
 

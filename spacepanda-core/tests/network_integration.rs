@@ -81,7 +81,7 @@ async fn create_networked_manager(
 
     let (router, _handle) = RouterHandle::new();
     let peer_id = PeerId(peer_id_bytes);
-    let (network, _rx) = NetworkLayer::new(router, peer_id);
+    let (network, _rx, _commits_rx) = NetworkLayer::new(router, peer_id);
     let network = Arc::new(network);
 
     let manager = Arc::new(manager.with_network(network.clone()));
