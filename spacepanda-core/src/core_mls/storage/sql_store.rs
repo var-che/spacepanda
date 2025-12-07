@@ -10,6 +10,7 @@
 //! Uses connection pooling for concurrent access and transactions for atomicity.
 
 use crate::core_mls::errors::{MlsError, MlsResult};
+use crate::core_mls::storage::metadata_encryption::{encrypt_metadata, decrypt_metadata};
 use crate::core_mls::traits::storage::{GroupId, PersistedGroupSnapshot, StorageProvider};
 use async_trait::async_trait;
 use r2d2::Pool;
@@ -487,6 +488,13 @@ impl SqlStorageProvider {
         encrypted_members: &[u8],
         channel_type: i32,
     ) -> MlsResult<()> {
+        // Encrypt metadata before storing
+        let enc_name = encrypt_metadata(group_id, encrypted_name)?;
+        let enc_topic = encrypted_topic
+            .map(|t| encrypt_metadata(group_id, t))
+            .transpose()?;
+        let enc_members = encrypt_metadata(group_id, encrypted_members)?;
+
         let conn = self
             .pool
             .get()
@@ -498,7 +506,7 @@ impl SqlStorageProvider {
             "INSERT OR REPLACE INTO channels 
              (group_id, encrypted_name, encrypted_topic, created_at, encrypted_members, channel_type, archived) 
              VALUES (?, ?, ?, COALESCE((SELECT created_at FROM channels WHERE group_id = ?), ?), ?, ?, 0)",
-            params![group_id, encrypted_name, encrypted_topic, group_id, now, encrypted_members, channel_type],
+            params![group_id, enc_name, enc_topic, group_id, now, enc_members, channel_type],
         )
         .map_err(|e| MlsError::Storage(format!("Failed to save channel metadata: {}", e)))?;
 
@@ -529,7 +537,23 @@ impl SqlStorageProvider {
         );
 
         match result {
-            Ok(data) => Ok(data),
+            Ok((enc_name, enc_topic, created_at, enc_members, channel_type, archived)) => {
+                // Decrypt metadata after loading
+                let decrypted_name = decrypt_metadata(group_id, &enc_name)?;
+                let decrypted_topic = enc_topic
+                    .map(|t| decrypt_metadata(group_id, &t))
+                    .transpose()?;
+                let decrypted_members = decrypt_metadata(group_id, &enc_members)?;
+
+                Ok((
+                    decrypted_name,
+                    decrypted_topic,
+                    created_at,
+                    decrypted_members,
+                    channel_type,
+                    archived,
+                ))
+            }
             Err(rusqlite::Error::QueryReturnedNoRows) => {
                 Err(MlsError::NotFound(format!("Channel not found: {:?}", group_id)))
             }

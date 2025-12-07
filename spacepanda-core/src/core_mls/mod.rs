@@ -62,6 +62,9 @@ pub mod state;
 // Rate limiting and DoS protection
 pub mod rate_limit;
 
+// Security testing and hardening
+pub mod security;
+
 // Feature-gated MLS handle selector
 pub mod handle;
 

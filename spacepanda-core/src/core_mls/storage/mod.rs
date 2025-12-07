@@ -5,6 +5,7 @@
 pub mod channel_metadata;
 pub mod file_store;
 pub mod memory_store;
+pub mod metadata_encryption;
 pub mod migrations;
 pub mod sql_store;
 
