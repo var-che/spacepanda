@@ -88,6 +88,10 @@ harness = false
 name = "profile_or_set_merge"
 harness = false
 
+[[bench]]
+name = "storage_operations"
+harness = false
+
 
 [profile.bench]
 debug = true
