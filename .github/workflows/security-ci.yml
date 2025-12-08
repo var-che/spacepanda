@@ -190,7 +190,7 @@ jobs:
       - name: Run security tests
         run: cargo test --lib security -- --nocapture
 
-      - name: Run alpha security tests  
+      - name: Run alpha security tests
         run: cargo test --lib alpha_security_tests -- --nocapture
 
   minimal-versions:
