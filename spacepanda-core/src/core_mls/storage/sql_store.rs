@@ -10,7 +10,7 @@
 //! Uses connection pooling for concurrent access and transactions for atomicity.
 
 use crate::core_mls::errors::{MlsError, MlsResult};
-use crate::core_mls::storage::metadata_encryption::{encrypt_metadata, decrypt_metadata};
+use crate::core_mls::storage::metadata_encryption::{decrypt_metadata, encrypt_metadata};
 use crate::core_mls::traits::storage::{GroupId, PersistedGroupSnapshot, StorageProvider};
 use async_trait::async_trait;
 use r2d2::Pool;
@@ -37,9 +37,7 @@ impl SqlStorageProvider {
             .build(manager)
             .map_err(|e| MlsError::Storage(format!("Failed to create connection pool: {}", e)))?;
 
-        let provider = Self {
-            pool: Arc::new(pool),
-        };
+        let provider = Self { pool: Arc::new(pool) };
 
         // Run migrations to ensure schema is up to date
         super::migrations::migrate(&provider.pool)?;
@@ -62,11 +60,13 @@ impl SqlStorageProvider {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn begin_transaction(&self) -> MlsResult<r2d2::PooledConnection<SqliteConnectionManager>> {
+    pub async fn begin_transaction(
+        &self,
+    ) -> MlsResult<r2d2::PooledConnection<SqliteConnectionManager>> {
         let pool = self.pool.clone();
-        
+
         tokio::task::spawn_blocking(move || {
-            let mut conn = pool
+            let conn = pool
                 .get()
                 .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
 
@@ -81,7 +81,10 @@ impl SqlStorageProvider {
     }
 
     /// Save multiple group snapshots atomically
-    pub async fn save_group_snapshots_atomic(&self, snapshots: &[PersistedGroupSnapshot]) -> MlsResult<()> {
+    pub async fn save_group_snapshots_atomic(
+        &self,
+        snapshots: &[PersistedGroupSnapshot],
+    ) -> MlsResult<()> {
         let pool = self.pool.clone();
         let snapshots = snapshots.to_vec();
 
@@ -90,14 +93,16 @@ impl SqlStorageProvider {
                 .get()
                 .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
 
-            let tx = conn.transaction()
+            let tx = conn
+                .transaction()
                 .map_err(|e| MlsError::Storage(format!("Failed to begin transaction: {}", e)))?;
 
             let now = current_timestamp();
 
             for snapshot in snapshots {
-                let snapshot_bytes = serde_json::to_vec(&snapshot)
-                    .map_err(|e| MlsError::Serialization(format!("Failed to serialize snapshot: {}", e)))?;
+                let snapshot_bytes = serde_json::to_vec(&snapshot).map_err(|e| {
+                    MlsError::Serialization(format!("Failed to serialize snapshot: {}", e))
+                })?;
 
                 tx.execute(
                     r#"
@@ -131,15 +136,13 @@ impl SqlStorageProvider {
                 .get()
                 .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
 
-            let tx = conn.transaction()
+            let tx = conn
+                .transaction()
                 .map_err(|e| MlsError::Storage(format!("Failed to begin transaction: {}", e)))?;
 
             for group_id in group_ids {
-                tx.execute(
-                    "DELETE FROM group_snapshots WHERE group_id = ?",
-                    params![&group_id],
-                )
-                .map_err(|e| MlsError::Storage(format!("Failed to delete group: {}", e)))?;
+                tx.execute("DELETE FROM group_snapshots WHERE group_id = ?", params![&group_id])
+                    .map_err(|e| MlsError::Storage(format!("Failed to delete group: {}", e)))?;
             }
 
             tx.commit()
@@ -165,7 +168,9 @@ impl SqlStorageProvider {
                 "DELETE FROM key_packages WHERE expires_at IS NOT NULL AND expires_at < ?",
                 params![now],
             )
-            .map_err(|e| MlsError::Storage(format!("Failed to cleanup expired key packages: {}", e)))?;
+            .map_err(|e| {
+                MlsError::Storage(format!("Failed to cleanup expired key packages: {}", e))
+            })?;
 
         Ok(deleted)
     }
@@ -264,7 +269,10 @@ impl SqlStorageProvider {
                 .optional()
                 .map_err(|e| MlsError::Storage(format!("Failed to load key package: {}", e)))?
                 .ok_or_else(|| {
-                    MlsError::NotFound(format!("Key package {:?} not found or expired", key_package_id))
+                    MlsError::NotFound(format!(
+                        "Key package {:?} not found or expired",
+                        key_package_id
+                    ))
                 })?;
 
             // Mark as used
@@ -307,14 +315,15 @@ impl SqlStorageProvider {
 impl StorageProvider for SqlStorageProvider {
     async fn save_group_snapshot(&self, snapshot: PersistedGroupSnapshot) -> MlsResult<()> {
         let pool = self.pool.clone();
-        
+
         tokio::task::spawn_blocking(move || {
             let conn = pool
                 .get()
                 .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
 
-            let snapshot_bytes = serde_json::to_vec(&snapshot)
-                .map_err(|e| MlsError::Serialization(format!("Failed to serialize snapshot: {}", e)))?;
+            let snapshot_bytes = serde_json::to_vec(&snapshot).map_err(|e| {
+                MlsError::Serialization(format!("Failed to serialize snapshot: {}", e))
+            })?;
 
             let now = current_timestamp();
 
@@ -326,12 +335,7 @@ impl StorageProvider for SqlStorageProvider {
                     snapshot_data = excluded.snapshot_data,
                     epoch = excluded.epoch
                 "#,
-                params![
-                    &snapshot.group_id,
-                    &snapshot_bytes,
-                    snapshot.epoch,
-                    now,
-                ],
+                params![&snapshot.group_id, &snapshot_bytes, snapshot.epoch, now,],
             )
             .map_err(|e| MlsError::Storage(format!("Failed to save snapshot: {}", e)))?;
 
@@ -344,7 +348,7 @@ impl StorageProvider for SqlStorageProvider {
     async fn load_group_snapshot(&self, group_id: &GroupId) -> MlsResult<PersistedGroupSnapshot> {
         let pool = self.pool.clone();
         let group_id = group_id.clone();
-        
+
         tokio::task::spawn_blocking(move || {
             let conn = pool
                 .get()
@@ -361,7 +365,9 @@ impl StorageProvider for SqlStorageProvider {
                 .ok_or_else(|| MlsError::NotFound(format!("Group {:?} not found", group_id)))?;
 
             let snapshot: PersistedGroupSnapshot = serde_json::from_slice(&snapshot_bytes)
-                .map_err(|e| MlsError::Serialization(format!("Failed to deserialize snapshot: {}", e)))?;
+                .map_err(|e| {
+                    MlsError::Serialization(format!("Failed to deserialize snapshot: {}", e))
+                })?;
 
             Ok(snapshot)
         })
@@ -372,17 +378,14 @@ impl StorageProvider for SqlStorageProvider {
     async fn delete_group_snapshot(&self, group_id: &GroupId) -> MlsResult<()> {
         let pool = self.pool.clone();
         let group_id = group_id.clone();
-        
+
         tokio::task::spawn_blocking(move || {
             let conn = pool
                 .get()
                 .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
 
-            conn.execute(
-                "DELETE FROM group_snapshots WHERE group_id = ?",
-                params![&group_id],
-            )
-            .map_err(|e| MlsError::Storage(format!("Failed to delete snapshot: {}", e)))?;
+            conn.execute("DELETE FROM group_snapshots WHERE group_id = ?", params![&group_id])
+                .map_err(|e| MlsError::Storage(format!("Failed to delete snapshot: {}", e)))?;
 
             Ok(())
         })
@@ -394,7 +397,7 @@ impl StorageProvider for SqlStorageProvider {
         let pool = self.pool.clone();
         let key = key.to_string();
         let data = data.to_vec();
-        
+
         tokio::task::spawn_blocking(move || {
             let conn = pool
                 .get()
@@ -423,18 +426,16 @@ impl StorageProvider for SqlStorageProvider {
     async fn get_blob(&self, key: &str) -> MlsResult<Vec<u8>> {
         let pool = self.pool.clone();
         let key = key.to_string();
-        
+
         tokio::task::spawn_blocking(move || {
             let conn = pool
                 .get()
                 .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
 
             let data: Vec<u8> = conn
-                .query_row(
-                    "SELECT value FROM kv_blobs WHERE key = ?",
-                    params![&key],
-                    |row| row.get(0),
-                )
+                .query_row("SELECT value FROM kv_blobs WHERE key = ?", params![&key], |row| {
+                    row.get(0)
+                })
                 .optional()
                 .map_err(|e| MlsError::Storage(format!("Failed to get blob: {}", e)))?
                 .ok_or_else(|| MlsError::NotFound(format!("Blob '{}' not found", key)))?;
@@ -447,7 +448,7 @@ impl StorageProvider for SqlStorageProvider {
 
     async fn list_groups(&self) -> MlsResult<Vec<GroupId>> {
         let pool = self.pool.clone();
-        
+
         tokio::task::spawn_blocking(move || {
             let conn = pool
                 .get()
@@ -487,9 +488,7 @@ impl SqlStorageProvider {
     ) -> MlsResult<()> {
         // Encrypt metadata before storing
         let enc_name = encrypt_metadata(group_id, encrypted_name)?;
-        let enc_topic = encrypted_topic
-            .map(|t| encrypt_metadata(group_id, t))
-            .transpose()?;
+        let enc_topic = encrypted_topic.map(|t| encrypt_metadata(group_id, t)).transpose()?;
         let enc_members = encrypt_metadata(group_id, encrypted_members)?;
 
         let conn = self
@@ -511,7 +510,10 @@ impl SqlStorageProvider {
     }
 
     /// Load channel metadata
-    pub async fn load_channel_metadata(&self, group_id: &[u8]) -> MlsResult<(Vec<u8>, Option<Vec<u8>>, i64, Vec<u8>, i32, bool)> {
+    pub async fn load_channel_metadata(
+        &self,
+        group_id: &[u8],
+    ) -> MlsResult<(Vec<u8>, Option<Vec<u8>>, i64, Vec<u8>, i32, bool)> {
         let conn = self
             .pool
             .get()
@@ -537,9 +539,8 @@ impl SqlStorageProvider {
             Ok((enc_name, enc_topic, created_at, enc_members, channel_type, archived)) => {
                 // Decrypt metadata after loading
                 let decrypted_name = decrypt_metadata(group_id, &enc_name)?;
-                let decrypted_topic = enc_topic
-                    .map(|t| decrypt_metadata(group_id, &t))
-                    .transpose()?;
+                let decrypted_topic =
+                    enc_topic.map(|t| decrypt_metadata(group_id, &t)).transpose()?;
                 let decrypted_members = decrypt_metadata(group_id, &enc_members)?;
 
                 Ok((
@@ -581,7 +582,8 @@ impl SqlStorageProvider {
 
         let mut group_ids = Vec::new();
         for row in rows {
-            group_ids.push(row.map_err(|e| MlsError::Storage(format!("Failed to read row: {}", e)))?);
+            group_ids
+                .push(row.map_err(|e| MlsError::Storage(format!("Failed to read row: {}", e)))?);
         }
 
         Ok(group_ids)
@@ -594,11 +596,9 @@ impl SqlStorageProvider {
             .get()
             .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
 
-        let updated = conn.execute(
-            "UPDATE channels SET archived = 1 WHERE group_id = ?",
-            params![group_id],
-        )
-        .map_err(|e| MlsError::Storage(format!("Failed to archive channel: {}", e)))?;
+        let updated = conn
+            .execute("UPDATE channels SET archived = 1 WHERE group_id = ?", params![group_id])
+            .map_err(|e| MlsError::Storage(format!("Failed to archive channel: {}", e)))?;
 
         if updated == 0 {
             return Err(MlsError::NotFound(format!("Channel not found: {:?}", group_id)));
@@ -615,11 +615,9 @@ impl SqlStorageProvider {
             .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
 
         // Messages are deleted via CASCADE foreign key
-        let deleted = conn.execute(
-            "DELETE FROM channels WHERE group_id = ?",
-            params![group_id],
-        )
-        .map_err(|e| MlsError::Storage(format!("Failed to delete channel: {}", e)))?;
+        let deleted = conn
+            .execute("DELETE FROM channels WHERE group_id = ?", params![group_id])
+            .map_err(|e| MlsError::Storage(format!("Failed to delete channel: {}", e)))?;
 
         if deleted == 0 {
             return Err(MlsError::NotFound(format!("Channel not found: {:?}", group_id)));
@@ -693,7 +691,8 @@ impl SqlStorageProvider {
 
         let mut messages = Vec::new();
         for row in rows {
-            messages.push(row.map_err(|e| MlsError::Storage(format!("Failed to read row: {}", e)))?);
+            messages
+                .push(row.map_err(|e| MlsError::Storage(format!("Failed to read row: {}", e)))?);
         }
 
         Ok(messages)
@@ -706,11 +705,9 @@ impl SqlStorageProvider {
             .get()
             .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
 
-        let updated = conn.execute(
-            "UPDATE messages SET processed = 1 WHERE message_id = ?",
-            params![message_id],
-        )
-        .map_err(|e| MlsError::Storage(format!("Failed to mark message processed: {}", e)))?;
+        let updated = conn
+            .execute("UPDATE messages SET processed = 1 WHERE message_id = ?", params![message_id])
+            .map_err(|e| MlsError::Storage(format!("Failed to mark message processed: {}", e)))?;
 
         if updated == 0 {
             return Err(MlsError::NotFound(format!("Message not found: {:?}", message_id)));
@@ -732,7 +729,9 @@ impl SqlStorageProvider {
                 params![group_id],
                 |row| row.get::<_, i64>(0),
             )
-            .map_err(|e| MlsError::Storage(format!("Failed to count unprocessed messages: {}", e)))?;
+            .map_err(|e| {
+                MlsError::Storage(format!("Failed to count unprocessed messages: {}", e))
+            })?;
 
         Ok(count)
     }
@@ -897,10 +896,7 @@ mod tests {
         assert!(matches!(result, Err(MlsError::NotFound(_))));
 
         // Delete key package
-        storage
-            .store_key_package(b"kp_delete", b"data", cred_id, None)
-            .await
-            .unwrap();
+        storage.store_key_package(b"kp_delete", b"data", cred_id, None).await.unwrap();
         storage.delete_key_package(b"kp_delete").await.unwrap();
         let result = storage.load_key_package(b"kp_delete").await;
         assert!(matches!(result, Err(MlsError::NotFound(_))));
@@ -981,9 +977,9 @@ mod tests {
             .unwrap();
 
         // Load channel
-        let (name, topic, created_at, members, ch_type, archived) = 
+        let (name, topic, created_at, members, ch_type, archived) =
             storage.load_channel_metadata(group_id).await.unwrap();
-        
+
         assert_eq!(name, encrypted_name);
         assert_eq!(topic, Some(encrypted_topic.to_vec()));
         assert_eq!(members, encrypted_members);
@@ -1022,7 +1018,7 @@ mod tests {
         let storage = SqlStorageProvider::new(&db_path).unwrap();
 
         let group_id = b"test_message_group";
-        
+
         // Create channel first (required for foreign key)
         storage
             .save_channel_metadata(group_id, b"name", None, b"members", 1)
@@ -1034,7 +1030,7 @@ mod tests {
             let msg_id = format!("msg_{}", i).into_bytes();
             let content = format!("encrypted_content_{}", i).into_bytes();
             let sender = format!("sender_hash_{}", i % 3).into_bytes();
-            
+
             storage
                 .save_message(&msg_id, group_id, &content, &sender, i as i64)
                 .await
@@ -1044,7 +1040,7 @@ mod tests {
         // Load messages with pagination
         let messages = storage.load_messages(group_id, 5, 0).await.unwrap();
         assert_eq!(messages.len(), 5);
-        
+
         // Verify reverse chronological order (latest first)
         assert_eq!(messages[0].3, 9); // sequence
         assert_eq!(messages[4].3, 5);
@@ -1058,7 +1054,7 @@ mod tests {
         // Mark message as processed
         let msg_id = b"msg_5";
         storage.mark_message_processed(msg_id).await.unwrap();
-        
+
         // Get unprocessed count
         let count = storage.get_unprocessed_count(group_id).await.unwrap();
         assert_eq!(count, 9); // 10 total - 1 processed
@@ -1081,7 +1077,7 @@ mod tests {
         let storage = SqlStorageProvider::new(&db_path).unwrap();
 
         let group_id = b"cascade_test_group";
-        
+
         // Create channel and messages
         storage
             .save_channel_metadata(group_id, b"name", None, b"members", 1)
@@ -1090,10 +1086,7 @@ mod tests {
 
         for i in 0..5 {
             let msg_id = format!("msg_{}", i).into_bytes();
-            storage
-                .save_message(&msg_id, group_id, b"content", b"sender", i)
-                .await
-                .unwrap();
+            storage.save_message(&msg_id, group_id, b"content", b"sender", i).await.unwrap();
         }
 
         // Verify messages exist
@@ -1108,4 +1101,3 @@ mod tests {
         assert_eq!(messages.len(), 0);
     }
 }
-

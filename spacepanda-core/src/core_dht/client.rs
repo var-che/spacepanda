@@ -313,7 +313,7 @@ mod tests {
 
         // Ping with placeholder implementation
         let result = client.ping(peer_id).await;
-        
+
         // The ping may succeed or fail depending on RPC handler
         // The important thing is that it completes without panic
         assert!(result.is_ok() || result.is_err());
@@ -322,13 +322,11 @@ mod tests {
     #[tokio::test]
     async fn test_concurrent_requests_unique_ids() {
         let client = Arc::new(create_test_client());
-        
+
         let mut handles = vec![];
         for _ in 0..10 {
             let client_clone = client.clone();
-            let handle = tokio::spawn(async move {
-                client_clone.next_request_id().await
-            });
+            let handle = tokio::spawn(async move { client_clone.next_request_id().await });
             handles.push(handle);
         }
 
@@ -351,11 +349,7 @@ mod tests {
 
         // Create a FindNode message manually to verify structure
         let request_id = client.next_request_id().await;
-        let msg = DhtMessage::FindNode {
-            sender_id: client.local_id,
-            target,
-            request_id,
-        };
+        let msg = DhtMessage::FindNode { sender_id: client.local_id, target, request_id };
 
         assert!(msg.is_request());
         assert_eq!(msg.message_type(), "FindNode");
@@ -368,11 +362,7 @@ mod tests {
         let key = DhtKey::hash(b"key");
 
         let request_id = client.next_request_id().await;
-        let msg = DhtMessage::FindValue {
-            sender_id: client.local_id,
-            key,
-            request_id,
-        };
+        let msg = DhtMessage::FindValue { sender_id: client.local_id, key, request_id };
 
         assert!(msg.is_request());
         assert_eq!(msg.message_type(), "FindValue");
@@ -386,12 +376,8 @@ mod tests {
         let value = DhtValue::new(b"test_value".to_vec());
 
         let request_id = client.next_request_id().await;
-        let msg = DhtMessage::Store {
-            sender_id: client.local_id,
-            key,
-            value: value.clone(),
-            request_id,
-        };
+        let msg =
+            DhtMessage::Store { sender_id: client.local_id, key, value: value.clone(), request_id };
 
         assert!(msg.is_request());
         assert_eq!(msg.message_type(), "Store");

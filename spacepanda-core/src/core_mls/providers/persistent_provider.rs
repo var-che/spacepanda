@@ -25,7 +25,7 @@ use std::sync::Arc;
 pub struct PersistentProvider {
     /// OpenMLS provider (crypto + memory storage)
     inner: OpenMlsRustCrypto,
-    
+
     /// SQL storage for application state
     sql_storage: Arc<SqlStorageProvider>,
 }
@@ -37,11 +37,8 @@ impl PersistentProvider {
     /// * `db_path` - Path to SQLite database file (use `:memory:` for in-memory database)
     pub fn new(db_path: &str) -> MlsResult<Self> {
         let sql_storage = Arc::new(SqlStorageProvider::new(db_path)?);
-        
-        Ok(Self {
-            inner: OpenMlsRustCrypto::default(),
-            sql_storage,
-        })
+
+        Ok(Self { inner: OpenMlsRustCrypto::default(), sql_storage })
     }
 
     /// Get the SQL storage provider
@@ -103,9 +100,9 @@ mod tests {
     fn test_persistent_provider_creation() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.db");
-        
+
         let provider = PersistentProvider::new(db_path.to_str().unwrap()).unwrap();
-        
+
         // Verify we can access both storage types
         assert!(provider.storage() as *const _ != std::ptr::null());
         assert!(provider.sql_storage() as *const _ != std::ptr::null());
@@ -114,10 +111,10 @@ mod tests {
     #[tokio::test]
     async fn test_group_persistence_with_engine() {
         use crate::core_mls::types::GroupId;
-        
+
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test_engine.db");
-        
+
         let group_id = GroupId(b"test_persistent_group".to_vec());
         let identity = b"alice".to_vec();
         let config = MlsConfig::default();
@@ -137,32 +134,24 @@ mod tests {
             // Get group state
             let group = engine.group.read().await;
             let epoch = group.epoch().as_u64();
-            
+
             // Manually persist the group snapshot to SQL storage
             let snapshot = PersistedGroupSnapshot {
                 group_id: group_id.0.clone(),
                 epoch,
                 serialized_group: vec![1, 2, 3, 4, 5], // Mock serialized data for test
             };
-            
-            provider
-                .sql_storage()
-                .save_group_snapshot(snapshot)
-                .await
-                .unwrap();
+
+            provider.sql_storage().save_group_snapshot(snapshot).await.unwrap();
         }
 
         // Verify persistence with second provider instance
         {
             let provider = Arc::new(PersistentProvider::new(db_path.to_str().unwrap()).unwrap());
-            
+
             // Load the persisted snapshot
-            let loaded = provider
-                .sql_storage()
-                .load_group_snapshot(&group_id.0)
-                .await
-                .unwrap();
-            
+            let loaded = provider.sql_storage().load_group_snapshot(&group_id.0).await.unwrap();
+
             assert_eq!(loaded.group_id, group_id.0);
             assert_eq!(loaded.epoch, 0); // Initial epoch
             assert_eq!(loaded.serialized_group, vec![1, 2, 3, 4, 5]);
@@ -195,30 +184,19 @@ mod tests {
         ];
 
         // Save all atomically
-        provider
-            .sql_storage()
-            .save_group_snapshots_atomic(&snapshots)
-            .await
-            .unwrap();
+        provider.sql_storage().save_group_snapshots_atomic(&snapshots).await.unwrap();
 
         // Verify all were saved
         for snapshot in &snapshots {
-            let loaded = provider
-                .sql_storage()
-                .load_group_snapshot(&snapshot.group_id)
-                .await
-                .unwrap();
+            let loaded =
+                provider.sql_storage().load_group_snapshot(&snapshot.group_id).await.unwrap();
             assert_eq!(loaded.epoch, snapshot.epoch);
             assert_eq!(loaded.serialized_group, snapshot.serialized_group);
         }
 
         // Delete all atomically
         let group_ids: Vec<_> = snapshots.iter().map(|s| s.group_id.clone()).collect();
-        provider
-            .sql_storage()
-            .delete_groups_atomic(&group_ids)
-            .await
-            .unwrap();
+        provider.sql_storage().delete_groups_atomic(&group_ids).await.unwrap();
 
         // Verify all were deleted
         for group_id in group_ids {

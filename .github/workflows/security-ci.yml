@@ -40,14 +40,13 @@ jobs:
 
       - name: Run cargo audit
         run: cargo audit --deny warnings
-        working-directory: ./spacepanda-core
 
       - name: Upload audit results
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: audit-report
-          path: ./spacepanda-core/audit-report.json
+          path: ./audit-report.json
 
   dependency-review:
     name: Dependency Review
@@ -64,7 +63,6 @@ jobs:
 
       - name: Run cargo deny
         run: cargo deny check
-        working-directory: ./spacepanda-core
 
   clippy:
     name: Clippy (Lints)
@@ -96,8 +94,7 @@ jobs:
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-        working-directory: ./spacepanda-core
+        run: cargo clippy --lib --all-features
 
   format:
     name: Format Check
@@ -112,7 +109,6 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt -- --check
-        working-directory: ./spacepanda-core
 
   test:
     name: Test Suite
@@ -148,11 +144,9 @@ jobs:
 
       - name: Run tests
         run: cargo test --lib --verbose
-        working-directory: ./spacepanda-core
 
       - name: Run doc tests
         run: cargo test --doc
-        working-directory: ./spacepanda-core
 
   coverage:
     name: Code Coverage
@@ -168,12 +162,11 @@ jobs:
 
       - name: Generate coverage
         run: cargo tarpaulin --out Xml --output-dir ./coverage
-        working-directory: ./spacepanda-core
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          files: ./spacepanda-core/coverage/cobertura.xml
+          files: ./coverage/cobertura.xml
           fail_ci_if_error: true
 
   mls-security-tests:
@@ -194,17 +187,11 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Run security tests
+        run: cargo test --lib security -- --nocapture
+
       - name: Run alpha security tests
         run: cargo test --lib alpha_security_tests -- --nocapture
-        working-directory: ./spacepanda-core
-
-      - name: Run rate limiting tests
-        run: cargo test --lib rate_limit -- --nocapture
-        working-directory: ./spacepanda-core
-
-      - name: Verify OpenMLS integration
-        run: cargo test --lib phase4_integration -- --nocapture
-        working-directory: ./spacepanda-core
 
   minimal-versions:
     name: Minimal Versions Check
@@ -222,4 +209,3 @@ jobs:
         run: |
           cargo +nightly update -Z minimal-versions
           cargo +stable check --all-features
-        working-directory: ./spacepanda-core

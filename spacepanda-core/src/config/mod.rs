@@ -20,19 +20,19 @@ pub use feature_flags::{FeatureFlags, FeatureManager};
 pub struct Config {
     /// Server configuration
     pub server: ServerConfig,
-    
+
     /// DHT configuration
     pub dht: DhtConfig,
-    
+
     /// Store configuration
     pub store: StoreConfig,
-    
+
     /// Logging configuration
     pub logging: LoggingConfig,
-    
+
     /// Metrics configuration
     pub metrics: MetricsConfig,
-    
+
     /// Feature flags
     pub features: FeatureFlags,
 }
@@ -42,24 +42,24 @@ pub struct Config {
 pub struct ServerConfig {
     /// Server bind address
     pub bind_address: SocketAddr,
-    
+
     /// Maximum concurrent connections
     pub max_connections: usize,
-    
+
     /// Connection timeout
     #[serde(with = "humantime_serde")]
     pub connection_timeout: Duration,
-    
+
     /// Graceful shutdown timeout
     #[serde(with = "humantime_serde")]
     pub shutdown_timeout: Duration,
-    
+
     /// Enable TLS
     pub enable_tls: bool,
-    
+
     /// TLS certificate path (if TLS enabled)
     pub tls_cert_path: Option<PathBuf>,
-    
+
     /// TLS key path (if TLS enabled)
     pub tls_key_path: Option<PathBuf>,
 }
@@ -69,21 +69,21 @@ pub struct ServerConfig {
 pub struct DhtConfig {
     /// Number of buckets in routing table
     pub bucket_count: usize,
-    
+
     /// Maximum entries per bucket
     pub bucket_size: usize,
-    
+
     /// Replication factor
     pub replication_factor: usize,
-    
+
     /// Anti-entropy sync interval
     #[serde(with = "humantime_serde")]
     pub sync_interval: Duration,
-    
+
     /// Peer timeout
     #[serde(with = "humantime_serde")]
     pub peer_timeout: Duration,
-    
+
     /// Bootstrap peers
     pub bootstrap_peers: Vec<SocketAddr>,
 }
@@ -93,20 +93,20 @@ pub struct DhtConfig {
 pub struct StoreConfig {
     /// Data directory for persistent storage
     pub data_dir: PathBuf,
-    
+
     /// Enable WAL (Write-Ahead Log)
     pub enable_wal: bool,
-    
+
     /// Snapshot interval
     #[serde(with = "humantime_serde")]
     pub snapshot_interval: Duration,
-    
+
     /// Maximum snapshot size in bytes
     pub max_snapshot_size: usize,
-    
+
     /// Enable compression
     pub enable_compression: bool,
-    
+
     /// Tombstone cleanup interval
     #[serde(with = "humantime_serde")]
     pub tombstone_cleanup_interval: Duration,
@@ -117,16 +117,16 @@ pub struct StoreConfig {
 pub struct LoggingConfig {
     /// Log level (trace, debug, info, warn, error)
     pub level: String,
-    
+
     /// Enable JSON formatting
     pub json_format: bool,
-    
+
     /// Include timestamps
     pub with_timestamp: bool,
-    
+
     /// Include target module
     pub with_target: bool,
-    
+
     /// Log file path (optional)
     pub log_file: Option<PathBuf>,
 }
@@ -136,20 +136,20 @@ pub struct LoggingConfig {
 pub struct MetricsConfig {
     /// Enable metrics collection
     pub enabled: bool,
-    
+
     /// Metrics bind address
     pub bind_address: SocketAddr,
-    
+
     /// Metrics collection interval
     #[serde(with = "humantime_serde")]
     pub collection_interval: Duration,
-    
+
     /// Enable Prometheus export
     pub enable_prometheus: bool,
-    
+
     /// Enable OpenTelemetry export
     pub enable_opentelemetry: bool,
-    
+
     /// OpenTelemetry endpoint
     pub otlp_endpoint: Option<String>,
 }
@@ -239,131 +239,140 @@ impl Config {
     /// Example: SPACEPANDA_SERVER_BIND_ADDRESS=0.0.0.0:8080
     pub fn from_env() -> Result<Self, ConfigError> {
         let mut config = Self::default();
-        
+
         // Server config
         if let Ok(addr) = env::var("SPACEPANDA_SERVER_BIND_ADDRESS") {
-            config.server.bind_address = addr.parse()
+            config.server.bind_address = addr
+                .parse()
                 .map_err(|e| ConfigError::InvalidValue(format!("Invalid bind address: {}", e)))?;
         }
         if let Ok(max_conn) = env::var("SPACEPANDA_SERVER_MAX_CONNECTIONS") {
-            config.server.max_connections = max_conn.parse()
-                .map_err(|e| ConfigError::InvalidValue(format!("Invalid max connections: {}", e)))?;
+            config.server.max_connections = max_conn.parse().map_err(|e| {
+                ConfigError::InvalidValue(format!("Invalid max connections: {}", e))
+            })?;
         }
         if let Ok(enable_tls) = env::var("SPACEPANDA_SERVER_ENABLE_TLS") {
-            config.server.enable_tls = enable_tls.parse()
+            config.server.enable_tls = enable_tls
+                .parse()
                 .map_err(|e| ConfigError::InvalidValue(format!("Invalid TLS flag: {}", e)))?;
         }
-        
+
         // DHT config
         if let Ok(bucket_size) = env::var("SPACEPANDA_DHT_BUCKET_SIZE") {
-            config.dht.bucket_size = bucket_size.parse()
+            config.dht.bucket_size = bucket_size
+                .parse()
                 .map_err(|e| ConfigError::InvalidValue(format!("Invalid bucket size: {}", e)))?;
         }
         if let Ok(repl_factor) = env::var("SPACEPANDA_DHT_REPLICATION_FACTOR") {
-            config.dht.replication_factor = repl_factor.parse()
-                .map_err(|e| ConfigError::InvalidValue(format!("Invalid replication factor: {}", e)))?;
+            config.dht.replication_factor = repl_factor.parse().map_err(|e| {
+                ConfigError::InvalidValue(format!("Invalid replication factor: {}", e))
+            })?;
         }
-        
+
         // Store config
         if let Ok(data_dir) = env::var("SPACEPANDA_STORE_DATA_DIR") {
             config.store.data_dir = PathBuf::from(data_dir);
         }
         if let Ok(enable_wal) = env::var("SPACEPANDA_STORE_ENABLE_WAL") {
-            config.store.enable_wal = enable_wal.parse()
+            config.store.enable_wal = enable_wal
+                .parse()
                 .map_err(|e| ConfigError::InvalidValue(format!("Invalid WAL flag: {}", e)))?;
         }
-        
+
         // Logging config
         if let Ok(level) = env::var("SPACEPANDA_LOG_LEVEL") {
             config.logging.level = level;
         }
         if let Ok(json) = env::var("SPACEPANDA_LOG_JSON") {
-            config.logging.json_format = json.parse()
+            config.logging.json_format = json
+                .parse()
                 .map_err(|e| ConfigError::InvalidValue(format!("Invalid JSON flag: {}", e)))?;
         }
-        
+
         // Metrics config
         if let Ok(enabled) = env::var("SPACEPANDA_METRICS_ENABLED") {
-            config.metrics.enabled = enabled.parse()
+            config.metrics.enabled = enabled
+                .parse()
                 .map_err(|e| ConfigError::InvalidValue(format!("Invalid metrics flag: {}", e)))?;
         }
         if let Ok(addr) = env::var("SPACEPANDA_METRICS_BIND_ADDRESS") {
-            config.metrics.bind_address = addr.parse()
-                .map_err(|e| ConfigError::InvalidValue(format!("Invalid metrics address: {}", e)))?;
+            config.metrics.bind_address = addr.parse().map_err(|e| {
+                ConfigError::InvalidValue(format!("Invalid metrics address: {}", e))
+            })?;
         }
-        
+
         config.validate()?;
         Ok(config)
     }
-    
+
     /// Load configuration from file
     pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self, ConfigError> {
-        let contents = std::fs::read_to_string(path)
-            .map_err(|e| ConfigError::FileReadError(e.to_string()))?;
-        
-        let config: Self = toml::from_str(&contents)
-            .map_err(|e| ConfigError::ParseError(e.to_string()))?;
-        
+        let contents =
+            std::fs::read_to_string(path).map_err(|e| ConfigError::FileReadError(e.to_string()))?;
+
+        let config: Self =
+            toml::from_str(&contents).map_err(|e| ConfigError::ParseError(e.to_string()))?;
+
         config.validate()?;
         Ok(config)
     }
-    
+
     /// Validate configuration
     pub fn validate(&self) -> Result<(), ConfigError> {
         // Validate server config
         if self.server.max_connections == 0 {
             return Err(ConfigError::ValidationFailed(
-                "max_connections must be greater than 0".to_string()
+                "max_connections must be greater than 0".to_string(),
             ));
         }
-        
+
         if self.server.enable_tls {
             if self.server.tls_cert_path.is_none() || self.server.tls_key_path.is_none() {
                 return Err(ConfigError::ValidationFailed(
-                    "TLS enabled but cert/key paths not provided".to_string()
+                    "TLS enabled but cert/key paths not provided".to_string(),
                 ));
             }
         }
-        
+
         // Validate DHT config
         if self.dht.bucket_size == 0 {
             return Err(ConfigError::ValidationFailed(
-                "bucket_size must be greater than 0".to_string()
+                "bucket_size must be greater than 0".to_string(),
             ));
         }
-        
+
         if self.dht.replication_factor == 0 {
             return Err(ConfigError::ValidationFailed(
-                "replication_factor must be greater than 0".to_string()
+                "replication_factor must be greater than 0".to_string(),
             ));
         }
-        
+
         // Validate store config
         if self.store.max_snapshot_size == 0 {
             return Err(ConfigError::ValidationFailed(
-                "max_snapshot_size must be greater than 0".to_string()
+                "max_snapshot_size must be greater than 0".to_string(),
             ));
         }
-        
+
         // Validate logging config
         let valid_levels = ["trace", "debug", "info", "warn", "error"];
         if !valid_levels.contains(&self.logging.level.as_str()) {
-            return Err(ConfigError::ValidationFailed(
-                format!("Invalid log level: {}", self.logging.level)
-            ));
+            return Err(ConfigError::ValidationFailed(format!(
+                "Invalid log level: {}",
+                self.logging.level
+            )));
         }
-        
+
         Ok(())
     }
-    
+
     /// Save configuration to file
     pub fn save_to_file(&self, path: impl AsRef<std::path::Path>) -> Result<(), ConfigError> {
-        let contents = toml::to_string_pretty(self)
-            .map_err(|e| ConfigError::SerializeError(e.to_string()))?;
-        
-        std::fs::write(path, contents)
-            .map_err(|e| ConfigError::FileWriteError(e.to_string()))?;
-        
+        let contents =
+            toml::to_string_pretty(self).map_err(|e| ConfigError::SerializeError(e.to_string()))?;
+
+        std::fs::write(path, contents).map_err(|e| ConfigError::FileWriteError(e.to_string()))?;
+
         Ok(())
     }
 }
@@ -371,39 +380,39 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_default_config() {
         let config = Config::default();
         assert!(config.validate().is_ok());
     }
-    
+
     #[test]
     fn test_config_validation() {
         let mut config = Config::default();
-        
+
         // Test invalid max_connections
         config.server.max_connections = 0;
         assert!(config.validate().is_err());
-        
+
         // Test TLS validation
         config = Config::default();
         config.server.enable_tls = true;
         assert!(config.validate().is_err());
-        
+
         // Test invalid bucket_size
         config = Config::default();
         config.dht.bucket_size = 0;
         assert!(config.validate().is_err());
     }
-    
+
     #[test]
     fn test_log_level_validation() {
         let mut config = Config::default();
-        
+
         config.logging.level = "invalid".to_string();
         assert!(config.validate().is_err());
-        
+
         config.logging.level = "debug".to_string();
         assert!(config.validate().is_ok());
     }

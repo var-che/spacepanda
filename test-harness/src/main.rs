@@ -1,7 +1,7 @@
 //! HTTP Test Harness binary
-//! 
+//!
 //! Simple placeholder until the HTTP API module dependency issues are resolved.
-//! 
+//!
 //! For now, you can test the member removal feature using the integration tests:
 //!   nix develop --command cargo test four_party
 
@@ -15,7 +15,7 @@ struct Args {
     /// Port to listen on
     #[arg(short, long, default_value = "3000")]
     port: u16,
-    
+
     /// Host to bind to
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
@@ -24,7 +24,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    
+
     println!("🐼 SpacePanda HTTP Test Harness");
     println!("Address: {}:{}", args.host, args.port);
     println!();
@@ -40,8 +40,6 @@ async fn main() -> Result<()> {
     println!("  - Removing a member from the group");
     println!("  - Verifying the removed member can't decrypt new messages");
     println!("  - Verifying remaining members continue to communicate");
-    
+
     Ok(())
 }
-
-

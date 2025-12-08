@@ -12,7 +12,7 @@
 //! 10:00:00 - Alice sends message
 //! 10:00:02 - Bob sends message (instant reply)
 //! 10:00:05 - Alice sends message (3s thinking time)
-//! 
+//!
 //! → Observer learns: "Bob is online", "Alice thinking for 3 seconds"
 //! → Conversation flow is visible
 //! → Typing patterns leak information
@@ -25,7 +25,7 @@
 //! 10:00:01 - Message (could be real or dummy)
 //! 10:00:02 - Message (could be real or dummy)
 //! 10:00:03 - Message (could be real or dummy)
-//! 
+//!
 //! → All messages look identical
 //! → No timing correlation possible
 //! → Conversation patterns hidden
@@ -88,13 +88,13 @@
 //! - `enabled`: Enable/disable mixing (default: true for privacy)
 //! - `max_queue_size`: Maximum queued messages (default: 1000)
 
+use rand::Rng;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
 use tokio::time::interval;
 use tracing::{debug, info, warn};
-use rand::Rng;
 
 /// Message mixer configuration
 #[derive(Debug, Clone)]
@@ -115,8 +115,8 @@ pub struct MixerConfig {
 impl Default for MixerConfig {
     fn default() -> Self {
         Self {
-            interval_ms: 100,       // 10 messages/second
-            enabled: true,           // Privacy-first default
+            interval_ms: 100, // 10 messages/second
+            enabled: true,    // Privacy-first default
             max_queue_size: 1000,
             send_dummy_traffic: true,
         }
@@ -127,15 +127,10 @@ impl Default for MixerConfig {
 #[derive(Debug, Clone)]
 pub enum MixerMessage {
     /// Real message to be sent
-    Real {
-        channel_id: String,
-        payload: Vec<u8>,
-    },
-    
+    Real { channel_id: String, payload: Vec<u8> },
+
     /// Dummy/cover traffic message
-    Dummy {
-        channel_id: String,
-    },
+    Dummy { channel_id: String },
 }
 
 impl MixerMessage {
@@ -221,15 +216,15 @@ impl MessageMixer {
     /// Random bytes (256, 1024, 4096, 16384, or 65536 bytes)
     fn generate_dummy_payload() -> Vec<u8> {
         let mut rng = rand::rng();
-        
+
         // Use same padding sizes as message padding for consistency
         let sizes = [256, 1024, 4096, 16384, 65536];
         let size = sizes[rng.random_range(0..sizes.len())];
-        
+
         // Generate random bytes
         let mut payload = vec![0u8; size];
         rng.fill(&mut payload[..]);
-        
+
         payload
     }
 
@@ -301,11 +296,8 @@ impl MessageMixer {
                 None if config.send_dummy_traffic => {
                     // Generate and send dummy message
                     let dummy_payload = Self::generate_dummy_payload();
-                    
-                    debug!(
-                        payload_size = dummy_payload.len(),
-                        "Sending dummy traffic"
-                    );
+
+                    debug!(payload_size = dummy_payload.len(), "Sending dummy traffic");
 
                     let mut s = stats.write().await;
                     s.dummy_messages_sent += 1;
@@ -363,10 +355,7 @@ impl MessageMixer {
 
         queue.push_back(MixerMessage::Real { channel_id, payload });
 
-        debug!(
-            queue_size = queue.len(),
-            "Message queued for mixing"
-        );
+        debug!(queue_size = queue.len(), "Message queued for mixing");
 
         Ok(())
     }
@@ -405,15 +394,11 @@ mod tests {
 
     #[test]
     fn test_mixer_message_is_dummy() {
-        let real_msg = MixerMessage::Real {
-            channel_id: "test".to_string(),
-            payload: vec![1, 2, 3],
-        };
+        let real_msg =
+            MixerMessage::Real { channel_id: "test".to_string(), payload: vec![1, 2, 3] };
         assert!(!real_msg.is_dummy());
 
-        let dummy_msg = MixerMessage::Dummy {
-            channel_id: "test".to_string(),
-        };
+        let dummy_msg = MixerMessage::Dummy { channel_id: "test".to_string() };
         assert!(dummy_msg.is_dummy());
     }
 
@@ -421,7 +406,7 @@ mod tests {
     async fn test_mixer_creation() {
         let config = MixerConfig::default();
         let mixer = MessageMixer::new(config);
-        
+
         let stats = mixer.stats().await;
         assert_eq!(stats.real_messages_sent, 0);
         assert_eq!(stats.dummy_messages_sent, 0);
@@ -438,9 +423,7 @@ mod tests {
         let mixer = MessageMixer::new(config);
 
         // Queue a message
-        mixer.send_message("test_channel".to_string(), vec![1, 2, 3])
-            .await
-            .unwrap();
+        mixer.send_message("test_channel".to_string(), vec![1, 2, 3]).await.unwrap();
 
         assert_eq!(mixer.queue_size().await, 1);
     }
@@ -478,9 +461,7 @@ mod tests {
         let mixer = MessageMixer::new(config);
 
         // Should succeed but not actually queue
-        mixer.send_message("test".to_string(), vec![1])
-            .await
-            .unwrap();
+        mixer.send_message("test".to_string(), vec![1]).await.unwrap();
 
         // Queue should be empty (message sent immediately in theory)
         assert_eq!(mixer.queue_size().await, 0);
@@ -496,7 +477,7 @@ mod tests {
 
         // Use queue_size() which reads directly from queue
         assert_eq!(mixer.queue_size().await, 2);
-        
+
         // Stats are only updated by background loop (not running in this test)
         let stats = mixer.stats().await;
         assert_eq!(stats.real_messages_sent, 0); // No background loop running

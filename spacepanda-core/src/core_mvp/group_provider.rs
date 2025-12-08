@@ -48,7 +48,7 @@ impl GroupHandle {
 pub struct Welcome {
     /// Serialized Welcome message (MLS format)
     pub blob: Vec<u8>,
-    
+
     /// Optional ratchet tree export for the group
     pub ratchet_tree: Option<Vec<u8>>,
 }
@@ -58,10 +58,10 @@ pub struct Welcome {
 pub struct GroupConfig {
     /// Optional specific group ID (None = auto-generate)
     pub group_id: Option<Vec<u8>>,
-    
+
     /// Group ciphersuite (e.g., MLS10_128_DHKEMX25519_AES128GCM_SHA256_Ed25519)
     pub ciphersuite: u16,
-    
+
     /// Enable ratchet tree export in Welcomes
     pub export_tree: bool,
 }
@@ -116,11 +116,7 @@ pub trait GroupProvider: Send + Sync {
     /// # Returns
     ///
     /// Handle to the created group
-    async fn create_group(
-        &self,
-        identity: &[u8],
-        config: GroupConfig,
-    ) -> MvpResult<GroupHandle>;
+    async fn create_group(&self, identity: &[u8], config: GroupConfig) -> MvpResult<GroupHandle>;
 
     /// Create a Welcome message for new members
     ///
@@ -148,11 +144,8 @@ pub trait GroupProvider: Send + Sync {
     /// # Returns
     ///
     /// Handle to the joined group
-    async fn join_from_welcome(
-        &self,
-        welcome: &Welcome,
-        identity: &[u8],
-    ) -> MvpResult<GroupHandle>;
+    async fn join_from_welcome(&self, welcome: &Welcome, identity: &[u8])
+        -> MvpResult<GroupHandle>;
 
     /// Seal (encrypt) a message for the group
     ///
@@ -164,11 +157,7 @@ pub trait GroupProvider: Send + Sync {
     /// # Returns
     ///
     /// Encrypted message ciphertext
-    async fn seal_message(
-        &self,
-        handle: &GroupHandle,
-        plaintext: &[u8],
-    ) -> MvpResult<Vec<u8>>;
+    async fn seal_message(&self, handle: &GroupHandle, plaintext: &[u8]) -> MvpResult<Vec<u8>>;
 
     /// Open (decrypt) a message from the group
     ///
@@ -180,11 +169,7 @@ pub trait GroupProvider: Send + Sync {
     /// # Returns
     ///
     /// Decrypted message plaintext
-    async fn open_message(
-        &self,
-        handle: &GroupHandle,
-        ciphertext: &[u8],
-    ) -> MvpResult<Vec<u8>>;
+    async fn open_message(&self, handle: &GroupHandle, ciphertext: &[u8]) -> MvpResult<Vec<u8>>;
 
     /// Add members to the group
     ///
@@ -267,14 +252,14 @@ mod tests {
     fn test_group_handle() {
         let id = b"test-group-id".to_vec();
         let handle = GroupHandle::new(id.clone());
-        
+
         assert_eq!(handle.as_bytes(), id.as_slice());
     }
 
     #[test]
     fn test_group_config_default() {
         let config = GroupConfig::default();
-        
+
         assert!(config.group_id.is_none());
         assert_eq!(config.ciphersuite, 1);
         assert!(!config.export_tree);
@@ -282,11 +267,8 @@ mod tests {
 
     #[test]
     fn test_welcome_structure() {
-        let welcome = Welcome {
-            blob: vec![1, 2, 3],
-            ratchet_tree: Some(vec![4, 5, 6]),
-        };
-        
+        let welcome = Welcome { blob: vec![1, 2, 3], ratchet_tree: Some(vec![4, 5, 6]) };
+
         assert_eq!(welcome.blob.len(), 3);
         assert!(welcome.ratchet_tree.is_some());
     }

@@ -115,12 +115,12 @@ mod tests {
         let group_id = GroupId::random();
         let epoch = 42;
         let sender = b"alice@example.com";
-        
+
         // Seal the sender
         let key = sealed_sender::derive_sender_key(b"test_group_secret");
-        let sealed = sealed_sender::seal_sender(sender, &key, epoch)
-            .expect("Sealing should succeed");
-        
+        let sealed =
+            sealed_sender::seal_sender(sender, &key, epoch).expect("Sealing should succeed");
+
         let envelope = EncryptedEnvelope::new(
             group_id.clone(),
             epoch,
@@ -145,11 +145,11 @@ mod tests {
         let group_id = GroupId::random();
         let epoch = 10;
         let sender = b"bob@example.com";
-        
+
         // Seal the sender
         let key = sealed_sender::derive_sender_key(b"test_group_secret");
-        let sealed = sealed_sender::seal_sender(sender, &key, epoch)
-            .expect("Sealing should succeed");
+        let sealed =
+            sealed_sender::seal_sender(sender, &key, epoch).expect("Sealing should succeed");
 
         let envelope = EncryptedEnvelope::new(
             group_id.clone(),

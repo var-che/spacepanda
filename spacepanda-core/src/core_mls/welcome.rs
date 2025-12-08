@@ -344,8 +344,18 @@ mod tests {
             created_at: 1234567890,
             updated_at: 1234567890,
             members: vec![
-                MemberInfo { identity: b"alice".to_vec(), leaf_index: 0, joined_at: 1234567890, role: crate::core_mls::types::MemberRole::Admin },
-                MemberInfo { identity: b"bob".to_vec(), leaf_index: 1, joined_at: 1234567891, role: crate::core_mls::types::MemberRole::Member },
+                MemberInfo {
+                    identity: b"alice".to_vec(),
+                    leaf_index: 0,
+                    joined_at: 1234567890,
+                    role: crate::core_mls::types::MemberRole::Admin,
+                },
+                MemberInfo {
+                    identity: b"bob".to_vec(),
+                    leaf_index: 1,
+                    joined_at: 1234567891,
+                    role: crate::core_mls::types::MemberRole::Member,
+                },
             ],
         }
     }

@@ -79,7 +79,8 @@ pub fn get_migrations() -> Vec<Migration> {
                     updated_at INTEGER NOT NULL
                 );
             "#,
-            down_sql: Some(r#"
+            down_sql: Some(
+                r#"
                 DROP TABLE IF EXISTS kv_blobs;
                 DROP TABLE IF EXISTS psks;
                 DROP TABLE IF EXISTS signature_keys;
@@ -87,7 +88,8 @@ pub fn get_migrations() -> Vec<Migration> {
                 DROP TABLE IF EXISTS key_packages;
                 DROP TABLE IF EXISTS group_snapshots;
                 DROP TABLE IF EXISTS schema_version;
-            "#),
+            "#,
+            ),
         },
         Migration {
             version: 2,
@@ -123,12 +125,14 @@ pub fn get_migrations() -> Vec<Migration> {
                 CREATE INDEX IF NOT EXISTS idx_messages_unprocessed
                     ON messages(group_id, processed) WHERE processed = 0;
             "#,
-            down_sql: Some(r#"
+            down_sql: Some(
+                r#"
                 DROP INDEX IF EXISTS idx_messages_unprocessed;
                 DROP INDEX IF EXISTS idx_messages_group_seq;
                 DROP TABLE IF EXISTS messages;
                 DROP TABLE IF EXISTS channels;
-            "#),
+            "#,
+            ),
         },
         Migration {
             version: 3,
@@ -151,7 +155,8 @@ pub fn get_migrations() -> Vec<Migration> {
                 DROP TABLE group_snapshots;
                 ALTER TABLE group_snapshots_new RENAME TO group_snapshots;
             "#,
-            down_sql: Some(r#"
+            down_sql: Some(
+                r#"
                 -- Create old table with updated_at
                 CREATE TABLE IF NOT EXISTS group_snapshots_old (
                     group_id BLOB PRIMARY KEY,
@@ -169,7 +174,8 @@ pub fn get_migrations() -> Vec<Migration> {
                 -- Drop new table and rename old one
                 DROP TABLE group_snapshots;
                 ALTER TABLE group_snapshots_old RENAME TO group_snapshots;
-            "#),
+            "#,
+            ),
         },
     ]
 }
@@ -181,11 +187,9 @@ pub fn get_current_version(pool: &Pool<SqliteConnectionManager>) -> MlsResult<i3
         .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
 
     let version = conn
-        .query_row(
-            "SELECT MAX(version) FROM schema_version",
-            [],
-            |row| row.get::<_, Option<i32>>(0),
-        )
+        .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+            row.get::<_, Option<i32>>(0)
+        })
         .unwrap_or(Some(0))
         .unwrap_or(0);
 
@@ -193,10 +197,7 @@ pub fn get_current_version(pool: &Pool<SqliteConnectionManager>) -> MlsResult<i3
 }
 
 /// Apply a single migration
-fn apply_migration(
-    pool: &Pool<SqliteConnectionManager>,
-    migration: &Migration,
-) -> MlsResult<()> {
+fn apply_migration(pool: &Pool<SqliteConnectionManager>, migration: &Migration) -> MlsResult<()> {
     let mut conn = pool
         .get()
         .map_err(|e| MlsError::Storage(format!("Failed to get connection: {}", e)))?;
@@ -232,20 +233,15 @@ pub fn migrate(pool: &Pool<SqliteConnectionManager>) -> MlsResult<()> {
     let current_version = get_current_version(pool)?;
     let migrations = get_migrations();
 
-    let pending_migrations: Vec<_> = migrations
-        .into_iter()
-        .filter(|m| m.version > current_version)
-        .collect();
+    let pending_migrations: Vec<_> =
+        migrations.into_iter().filter(|m| m.version > current_version).collect();
 
     if pending_migrations.is_empty() {
         return Ok(());
     }
 
     for migration in pending_migrations {
-        println!(
-            "Applying migration {}: {}",
-            migration.version, migration.description
-        );
+        println!("Applying migration {}: {}", migration.version, migration.description);
         apply_migration(pool, &migration)?;
     }
 
@@ -253,19 +249,16 @@ pub fn migrate(pool: &Pool<SqliteConnectionManager>) -> MlsResult<()> {
 }
 
 /// Rollback a migration (if down_sql is available)
-pub fn rollback_migration(
-    pool: &Pool<SqliteConnectionManager>,
-    version: i32,
-) -> MlsResult<()> {
+pub fn rollback_migration(pool: &Pool<SqliteConnectionManager>, version: i32) -> MlsResult<()> {
     let migrations = get_migrations();
     let migration = migrations
         .into_iter()
         .find(|m| m.version == version)
         .ok_or_else(|| MlsError::Storage(format!("Migration version {} not found", version)))?;
 
-    let down_sql = migration
-        .down_sql
-        .ok_or_else(|| MlsError::Storage(format!("No rollback available for version {}", version)))?;
+    let down_sql = migration.down_sql.ok_or_else(|| {
+        MlsError::Storage(format!("No rollback available for version {}", version))
+    })?;
 
     let mut conn = pool
         .get()
@@ -316,15 +309,10 @@ mod tests {
 
         // Verify tables exist
         let conn = pool.get().unwrap();
-        let mut stmt = conn
-            .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-            .unwrap();
+        let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='table'").unwrap();
 
-        let tables: Vec<String> = stmt
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .map(|r| r.unwrap())
-            .collect();
+        let tables: Vec<String> =
+            stmt.query_map([], |row| row.get(0)).unwrap().map(|r| r.unwrap()).collect();
 
         assert!(tables.contains(&"schema_version".to_string()));
         assert!(tables.contains(&"group_snapshots".to_string()));

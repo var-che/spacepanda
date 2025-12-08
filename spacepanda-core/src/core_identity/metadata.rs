@@ -44,7 +44,7 @@ impl DeviceMetadata {
     }
 
     /// Round timestamp to nearest day for privacy (reduces timing correlation)
-    /// 
+    ///
     /// Privacy rationale: Per privacy audit, fine-grained last_seen timestamps
     /// can reveal user activity patterns. Coarse-grained (daily) timestamps
     /// maintain utility for device freshness while reducing privacy risk.

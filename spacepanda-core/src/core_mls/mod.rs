@@ -38,9 +38,9 @@ pub mod traits;
 
 // Provider implementations
 pub mod integration;
+pub mod persistent_provider;
 pub mod providers;
 pub mod storage;
-pub mod persistent_provider;
 
 // OpenMLS engine wrapper (Phase 3)
 pub mod engine;
@@ -94,6 +94,9 @@ mod integration_tests;
 #[path = "tests/phase4_integration.rs"]
 mod phase4_integration;
 #[cfg(test)]
+#[path = "tests/realistic_scenarios.rs"]
+mod realistic_scenarios;
+#[cfg(test)]
 #[path = "tests/rfc9420_conformance_tests.rs"]
 mod rfc9420_conformance_tests;
 #[cfg(test)]
@@ -102,9 +105,6 @@ mod security_tests;
 #[cfg(test)]
 #[path = "tests/tdd_tests.rs"]
 mod tdd_tests;
-#[cfg(test)]
-#[path = "tests/realistic_scenarios.rs"]
-mod realistic_scenarios;
 
 // Placeholder modules (to be implemented incrementally)
 

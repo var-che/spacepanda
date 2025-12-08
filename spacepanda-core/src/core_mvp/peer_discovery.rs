@@ -27,7 +27,6 @@
 /// - Route all DHT queries through onion circuits (anonymous lookups)
 /// - Use blind cryptographic queries (PIR)
 /// - Store only relay addresses, never user identity mappings
-
 use crate::core_router::session_manager::PeerId;
 use crate::core_store::model::types::UserId;
 use async_trait::async_trait;
@@ -79,7 +78,7 @@ impl PeerDiscovery for NoPeerDiscovery {
 }
 
 // DHT-based peer discovery REMOVED for privacy reasons
-// 
+//
 // SECURITY RATIONALE:
 // - DHT queries expose metadata: who is looking for whom, when, and social graphs
 // - Global observer can track user activity patterns and relationships

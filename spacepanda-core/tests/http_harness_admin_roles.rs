@@ -41,12 +41,7 @@ async fn create_test_manager(name: &str) -> (Arc<ChannelManager>, TempDir) {
         uuid::Uuid::new_v4().to_string(),
     ));
 
-    let manager = Arc::new(ChannelManager::new(
-        mls_service,
-        store,
-        identity,
-        config.clone(),
-    ));
+    let manager = Arc::new(ChannelManager::new(mls_service, store, identity, config.clone()));
 
     (manager, temp_dir)
 }
@@ -110,10 +105,7 @@ async fn test_member_removal_requires_admin() {
         .create_invite(&channel_id, bob_kp)
         .await
         .expect("Alice should invite Bob");
-    bob_manager
-        .join_channel(&invite)
-        .await
-        .expect("Bob should join");
+    bob_manager.join_channel(&invite).await.expect("Bob should join");
     println!("✓ Bob joined");
 
     // Charlie joins
@@ -125,36 +117,23 @@ async fn test_member_removal_requires_admin() {
 
     // Bob processes Charlie's join
     if let Some(commit_bytes) = commit {
-        bob_manager
-            .process_commit(&commit_bytes)
-            .await
-            .expect("Bob should process");
+        bob_manager.process_commit(&commit_bytes).await.expect("Bob should process");
     }
 
-    charlie_manager
-        .join_channel(&invite)
-        .await
-        .expect("Charlie should join");
+    charlie_manager.join_channel(&invite).await.expect("Charlie should join");
     println!("✓ Charlie joined");
 
     let charlie_identity = charlie_manager.identity().user_id.0.as_bytes();
 
     // Test: Bob (member) CANNOT remove Charlie
     println!("\nTesting Bob (member) cannot remove Charlie...");
-    let result = bob_manager
-        .remove_member(&channel_id, charlie_identity)
-        .await;
-    assert!(
-        result.is_err(),
-        "Bob should be denied (not admin)"
-    );
+    let result = bob_manager.remove_member(&channel_id, charlie_identity).await;
+    assert!(result.is_err(), "Bob should be denied (not admin)");
     println!("✓ Bob correctly denied (not admin)");
 
     // Test: Alice (admin) CAN remove Charlie
     println!("\nTesting Alice (admin) can remove Charlie...");
-    let result = alice_manager
-        .remove_member(&channel_id, charlie_identity)
-        .await;
+    let result = alice_manager.remove_member(&channel_id, charlie_identity).await;
     assert!(result.is_ok(), "Alice should remove Charlie (is admin)");
     println!("✓ Alice successfully removed Charlie");
 
@@ -180,10 +159,7 @@ async fn test_promote_demote_operations() {
         .create_invite(&channel_id, bob_kp)
         .await
         .expect("Alice should invite Bob");
-    bob_manager
-        .join_channel(&invite)
-        .await
-        .expect("Bob should join");
+    bob_manager.join_channel(&invite).await.expect("Bob should join");
     println!("✓ Setup complete: Alice (admin), Bob (member)");
 
     let bob_identity = bob_manager.identity().user_id.0.as_bytes();
@@ -191,33 +167,25 @@ async fn test_promote_demote_operations() {
 
     // Test: Bob (member) CANNOT promote
     println!("\nTesting Bob (member) cannot promote...");
-    let result = bob_manager
-        .promote_member(&channel_id, alice_identity)
-        .await;
+    let result = bob_manager.promote_member(&channel_id, alice_identity).await;
     assert!(result.is_err(), "Bob should be denied");
     println!("✓ Bob correctly denied permission to promote");
 
     // Test: Bob (member) CANNOT demote
     println!("\nTesting Bob (member) cannot demote...");
-    let result = bob_manager
-        .demote_member(&channel_id, alice_identity)
-        .await;
+    let result = bob_manager.demote_member(&channel_id, alice_identity).await;
     assert!(result.is_err(), "Bob should be denied");
     println!("✓ Bob correctly denied permission to demote");
 
     // Test: Alice (admin) CAN promote Bob
     println!("\nTesting Alice (admin) can promote Bob...");
-    let result = alice_manager
-        .promote_member(&channel_id, bob_identity)
-        .await;
+    let result = alice_manager.promote_member(&channel_id, bob_identity).await;
     assert!(result.is_ok(), "Alice can promote");
     println!("✓ Alice promoted Bob");
 
     // Test: Alice (admin) CAN demote Bob
     println!("\nTesting Alice (admin) can demote Bob...");
-    let result = alice_manager
-        .demote_member(&channel_id, bob_identity)
-        .await;
+    let result = alice_manager.demote_member(&channel_id, bob_identity).await;
     assert!(result.is_ok(), "Alice can demote");
     println!("✓ Alice demoted Bob");
 
@@ -243,10 +211,7 @@ async fn test_role_query_operations() {
         .create_invite(&channel_id, bob_kp)
         .await
         .expect("Alice should invite Bob");
-    bob_manager
-        .join_channel(&invite)
-        .await
-        .expect("Bob should join");
+    bob_manager.join_channel(&invite).await.expect("Bob should join");
 
     let alice_identity = alice_manager.identity().user_id.0.as_bytes();
     let bob_identity = bob_manager.identity().user_id.0.as_bytes();
@@ -257,10 +222,7 @@ async fn test_role_query_operations() {
         .get_member_role(&channel_id, alice_identity)
         .await
         .expect("Should get role");
-    assert_eq!(
-        role,
-        spacepanda_core::core_mls::types::MemberRole::Admin
-    );
+    assert_eq!(role, spacepanda_core::core_mls::types::MemberRole::Admin);
     println!("✓ Alice has Admin role");
 
     // Test: Query Bob's role (should be Member)
@@ -269,10 +231,7 @@ async fn test_role_query_operations() {
         .get_member_role(&channel_id, bob_identity)
         .await
         .expect("Should get role");
-    assert_eq!(
-        role,
-        spacepanda_core::core_mls::types::MemberRole::Member
-    );
+    assert_eq!(role, spacepanda_core::core_mls::types::MemberRole::Member);
     println!("✓ Bob has Member role");
 
     // Test: is_admin for Alice
@@ -317,10 +276,7 @@ async fn test_full_admin_workflow() {
         .create_invite(&channel_id, bob_kp)
         .await
         .expect("Alice should invite Bob");
-    bob_manager
-        .join_channel(&invite)
-        .await
-        .expect("Bob should join");
+    bob_manager.join_channel(&invite).await.expect("Bob should join");
     println!("✓ Bob joined as Member");
 
     // 3. Charlie joins
@@ -333,16 +289,10 @@ async fn test_full_admin_workflow() {
 
     // Bob processes commit
     if let Some(commit_bytes) = commit {
-        bob_manager
-            .process_commit(&commit_bytes)
-            .await
-            .expect("Bob should process");
+        bob_manager.process_commit(&commit_bytes).await.expect("Bob should process");
     }
 
-    charlie_manager
-        .join_channel(&invite)
-        .await
-        .expect("Charlie should join");
+    charlie_manager.join_channel(&invite).await.expect("Charlie should join");
     println!("✓ Charlie joined as Member");
 
     // 4. Alice promotes Bob to admin
@@ -357,12 +307,10 @@ async fn test_full_admin_workflow() {
     // Note: promote/demote currently don't persist role changes (pending CRDT integration)
     // So Bob won't actually have admin permissions yet
     println!("\nStep 5: Verifying promote/demote permissions work...");
-    
+
     // Verify Alice can still perform admin actions
     let charlie_identity = charlie_manager.identity().user_id.0.as_bytes();
-    let result = alice_manager
-        .remove_member(&channel_id, charlie_identity)
-        .await;
+    let result = alice_manager.remove_member(&channel_id, charlie_identity).await;
     assert!(result.is_ok(), "Alice (admin) can remove Charlie");
     println!("✓ Alice successfully removed Charlie");
 
@@ -384,4 +332,3 @@ async fn test_full_admin_workflow() {
     println!("Note: Promote/demote functionality verified for permissions,");
     println!("      but role persistence pending CRDT integration");
 }
-

@@ -124,7 +124,7 @@ fn bench_routing_table_insert(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("table_size", size), size, |b, &n| {
             b.iter(|| {
                 let local_peer = random_dht_key(0);
-                let mut table = RoutingTable::new(local_peer.clone(), 20);
+                let mut table = RoutingTable::new(local_peer, 20);
 
                 for i in 0..n {
                     let peer_id = random_dht_key(i as u64 + 1);
@@ -150,7 +150,7 @@ fn bench_routing_table_lookup(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("table_size", size), size, |b, &n| {
             // Pre-populate table
             let local_peer = random_dht_key(0);
-            let mut table = RoutingTable::new(local_peer.clone(), 20);
+            let mut table = RoutingTable::new(local_peer, 20);
 
             for i in 0..n {
                 let peer_id = random_dht_key(i as u64 + 1);
@@ -220,7 +220,7 @@ fn bench_bucket_distribution(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("num_peers", num_peers), num_peers, |b, &n| {
             b.iter(|| {
                 let local_peer = random_dht_key(0);
-                let mut table = RoutingTable::new(local_peer.clone(), 20);
+                let mut table = RoutingTable::new(local_peer, 20);
 
                 // Insert many peers to see bucket distribution
                 for i in 0..n {

@@ -14,8 +14,11 @@ mod tests {
     use super::*;
 
     fn temp_db_path(name: &str) -> String {
-        format!("/tmp/spacepanda_privacy_{}_{}.db", name, 
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos())
+        format!(
+            "/tmp/spacepanda_privacy_{}_{}.db",
+            name,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        )
     }
 
     #[tokio::test]
@@ -49,7 +52,7 @@ mod tests {
         let plaintext_name_str = String::from_utf8_lossy(plaintext_name);
         let plaintext_topic_str = String::from_utf8_lossy(plaintext_topic);
         let plaintext_members_str = String::from_utf8_lossy(plaintext_members);
-        
+
         assert!(
             !contents_str.contains(plaintext_name_str.as_ref()),
             "Plaintext channel name should not be in database (should be encrypted)"
@@ -66,7 +69,7 @@ mod tests {
         // Verify we can load and decrypt correctly
         let (loaded_name, loaded_topic, _, loaded_members, _, _) =
             storage.load_channel_metadata(group_id).await.unwrap();
-        
+
         assert_eq!(loaded_name, plaintext_name, "Decrypted name should match");
         assert_eq!(loaded_topic.unwrap(), plaintext_topic, "Decrypted topic should match");
         assert_eq!(loaded_members, plaintext_members, "Decrypted members should match");
@@ -82,7 +85,7 @@ mod tests {
         let storage = SqlStorageProvider::new(&db_path).unwrap();
 
         let group_id = b"test_group";
-        
+
         // Create channel
         storage
             .save_channel_metadata(group_id, b"name", None, b"members", 1)
@@ -99,26 +102,18 @@ mod tests {
             .unwrap();
 
         // Load metadata
-        let (_, _, created_at, _, _, _) = storage
-            .load_channel_metadata(group_id)
-            .await
-            .unwrap();
+        let (_, _, created_at, _, _, _) = storage.load_channel_metadata(group_id).await.unwrap();
 
         // Verify created_at hasn't changed on update
-        let (_, _, created_at_after, _, _, _) = storage
-            .load_channel_metadata(group_id)
-            .await
-            .unwrap();
+        let (_, _, created_at_after, _, _, _) =
+            storage.load_channel_metadata(group_id).await.unwrap();
 
-        assert_eq!(
-            created_at, created_at_after,
-            "Creation timestamp should not change on update"
-        );
+        assert_eq!(created_at, created_at_after, "Creation timestamp should not change on update");
 
         // Check database schema doesn't have timing leak columns
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         let mut stmt = conn.prepare("PRAGMA table_info(channels)").unwrap();
-        
+
         let columns: Vec<String> = stmt
             .query_map([], |row| row.get::<_, String>(1))
             .unwrap()
@@ -155,13 +150,7 @@ mod tests {
 
         // Save message with hashed sender
         storage
-            .save_message(
-                b"msg_1",
-                group_id,
-                b"encrypted_content",
-                sender_hash,
-                1,
-            )
+            .save_message(b"msg_1", group_id, b"encrypted_content", sender_hash, 1)
             .await
             .unwrap();
 
@@ -217,25 +206,19 @@ mod tests {
         // Check schema doesn't have read receipt fields
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         let mut stmt = conn.prepare("PRAGMA table_info(messages)").unwrap();
-        
+
         let columns: Vec<String> = stmt
             .query_map([], |row| row.get::<_, String>(1))
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
 
-        assert!(
-            !columns.iter().any(|c| c.contains("read_at")),
-            "Should not have read_at column"
-        );
+        assert!(!columns.iter().any(|c| c.contains("read_at")), "Should not have read_at column");
         assert!(
             !columns.iter().any(|c| c.contains("delivered_at")),
             "Should not have delivered_at column"
         );
-        assert!(
-            columns.iter().any(|c| c == "processed"),
-            "Should have local processed flag"
-        );
+        assert!(columns.iter().any(|c| c == "processed"), "Should have local processed flag");
 
         // Cleanup
         let _ = std::fs::remove_file(&db_path);
@@ -255,7 +238,7 @@ mod tests {
 
         // Check database schema
         let conn = rusqlite::Connection::open(&db_path).unwrap();
-        
+
         // Check channels table
         let mut stmt = conn.prepare("PRAGMA table_info(channels)").unwrap();
         let channel_columns: Vec<String> = stmt
@@ -273,10 +256,7 @@ mod tests {
             .unwrap();
 
         // Verify no IP or location fields
-        let all_columns: Vec<_> = channel_columns
-            .iter()
-            .chain(message_columns.iter())
-            .collect();
+        let all_columns: Vec<_> = channel_columns.iter().chain(message_columns.iter()).collect();
 
         for column in all_columns {
             let lower = column.to_lowercase();
@@ -298,7 +278,7 @@ mod tests {
         let group_id = b"test_group";
         let plaintext_name = b"name";
         let plaintext_members = b"members";
-        
+
         storage
             .save_channel_metadata(group_id, plaintext_name, None, plaintext_members, 1)
             .await
@@ -322,7 +302,7 @@ mod tests {
         // Verify plaintext is NOT in database file
         let db_contents = std::fs::read(&db_path).unwrap();
         let contents_str = String::from_utf8_lossy(&db_contents);
-        
+
         assert!(
             !contents_str.contains("name") || db_contents.windows(plaintext_name.len()).filter(|w| *w == plaintext_name).count() < 2,
             "Plaintext name should not appear multiple times in database (should be encrypted in channels table)"

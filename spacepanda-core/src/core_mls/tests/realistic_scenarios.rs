@@ -49,9 +49,7 @@ impl UserContext {
             .expect("Failed to generate signature keys");
 
         // Store keys in provider
-        signature_keys
-            .store(provider.storage())
-            .expect("Failed to store keys");
+        signature_keys.store(provider.storage()).expect("Failed to store keys");
 
         // Create credential with the user's identity
         let basic_credential = BasicCredential::new(identity.to_vec());
@@ -65,12 +63,7 @@ impl UserContext {
             .build(ciphersuite, provider.as_ref(), &signature_keys, credential_with_key)
             .expect("Failed to build key package");
 
-        Self {
-            identity: identity.to_vec(),
-            provider,
-            signature_keys,
-            key_package_bundle,
-        }
+        Self { identity: identity.to_vec(), provider, signature_keys, key_package_bundle }
     }
 
     /// Get serialized key package bytes (for sending to group admin)
@@ -139,8 +132,9 @@ impl UserContext {
         let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
         let new_sig_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm())
             .map_err(|e| format!("Failed to generate signature keys: {:?}", e))?;
-        
-        new_sig_keys.store(self.provider.storage())
+
+        new_sig_keys
+            .store(self.provider.storage())
             .map_err(|e| format!("Failed to store signature keys: {:?}", e))?;
 
         let config = MlsConfig::default();
@@ -163,7 +157,7 @@ impl UserContext {
     ) -> Result<Arc<OpenMlsHandleAdapter<openmls_rust_crypto::OpenMlsRustCrypto>>, String> {
         let engine = self.join_from_welcome_engine(welcome_bytes, ratchet_tree_bytes).await?;
         let config = MlsConfig::default();
-        
+
         // Wrap the engine in the adapter - need to access Arc<RwLock<OpenMlsEngine>>
         // Since we can't construct OpenMlsHandleAdapter directly, we'll return the engine
         // and use it directly in tests
@@ -172,7 +166,9 @@ impl UserContext {
 }
 
 /// Helper function to create a user with identity
-async fn create_user(name: &str) -> (Vec<u8>, Arc<OpenMlsHandleAdapter<openmls_rust_crypto::OpenMlsRustCrypto>>) {
+async fn create_user(
+    name: &str,
+) -> (Vec<u8>, Arc<OpenMlsHandleAdapter<openmls_rust_crypto::OpenMlsRustCrypto>>) {
     let identity = name.as_bytes().to_vec();
     let config = MlsConfig::default();
     let provider = Arc::new(OpenMlsRustCrypto::default());
@@ -215,10 +211,8 @@ mod scenario_tests {
         // Bob invites Alice and Charlie using their key packages
         let engine = bob_group.engine();
         let mut engine_lock = engine.write().await;
-        let (_commit, _welcome) = engine_lock
-            .add_members(vec![alice_kp, charlie_kp])
-            .await
-            .unwrap();
+        let (_commit, _welcome) =
+            engine_lock.add_members(vec![alice_kp, charlie_kp]).await.unwrap();
         drop(engine_lock);
 
         println!("✓ Bob invited Alice and Charlie to the group");
@@ -228,11 +222,7 @@ mod scenario_tests {
         assert_eq!(metadata.members.len(), 3, "Should have 3 members");
         assert_eq!(metadata.epoch, 1, "Should be at epoch 1");
 
-        println!(
-            "✓ Group now has {} members at epoch {}",
-            metadata.members.len(),
-            metadata.epoch
-        );
+        println!("✓ Group now has {} members at epoch {}", metadata.members.len(), metadata.epoch);
         println!("✅ Test passed: Group creation and invitation workflow verified");
     }
 
@@ -262,10 +252,8 @@ mod scenario_tests {
         // Add Alice and Charlie
         let engine = bob_group.engine();
         let mut engine_lock = engine.write().await;
-        let (_commit, _welcome) = engine_lock
-            .add_members(vec![alice_kp, charlie_kp])
-            .await
-            .unwrap();
+        let (_commit, _welcome) =
+            engine_lock.add_members(vec![alice_kp, charlie_kp]).await.unwrap();
         drop(engine_lock);
 
         // Verify addition (add_members already applies the commit internally)
@@ -283,10 +271,7 @@ mod scenario_tests {
 
         let engine = bob_group.engine();
         let mut engine_lock = engine.write().await;
-        let _remove_commit = engine_lock
-            .remove_members(vec![charlie_leaf_index])
-            .await
-            .unwrap();
+        let _remove_commit = engine_lock.remove_members(vec![charlie_leaf_index]).await.unwrap();
         drop(engine_lock);
 
         println!("✓ Bob removed Charlie");
@@ -317,10 +302,7 @@ mod scenario_tests {
 
         // Create a group through the service
         let identity = b"test_user".to_vec();
-        let group_id = mls_service
-            .create_group(identity.clone(), None)
-            .await
-            .unwrap();
+        let group_id = mls_service.create_group(identity.clone(), None).await.unwrap();
 
         println!("✓ Created group through service: {}", group_id);
 
@@ -361,9 +343,14 @@ mod scenario_tests {
         let config = MlsConfig::default();
         let provider = Arc::new(OpenMlsRustCrypto::default());
         let bob_adapter = Arc::new(
-            OpenMlsHandleAdapter::create_group(None, bob_ctx.identity.clone(), config.clone(), provider.clone())
-                .await
-                .unwrap(),
+            OpenMlsHandleAdapter::create_group(
+                None,
+                bob_ctx.identity.clone(),
+                config.clone(),
+                provider.clone(),
+            )
+            .await
+            .unwrap(),
         );
         println!("✓ Bob created group");
 
@@ -427,12 +414,12 @@ mod scenario_tests {
         // Bob creates a group using his own provider
         let config = MlsConfig::default();
         let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
-        
+
         // Generate signature keys that will be used BOTH for creating the group
         // AND for the engine - this ensures signatures match
         let bob_signature_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm()).unwrap();
         bob_signature_keys.store(bob_ctx.provider.storage()).unwrap();
-        
+
         // Create group with Bob's credentials
         let basic_credential = BasicCredential::new(bob_ctx.identity.clone());
         let credential_with_key = CredentialWithKey {
@@ -448,7 +435,7 @@ mod scenario_tests {
         let group_id = openmls::prelude::GroupId::from_slice(b"test_group_123");
         let bob_mls_group = MlsGroup::new_with_group_id(
             bob_ctx.provider.as_ref(),
-            &bob_signature_keys,  // Use the same keys for group creation
+            &bob_signature_keys, // Use the same keys for group creation
             &mls_group_config,
             group_id,
             credential_with_key.clone(),
@@ -460,7 +447,7 @@ mod scenario_tests {
             bob_mls_group,
             bob_ctx.provider.clone(),
             config.clone(),
-            bob_signature_keys,  // These match the keys used above
+            bob_signature_keys, // These match the keys used above
             credential_with_key,
         ));
 
@@ -470,10 +457,7 @@ mod scenario_tests {
         let alice_kp = alice_ctx.key_package_bytes();
         let charlie_kp = charlie_ctx.key_package_bytes();
 
-        let (_, welcome_bytes) = bob_engine
-            .add_members(vec![alice_kp, charlie_kp])
-            .await
-            .unwrap();
+        let (_, welcome_bytes) = bob_engine.add_members(vec![alice_kp, charlie_kp]).await.unwrap();
 
         let welcome = welcome_bytes.expect("Welcome should be created");
         println!("✓ Bob added Alice and Charlie");
@@ -482,11 +466,15 @@ mod scenario_tests {
         let ratchet_tree = bob_engine.export_ratchet_tree_bytes().await.unwrap();
 
         // Alice joins using her own provider (which has her private keys!)
-        let alice_engine = alice_ctx.join_from_welcome_engine(&welcome, Some(&ratchet_tree)).await.unwrap();
+        let alice_engine =
+            alice_ctx.join_from_welcome_engine(&welcome, Some(&ratchet_tree)).await.unwrap();
         println!("✓ Alice joined using her provider with private keys");
 
         // Charlie joins using his own provider
-        let charlie_engine = charlie_ctx.join_from_welcome_engine(&welcome, Some(&ratchet_tree)).await.unwrap();
+        let charlie_engine = charlie_ctx
+            .join_from_welcome_engine(&welcome, Some(&ratchet_tree))
+            .await
+            .unwrap();
         println!("✓ Charlie joined using his provider with private keys");
 
         // Verify all are in sync
@@ -539,7 +527,11 @@ mod scenario_tests {
         assert_eq!(bob_meta_after.members.len(), 2);
         assert_eq!(alice_meta_after.members.len(), 2);
         assert_eq!(bob_meta_after.epoch, bob_meta.epoch + 1);
-        println!("✓ Group at epoch {} with {} members", bob_meta_after.epoch, bob_meta_after.members.len());
+        println!(
+            "✓ Group at epoch {} with {} members",
+            bob_meta_after.epoch,
+            bob_meta_after.members.len()
+        );
 
         // Bob sends new message
         let message2 = b"After Charlie left";

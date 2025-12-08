@@ -160,10 +160,10 @@ impl<T: Clone + Eq + std::hash::Hash + Send + Sync> Crdt for ORSet<T> {
         // Merge elements
         for (element, other_adds) in &other.elements {
             let entry = self.elements.entry(element.clone()).or_insert_with(HashSet::new);
-            
+
             // Reserve capacity upfront to reduce allocations
             entry.reserve(other_adds.len());
-            
+
             for add_id in other_adds {
                 // Only add if not tombstoned
                 if !self.tombstones.contains(&(element.clone(), add_id.clone())) {
@@ -451,7 +451,7 @@ mod proptests {
             // Should be equal
             let result_a = set_a1.elements();
             let result_b = set_b2.elements();
-            
+
             prop_assert_eq!(result_a.len(), result_b.len());
             for elem in result_a {
                 prop_assert!(result_b.contains(&elem));
@@ -468,7 +468,7 @@ mod proptests {
             elements_c in prop::collection::vec(0..50i32, 0..5),
         ) {
             let vc = VectorClock::new();
-            
+
             // Create three sets
             let mut set_a1: ORSet<i32> = ORSet::new();
             let mut set_a2: ORSet<i32> = ORSet::new();
@@ -504,7 +504,7 @@ mod proptests {
             // Results should be identical
             let result1 = set_a1.elements();
             let result2 = set_a2.elements();
-            
+
             prop_assert_eq!(result1.len(), result2.len());
             for elem in result1 {
                 prop_assert!(result2.contains(&elem));

@@ -196,7 +196,12 @@ mod tests {
 
     #[test]
     fn test_member_info() {
-        let member = MemberInfo { identity: vec![1, 2, 3], leaf_index: 0, joined_at: 1234567890, role: MemberRole::Member };
+        let member = MemberInfo {
+            identity: vec![1, 2, 3],
+            leaf_index: 0,
+            joined_at: 1234567890,
+            role: MemberRole::Member,
+        };
 
         let json = serde_json::to_string(&member).unwrap();
         let deserialized: MemberInfo = serde_json::from_str(&json).unwrap();

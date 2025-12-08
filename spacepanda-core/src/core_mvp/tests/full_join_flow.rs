@@ -7,12 +7,12 @@
 //! 4. Alice sends encrypted message
 //! 5. Bob receives and decrypts
 
+use crate::config::Config;
+use crate::core_mls::service::MlsService;
 use crate::core_mvp::channel_manager::{ChannelManager, Identity};
 use crate::core_mvp::errors::MvpResult;
 use crate::core_store::model::types::UserId;
-use crate::core_mls::service::MlsService;
 use crate::core_store::store::local_store::{LocalStore, LocalStoreConfig};
-use crate::config::Config;
 use crate::shutdown::ShutdownCoordinator;
 use std::sync::Arc;
 use std::time::Duration;
@@ -36,18 +36,9 @@ async fn create_test_manager(name: &str) -> (Arc<ChannelManager>, tempfile::Temp
     let store = Arc::new(LocalStore::new(store_config).unwrap());
 
     let user_id = UserId(format!("{}@spacepanda.local", name));
-    let identity = Arc::new(Identity::new(
-        user_id,
-        name.to_string(),
-        format!("{}-node", name),
-    ));
+    let identity = Arc::new(Identity::new(user_id, name.to_string(), format!("{}-node", name)));
 
-    let manager = Arc::new(ChannelManager::new(
-        mls_service,
-        store,
-        identity,
-        config,
-    ));
+    let manager = Arc::new(ChannelManager::new(mls_service, store, identity, config));
 
     (manager, temp_dir)
 }
@@ -76,9 +67,7 @@ async fn test_full_join_flow() -> MvpResult<()> {
     // Step 1: Alice creates a channel
     println!("Step 1: Alice creates channel");
     let channel_name = "spacepanda-test".to_string();
-    let channel_id = alice_manager
-        .create_channel(channel_name.clone(), false)
-        .await?;
+    let channel_id = alice_manager.create_channel(channel_name.clone(), false).await?;
     println!("  ✓ Channel created: {:?}", channel_id);
 
     // Verify channel exists for Alice
@@ -94,13 +83,11 @@ async fn test_full_join_flow() -> MvpResult<()> {
 
     // Step 3: Alice creates an invite for Bob
     println!("\nStep 3: Alice creates invite for Bob");
-    let (invite, _commit) = alice_manager
-        .create_invite(&channel_id, bob_key_package)
-        .await?;
+    let (invite, _commit) = alice_manager.create_invite(&channel_id, bob_key_package).await?;
     println!("  ✓ Invite created");
     println!("    - Welcome blob: {} bytes", invite.welcome_blob.len());
     println!("    - Channel ID: {:?}", invite.channel_id);
-    
+
     assert_eq!(invite.channel_id, channel_id);
     assert!(!invite.welcome_blob.is_empty());
 
@@ -108,7 +95,7 @@ async fn test_full_join_flow() -> MvpResult<()> {
     println!("\nStep 4: Bob joins channel using Welcome");
     let bob_channel_id = bob_manager.join_channel(&invite).await?;
     println!("  ✓ Bob joined channel: {:?}", bob_channel_id);
-    
+
     assert_eq!(bob_channel_id, channel_id);
 
     // Verify Bob can access channel metadata
@@ -119,11 +106,9 @@ async fn test_full_join_flow() -> MvpResult<()> {
     // Step 5: Alice sends an encrypted message
     println!("\nStep 5: Alice sends encrypted message");
     let message = b"Hello Bob! Welcome to SpacePanda!";
-    let ciphertext = alice_manager
-        .send_message(&channel_id, message)
-        .await?;
+    let ciphertext = alice_manager.send_message(&channel_id, message).await?;
     println!("  ✓ Message encrypted ({} bytes ciphertext)", ciphertext.len());
-    
+
     assert!(!ciphertext.is_empty());
 
     // Step 6: Bob receives and decrypts the message
@@ -131,15 +116,13 @@ async fn test_full_join_flow() -> MvpResult<()> {
     let plaintext = bob_manager.receive_message(&ciphertext).await?;
     println!("  ✓ Message decrypted ({} bytes plaintext)", plaintext.len());
     println!("    Content: {:?}", String::from_utf8_lossy(&plaintext));
-    
+
     assert_eq!(plaintext, message);
 
     // Step 7: Bob sends a reply
     println!("\nStep 7: Bob sends reply");
     let reply = b"Thanks Alice! Glad to be here!";
-    let reply_ciphertext = bob_manager
-        .send_message(&channel_id, reply)
-        .await?;
+    let reply_ciphertext = bob_manager.send_message(&channel_id, reply).await?;
     println!("  ✓ Reply encrypted ({} bytes)", reply_ciphertext.len());
 
     // Step 8: Alice receives Bob's reply
@@ -147,7 +130,7 @@ async fn test_full_join_flow() -> MvpResult<()> {
     let reply_plaintext = alice_manager.receive_message(&reply_ciphertext).await?;
     println!("  ✓ Reply decrypted");
     println!("    Content: {:?}", String::from_utf8_lossy(&reply_plaintext));
-    
+
     assert_eq!(reply_plaintext, reply);
 
     println!("\n=== ✅ FULL JOIN FLOW TEST PASSED! ===\n");
@@ -164,14 +147,10 @@ async fn test_multiple_message_exchange() -> MvpResult<()> {
     let (bob_manager, _bob_dir) = create_test_manager("bob").await;
 
     // Create channel and join
-    let channel_id = alice_manager
-        .create_channel("test-chat".to_string(), false)
-        .await?;
+    let channel_id = alice_manager.create_channel("test-chat".to_string(), false).await?;
 
     let bob_kp = bob_manager.generate_key_package().await?;
-    let (invite, _commit) = alice_manager
-        .create_invite(&channel_id, bob_kp)
-        .await?;
+    let (invite, _commit) = alice_manager.create_invite(&channel_id, bob_kp).await?;
     bob_manager.join_channel(&invite).await?;
 
     println!("Channel setup complete. Testing message exchange...\n");
@@ -180,18 +159,14 @@ async fn test_multiple_message_exchange() -> MvpResult<()> {
     for i in 1..=5 {
         // Alice sends
         let alice_msg = format!("Message {} from Alice", i);
-        let ct = alice_manager
-            .send_message(&channel_id, alice_msg.as_bytes())
-            .await?;
+        let ct = alice_manager.send_message(&channel_id, alice_msg.as_bytes()).await?;
         let pt = bob_manager.receive_message(&ct).await?;
         assert_eq!(pt, alice_msg.as_bytes());
         println!("  ✓ Alice -> Bob: {}", alice_msg);
 
         // Bob replies
         let bob_msg = format!("Reply {} from Bob", i);
-        let ct = bob_manager
-            .send_message(&channel_id, bob_msg.as_bytes())
-            .await?;
+        let ct = bob_manager.send_message(&channel_id, bob_msg.as_bytes()).await?;
         let pt = alice_manager.receive_message(&ct).await?;
         assert_eq!(pt, bob_msg.as_bytes());
         println!("  ✓ Bob -> Alice: {}", bob_msg);
@@ -212,24 +187,18 @@ async fn test_three_party_group() -> MvpResult<()> {
     let (charlie_manager, _charlie_dir) = create_test_manager("charlie").await;
 
     // Alice creates channel
-    let channel_id = alice_manager
-        .create_channel("three-way".to_string(), false)
-        .await?;
+    let channel_id = alice_manager.create_channel("three-way".to_string(), false).await?;
     println!("✓ Alice created channel");
 
     // Alice invites Bob
     let bob_kp = bob_manager.generate_key_package().await?;
-    let (bob_invite, _commit) = alice_manager
-        .create_invite(&channel_id, bob_kp)
-        .await?;
+    let (bob_invite, _commit) = alice_manager.create_invite(&channel_id, bob_kp).await?;
     bob_manager.join_channel(&bob_invite).await?;
     println!("✓ Bob joined");
 
     // Alice invites Charlie - Bob needs to process the commit to stay in sync
     let charlie_kp = charlie_manager.generate_key_package().await?;
-    let (charlie_invite, commit) = alice_manager
-        .create_invite(&channel_id, charlie_kp)
-        .await?;
+    let (charlie_invite, commit) = alice_manager.create_invite(&channel_id, charlie_kp).await?;
     charlie_manager.join_channel(&charlie_invite).await?;
     println!("✓ Charlie joined");
 
@@ -278,27 +247,23 @@ async fn test_invite_creation_with_real_key_package() -> MvpResult<()> {
 
     // Step 1: Alice creates a channel
     let channel_name = "test-invites".to_string();
-    let channel_id = alice_manager
-        .create_channel(channel_name.clone(), false)
-        .await?;
+    let channel_id = alice_manager.create_channel(channel_name.clone(), false).await?;
     println!("✓ Channel created: {:?}", channel_id);
 
     // Step 2: Bob generates a key package
     let bob_key_package = bob_manager.generate_key_package().await?;
     println!("✓ Bob's key package generated ({} bytes)", bob_key_package.len());
-    
+
     // Verify the key package was created
     assert!(!bob_key_package.is_empty());
     println!("  - Public key package: {} bytes", bob_key_package.len());
 
     // Step 3: Alice creates an invite using Bob's key package
-    let (invite, _commit) = alice_manager
-        .create_invite(&channel_id, bob_key_package)
-        .await?;
+    let (invite, _commit) = alice_manager.create_invite(&channel_id, bob_key_package).await?;
     println!("✓ Invite created successfully");
     println!("  - Welcome blob: {} bytes", invite.welcome_blob.len());
     println!("  - Channel ID: {:?}", invite.channel_id);
-    
+
     // Verify invite contents
     assert_eq!(invite.channel_id, channel_id);
     assert!(!invite.welcome_blob.is_empty());
@@ -332,20 +297,18 @@ async fn test_four_party_group() -> MvpResult<()> {
     println!("✓ All four members created");
 
     // Step 1: Alice creates a channel
-    let channel_id = alice_manager
-        .create_channel("four-party-chat".to_string(), false)
-        .await?;
+    let channel_id = alice_manager.create_channel("four-party-chat".to_string(), false).await?;
     println!("✓ Alice created channel");
 
     // Step 2: Build the group - add each member with epoch sync
     println!("\nBuilding four-party group...");
-    
+
     // Add Bob
     let bob_kp = bob_manager.generate_key_package().await?;
     let (bob_invite, _) = alice_manager.create_invite(&channel_id, bob_kp).await?;
     bob_manager.join_channel(&bob_invite).await?;
     println!("  ✓ Bob joined (2 members)");
-    
+
     // Add Charlie - Bob must process commit
     let charlie_kp = charlie_manager.generate_key_package().await?;
     let (charlie_invite, commit) = alice_manager.create_invite(&channel_id, charlie_kp).await?;
@@ -354,7 +317,7 @@ async fn test_four_party_group() -> MvpResult<()> {
     }
     charlie_manager.join_channel(&charlie_invite).await?;
     println!("  ✓ Charlie joined (3 members)");
-    
+
     // Add Dave - Bob and Charlie must process commit
     let dave_kp = dave_manager.generate_key_package().await?;
     let (dave_invite, commit) = alice_manager.create_invite(&channel_id, dave_kp).await?;
@@ -367,7 +330,7 @@ async fn test_four_party_group() -> MvpResult<()> {
 
     // Step 3: Test all-to-all messaging
     println!("\nTesting all-to-all messaging...");
-    
+
     // Alice sends, all others receive
     let alice_msg = b"Hello from Alice!";
     let ct = alice_manager.send_message(&channel_id, alice_msg).await?;
@@ -425,9 +388,7 @@ async fn test_four_party_member_removal() -> MvpResult<()> {
     println!("✓ All four members created");
 
     // Build the group
-    let channel_id = alice_manager
-        .create_channel("removal-test".to_string(), false)
-        .await?;
+    let channel_id = alice_manager.create_channel("removal-test".to_string(), false).await?;
     println!("✓ Alice created channel");
 
     // Add members with epoch sync
@@ -435,13 +396,15 @@ async fn test_four_party_member_removal() -> MvpResult<()> {
     let (bob_invite, _) = alice_manager.create_invite(&channel_id, bob_kp).await?;
     bob_manager.join_channel(&bob_invite).await?;
     println!("  ✓ Bob joined (2 members)");
-    
+
     let charlie_kp = charlie_manager.generate_key_package().await?;
     let (charlie_invite, c1) = alice_manager.create_invite(&channel_id, charlie_kp).await?;
-    if let Some(c) = c1 { bob_manager.process_commit(&c).await?; }
+    if let Some(c) = c1 {
+        bob_manager.process_commit(&c).await?;
+    }
     charlie_manager.join_channel(&charlie_invite).await?;
     println!("  ✓ Charlie joined (3 members)");
-    
+
     let dave_kp = dave_manager.generate_key_package().await?;
     let (dave_invite, c2) = alice_manager.create_invite(&channel_id, dave_kp).await?;
     if let Some(c) = c2 {
@@ -463,9 +426,7 @@ async fn test_four_party_member_removal() -> MvpResult<()> {
     // Remove Bob
     println!("\nRemoving Bob from the group...");
     let bob_identity = bob_manager.identity().user_id.0.as_bytes();
-    let removal_commit = alice_manager
-        .remove_member(&channel_id, bob_identity)
-        .await?;
+    let removal_commit = alice_manager.remove_member(&channel_id, bob_identity).await?;
     println!("  ✓ Removal commit generated ({} bytes)", removal_commit.len());
 
     // Remaining members process removal
@@ -478,29 +439,24 @@ async fn test_four_party_member_removal() -> MvpResult<()> {
     println!("\nTesting post-removal messaging...");
     let post_msg = b"After Bob was removed";
     let ct_after = alice_manager.send_message(&channel_id, post_msg).await?;
-    
+
     // Charlie and Dave can decrypt
     assert_eq!(charlie_manager.receive_message(&ct_after).await?, post_msg);
     println!("  ✓ Charlie can decrypt post-removal message");
-    
+
     assert_eq!(dave_manager.receive_message(&ct_after).await?, post_msg);
     println!("  ✓ Dave can decrypt post-removal message");
 
     // Bob CANNOT decrypt (should fail)
     println!("\nVerifying Bob cannot decrypt post-removal...");
     let bob_result = bob_manager.receive_message(&ct_after).await;
-    assert!(
-        bob_result.is_err(),
-        "Bob should not be able to decrypt after removal"
-    );
+    assert!(bob_result.is_err(), "Bob should not be able to decrypt after removal");
     println!("  ✓ Bob correctly cannot decrypt (removed from group)");
 
     // Bob CAN still send locally (doesn't know he's removed yet)
     // but other members won't be able to decrypt it
     println!("Verifying Bob's messages are rejected by group...");
-    let bob_send_result = bob_manager
-        .send_message(&channel_id, b"Bob tries to send")
-        .await;
+    let bob_send_result = bob_manager.send_message(&channel_id, b"Bob tries to send").await;
     // Bob's local send succeeds (he doesn't know he's removed)
     if let Ok(bob_ct) = bob_send_result {
         // But other members should reject it
@@ -533,16 +489,12 @@ async fn test_admin_permissions_for_removal() -> MvpResult<()> {
     let (bob_manager, _bob_dir) = create_test_manager("bob").await;
 
     // Alice creates channel (becomes admin)
-    let channel_id = alice_manager
-        .create_channel("test-channel".to_string(), false)
-        .await?;
+    let channel_id = alice_manager.create_channel("test-channel".to_string(), false).await?;
     println!("✓ Alice created channel as admin");
 
     // Generate invite for Bob
     let bob_key_package = bob_manager.generate_key_package().await?;
-    let (invite, _commit) = alice_manager
-        .create_invite(&channel_id, bob_key_package)
-        .await?;
+    let (invite, _commit) = alice_manager.create_invite(&channel_id, bob_key_package).await?;
 
     // Bob joins
     let _bob_channel_id = bob_manager.join_channel(&invite).await?;
@@ -551,9 +503,8 @@ async fn test_admin_permissions_for_removal() -> MvpResult<()> {
     // Create Charlie to attempt removal
     let (charlie_manager, _charlie_dir) = create_test_manager("charlie").await;
     let charlie_key_package = charlie_manager.generate_key_package().await?;
-    let (charlie_invite, _commit) = alice_manager
-        .create_invite(&channel_id, charlie_key_package)
-        .await?;
+    let (charlie_invite, _commit) =
+        alice_manager.create_invite(&channel_id, charlie_key_package).await?;
     let _charlie_channel_id = charlie_manager.join_channel(&charlie_invite).await?;
     println!("✓ Charlie joined as regular member");
 
@@ -571,9 +522,7 @@ async fn test_admin_permissions_for_removal() -> MvpResult<()> {
     let (bob_manager2, _bob_dir2) = create_test_manager("bob2").await;
     let (charlie_manager2, _charlie_dir2) = create_test_manager("charlie2").await;
 
-    let channel_id2 = alice_manager2
-        .create_channel("test-channel-2".to_string(), false)
-        .await?;
+    let channel_id2 = alice_manager2.create_channel("test-channel-2".to_string(), false).await?;
 
     let bob_kp2 = bob_manager2.generate_key_package().await?;
     let (invite2, _) = alice_manager2.create_invite(&channel_id2, bob_kp2).await?;
@@ -601,9 +550,7 @@ async fn test_role_queries() -> MvpResult<()> {
     let (bob_manager, _bob_dir) = create_test_manager("bob").await;
 
     // Alice creates channel
-    let channel_id = alice_manager
-        .create_channel("test-channel".to_string(), false)
-        .await?;
+    let channel_id = alice_manager.create_channel("test-channel".to_string(), false).await?;
 
     // Bob joins
     let bob_key_package = bob_manager.generate_key_package().await?;
@@ -643,9 +590,7 @@ async fn test_promote_demote_operations() -> MvpResult<()> {
     let (bob_manager, _bob_dir) = create_test_manager("bob").await;
 
     // Alice creates channel
-    let channel_id = alice_manager
-        .create_channel("test-channel".to_string(), false)
-        .await?;
+    let channel_id = alice_manager.create_channel("test-channel".to_string(), false).await?;
 
     // Bob joins
     let bob_key_package = bob_manager.generate_key_package().await?;
@@ -691,10 +636,8 @@ async fn test_message_reactions() -> MvpResult<()> {
     let (bob_manager, _bob_dir) = create_test_manager("bob").await;
 
     // Create channel
-    let channel_id = alice_manager
-        .create_channel("test-channel".to_string(), false)
-        .await?;
-    
+    let channel_id = alice_manager.create_channel("test-channel".to_string(), false).await?;
+
     // Bob joins
     let bob_kp = bob_manager.generate_key_package().await?;
     let (invite, _) = alice_manager.create_invite(&channel_id, bob_kp).await?;
@@ -719,7 +662,7 @@ async fn test_message_reactions() -> MvpResult<()> {
     println!("\nTest 2: Verifying reaction counts...");
     let reactions = alice_manager.get_reactions(&message_id).await?;
     assert_eq!(reactions.len(), 2, "Should have 2 unique emoji reactions");
-    
+
     // Find the thumbs up reaction
     let thumbs_up = reactions.iter().find(|r| r.emoji == "👍").unwrap();
     assert_eq!(thumbs_up.count, 2, "Thumbs up should have 2 reactions");
@@ -775,9 +718,7 @@ async fn test_reaction_aggregation() -> MvpResult<()> {
     let (charlie_manager, _charlie_dir) = create_test_manager("charlie").await;
 
     // Create channel and add members
-    let channel_id = alice_manager
-        .create_channel("test-channel".to_string(), false)
-        .await?;
+    let channel_id = alice_manager.create_channel("test-channel".to_string(), false).await?;
 
     let bob_kp = bob_manager.generate_key_package().await?;
     let (invite, _) = alice_manager.create_invite(&channel_id, bob_kp).await?;
@@ -794,17 +735,17 @@ async fn test_reaction_aggregation() -> MvpResult<()> {
     alice_manager.add_reaction(&message_id, "👍".to_string()).await?;
     bob_manager.add_reaction(&message_id, "👍".to_string()).await?;
     charlie_manager.add_reaction(&message_id, "👍".to_string()).await?;
-    
+
     alice_manager.add_reaction(&message_id, "❤️".to_string()).await?;
     bob_manager.add_reaction(&message_id, "❤️".to_string()).await?;
-    
+
     charlie_manager.add_reaction(&message_id, "🎉".to_string()).await?;
     println!("✓ Reactions added");
 
     // Get reactions and verify sorting (most popular first)
     println!("\nVerifying aggregation and sorting...");
     let reactions = alice_manager.get_reactions(&message_id).await?;
-    
+
     assert_eq!(reactions.len(), 3, "Should have 3 unique emojis");
     assert_eq!(reactions[0].emoji, "👍", "Most popular should be first");
     assert_eq!(reactions[0].count, 3, "Thumbs up should have 3");
@@ -812,11 +753,15 @@ async fn test_reaction_aggregation() -> MvpResult<()> {
     assert_eq!(reactions[1].count, 2, "Heart should have 2");
     assert_eq!(reactions[2].emoji, "🎉", "Least popular");
     assert_eq!(reactions[2].count, 1, "Party should have 1");
-    
-    println!("  ✓ Sorted by count: {} ({}), {} ({}), {} ({})",
-        reactions[0].emoji, reactions[0].count,
-        reactions[1].emoji, reactions[1].count,
-        reactions[2].emoji, reactions[2].count
+
+    println!(
+        "  ✓ Sorted by count: {} ({}), {} ({}), {} ({})",
+        reactions[0].emoji,
+        reactions[0].count,
+        reactions[1].emoji,
+        reactions[1].count,
+        reactions[2].emoji,
+        reactions[2].count
     );
 
     // Verify user lists
@@ -834,8 +779,8 @@ async fn test_reaction_aggregation() -> MvpResult<()> {
 #[tokio::test]
 #[ignore = "Thread synchronization across manager instances not yet implemented"]
 async fn test_message_threading() -> MvpResult<()> {
-    use crate::core_store::model::types::MessageId;
     use crate::core_mvp::types::ChatMessage;
+    use crate::core_store::model::types::MessageId;
 
     println!("\n=== TESTING MESSAGE THREADING ===\n");
 
@@ -843,17 +788,15 @@ async fn test_message_threading() -> MvpResult<()> {
     let (bob_manager, _bob_dir) = create_test_manager("bob").await;
 
     // Create channel
-    let channel_id = alice_manager
-        .create_channel("test-channel".to_string(), false)
-        .await?;
-    
+    let channel_id = alice_manager.create_channel("test-channel".to_string(), false).await?;
+
     // Bob joins
     let bob_kp = bob_manager.generate_key_package().await?;
     let (invite, _) = alice_manager.create_invite(&channel_id, bob_kp).await?;
     bob_manager.join_channel(&invite).await?;
 
     println!("Test 1: Creating a thread with replies...");
-    
+
     // Alice posts root message
     let root_msg = ChatMessage::new(
         channel_id.clone(),
@@ -869,7 +812,8 @@ async fn test_message_threading() -> MvpResult<()> {
         channel_id.clone(),
         bob_manager.identity().user_id.clone(),
         b"I like blue!".to_vec(),
-    ).reply_to(root_id.clone());
+    )
+    .reply_to(root_id.clone());
     bob_manager.store_message(bob_reply).await?;
     println!("  ✓ Bob replied");
 
@@ -878,7 +822,8 @@ async fn test_message_threading() -> MvpResult<()> {
         channel_id.clone(),
         alice_manager.identity().user_id.clone(),
         b"Mine is green".to_vec(),
-    ).reply_to(root_id.clone());
+    )
+    .reply_to(root_id.clone());
     alice_manager.store_message(alice_reply).await?;
     println!("  ✓ Alice replied");
 
@@ -886,13 +831,15 @@ async fn test_message_threading() -> MvpResult<()> {
     println!("\nTest 2: Getting thread info...");
     let thread_info = alice_manager.get_thread_info(&root_id).await?;
     assert!(thread_info.is_some(), "Thread info should exist");
-    
+
     let info = thread_info.unwrap();
     assert_eq!(info.reply_count, 2, "Should have 2 replies");
     assert_eq!(info.participant_count, 2, "Should have 2 participants");
     assert!(info.last_reply_preview.is_some(), "Should have last reply preview");
-    println!("  ✓ Thread has {} replies from {} participants", 
-        info.reply_count, info.participant_count);
+    println!(
+        "  ✓ Thread has {} replies from {} participants",
+        info.reply_count, info.participant_count
+    );
 
     // Test 3: Get thread replies
     println!("\nTest 3: Getting thread replies...");
@@ -914,7 +861,7 @@ async fn test_message_threading() -> MvpResult<()> {
     println!("\nTest 4: Getting message with thread context...");
     let msg_with_thread = alice_manager.get_message_with_thread(&root_id).await?;
     assert!(msg_with_thread.is_some(), "Should find message");
-    
+
     let mwt = msg_with_thread.unwrap();
     assert_eq!(mwt.message.message_id, root_id, "Should be the root message");
     assert!(mwt.thread_info.is_some(), "Should have thread info");
@@ -926,7 +873,7 @@ async fn test_message_threading() -> MvpResult<()> {
     let reply_id = replies[0].message_id.clone();
     let reply_with_context = alice_manager.get_message_with_thread(&reply_id).await?;
     assert!(reply_with_context.is_some(), "Should find reply");
-    
+
     let rwc = reply_with_context.unwrap();
     assert!(rwc.parent_message.is_some(), "Reply should have parent");
     assert_eq!(
@@ -950,9 +897,7 @@ async fn test_channel_threads_listing() -> MvpResult<()> {
     let (alice_manager, _alice_dir) = create_test_manager("alice").await;
 
     // Create channel
-    let channel_id = alice_manager
-        .create_channel("general".to_string(), false)
-        .await?;
+    let channel_id = alice_manager.create_channel("general".to_string(), false).await?;
 
     println!("Creating multiple threads in channel...");
 
@@ -964,14 +909,15 @@ async fn test_channel_threads_listing() -> MvpResult<()> {
     );
     let thread1_id = thread1_root.message_id.clone();
     alice_manager.store_message(thread1_root).await?;
-    
+
     // Add 2 replies to thread 1
     for i in 1..=2 {
         let reply = ChatMessage::new(
             channel_id.clone(),
             alice_manager.identity().user_id.clone(),
             format!("Update {}", i).into_bytes(),
-        ).reply_to(thread1_id.clone());
+        )
+        .reply_to(thread1_id.clone());
         alice_manager.store_message(reply).await?;
     }
     println!("  ✓ Thread 1: Project updates (2 replies)");
@@ -984,14 +930,15 @@ async fn test_channel_threads_listing() -> MvpResult<()> {
     );
     let thread2_id = thread2_root.message_id.clone();
     alice_manager.store_message(thread2_root).await?;
-    
+
     // Add 3 replies to thread 2
     for i in 1..=3 {
         let reply = ChatMessage::new(
             channel_id.clone(),
             alice_manager.identity().user_id.clone(),
             format!("Chat {}", i).into_bytes(),
-        ).reply_to(thread2_id.clone());
+        )
+        .reply_to(thread2_id.clone());
         alice_manager.store_message(reply).await?;
     }
     println!("  ✓ Thread 2: Random chat (3 replies)");
@@ -1008,24 +955,35 @@ async fn test_channel_threads_listing() -> MvpResult<()> {
     // Test: Get all channel threads
     println!("\nGetting all threads from channel...");
     let threads = alice_manager.get_channel_threads(&channel_id).await?;
-    
+
     assert_eq!(threads.len(), 3, "Should have 3 root threads");
     println!("  ✓ Found {} threads", threads.len());
 
     // Verify thread 1
     let t1 = threads.iter().find(|t| t.message.message_id == thread1_id).unwrap();
     assert!(t1.thread_info.is_some(), "Thread 1 should have info");
-    assert_eq!(t1.thread_info.as_ref().unwrap().reply_count, 2, "Thread 1 should have 2 replies");
+    assert_eq!(
+        t1.thread_info.as_ref().unwrap().reply_count,
+        2,
+        "Thread 1 should have 2 replies"
+    );
     println!("  ✓ Thread 1 has {} replies", t1.thread_info.as_ref().unwrap().reply_count);
 
     // Verify thread 2
     let t2 = threads.iter().find(|t| t.message.message_id == thread2_id).unwrap();
     assert!(t2.thread_info.is_some(), "Thread 2 should have info");
-    assert_eq!(t2.thread_info.as_ref().unwrap().reply_count, 3, "Thread 2 should have 3 replies");
+    assert_eq!(
+        t2.thread_info.as_ref().unwrap().reply_count,
+        3,
+        "Thread 2 should have 3 replies"
+    );
     println!("  ✓ Thread 2 has {} replies", t2.thread_info.as_ref().unwrap().reply_count);
 
     // Verify thread 3
-    let t3 = threads.iter().find(|t| t.message.body_as_string().unwrap() == "Silent thread").unwrap();
+    let t3 = threads
+        .iter()
+        .find(|t| t.message.body_as_string().unwrap() == "Silent thread")
+        .unwrap();
     assert!(t3.thread_info.is_none(), "Thread 3 should have no thread info (no replies)");
     println!("  ✓ Thread 3 has no replies");
 
@@ -1044,12 +1002,10 @@ async fn test_message_persistence() -> MvpResult<()> {
     let (alice_manager, _alice_dir) = create_test_manager("alice").await;
 
     // Create channel
-    let channel_id = alice_manager
-        .create_channel("persistent-channel".to_string(), false)
-        .await?;
+    let channel_id = alice_manager.create_channel("persistent-channel".to_string(), false).await?;
 
     println!("Test 1: Storing messages...");
-    
+
     // Create and store 3 messages
     let msg1 = ChatMessage::new(
         channel_id.clone(),
@@ -1073,7 +1029,8 @@ async fn test_message_persistence() -> MvpResult<()> {
         channel_id.clone(),
         alice_manager.identity().user_id.clone(),
         b"Third message".to_vec(),
-    ).reply_to(msg1_id.clone());
+    )
+    .reply_to(msg1_id.clone());
     alice_manager.store_message(msg3).await?;
     println!("  ✓ Stored message 3 (reply to msg1)");
 
@@ -1091,7 +1048,7 @@ async fn test_message_persistence() -> MvpResult<()> {
     // Test 3: Create a new manager instance to test persistence
     println!("\nTest 3: Testing persistence across restarts...");
     let (alice_manager2, _alice_dir2) = create_test_manager("alice2").await;
-    
+
     // Load messages from persistent store
     alice_manager2.load_channel_messages(&channel_id).await?;
     println!("  ✓ Loaded messages from store");
@@ -1109,19 +1066,15 @@ async fn test_message_persistence() -> MvpResult<()> {
     // Test 4: Query messages using store directly
     println!("\nTest 4: Querying store directly...");
     use crate::core_store::model::types::MessageId;
-    
-    let store_messages = alice_manager
-        .get_stored_messages(&channel_id)
-        .await?;
-    
+
+    let store_messages = alice_manager.get_stored_messages(&channel_id).await?;
+
     assert_eq!(store_messages.len(), 3, "Store should have 3 messages");
     println!("  ✓ Store contains {} messages", store_messages.len());
 
     // Verify thread replies in store
-    let store_replies = alice_manager
-        .get_stored_thread_replies(&msg1_id)
-        .await?;
-    
+    let store_replies = alice_manager.get_stored_thread_replies(&msg1_id).await?;
+
     assert_eq!(store_replies.len(), 1, "Store should have 1 reply");
     assert_eq!(
         store_replies[0].reply_to,
@@ -1144,12 +1097,10 @@ async fn test_message_pagination() -> MvpResult<()> {
     let (alice_manager, _alice_dir) = create_test_manager("alice").await;
 
     // Create channel
-    let channel_id = alice_manager
-        .create_channel("busy-channel".to_string(), false)
-        .await?;
+    let channel_id = alice_manager.create_channel("busy-channel".to_string(), false).await?;
 
     println!("Creating 10 messages...");
-    
+
     // Create 10 messages
     for i in 1..=10 {
         let msg = ChatMessage::new(
@@ -1163,37 +1114,31 @@ async fn test_message_pagination() -> MvpResult<()> {
 
     // Test pagination
     println!("\nTest: Paginated retrieval...");
-    
+
     // Get first page (5 messages, offset 0)
-    let page1 = alice_manager
-        .get_stored_messages_paginated(&channel_id, 5, 0)
-        .await?;
-    
+    let page1 = alice_manager.get_stored_messages_paginated(&channel_id, 5, 0).await?;
+
     assert_eq!(page1.len(), 5, "First page should have 5 messages");
     println!("  ✓ Page 1: {} messages", page1.len());
 
     // Get second page (5 messages, offset 5)
-    let page2 = alice_manager
-        .get_stored_messages_paginated(&channel_id, 5, 5)
-        .await?;
-    
+    let page2 = alice_manager.get_stored_messages_paginated(&channel_id, 5, 5).await?;
+
     assert_eq!(page2.len(), 5, "Second page should have 5 messages");
     println!("  ✓ Page 2: {} messages", page2.len());
 
     // Verify no overlap (messages are sorted newest first)
     let page1_ids: Vec<_> = page1.iter().map(|m| &m.id).collect();
     let page2_ids: Vec<_> = page2.iter().map(|m| &m.id).collect();
-    
+
     for id in &page2_ids {
         assert!(!page1_ids.contains(&id), "Pages should not overlap");
     }
     println!("  ✓ Pages don't overlap");
 
     // Get partial page (3 messages, offset 8)
-    let page3 = alice_manager
-        .get_stored_messages_paginated(&channel_id, 5, 8)
-        .await?;
-    
+    let page3 = alice_manager.get_stored_messages_paginated(&channel_id, 5, 8).await?;
+
     assert_eq!(page3.len(), 2, "Third page should have remaining 2 messages");
     println!("  ✓ Partial page: {} messages", page3.len());
 
@@ -1211,14 +1156,14 @@ async fn test_message_pagination() -> MvpResult<()> {
 /// 5. Simulate restart: create new manager instances
 /// 6. Verify all data recovered correctly
 /// 7. Continue messaging after recovery
-/// 
+///
 /// TODO: This test needs to be updated to match the new API
 /// - send_message now returns Vec<u8> (ciphertext) not ChatMessage
 /// - ChatMessage structure has changed (now in types module)
 /// - invite_member is now create_invite  
 /// - get_messages is now get_stored_messages
 /// - Message IDs are not directly accessible from send_message return value
-/// 
+///
 /// The persistence functionality is validated by the other 1107 passing tests
 /// which include message storage and retrieval tests.
 #[tokio::test]
@@ -1233,10 +1178,10 @@ async fn test_complete_e2e_persistence_workflow() -> MvpResult<()> {
     // ═══════════════════════════════════════════════════════════════
     println!("📋 PHASE 1: Channel Setup");
     println!("─────────────────────────────────────────────────────────");
-    
+
     let (alice_manager, alice_dir) = create_test_manager("alice").await;
     let (bob_manager, bob_dir) = create_test_manager("bob").await;
-    
+
     // Alice creates channel
     println!("1️⃣  Alice creates channel 'Engineering'...");
     let channel_id = alice_manager.create_channel("Engineering".to_string(), false).await?;
@@ -1249,9 +1194,7 @@ async fn test_complete_e2e_persistence_workflow() -> MvpResult<()> {
 
     // Alice invites Bob
     println!("3️⃣  Alice invites Bob...");
-    let welcome = alice_manager
-        .invite_member(&channel_id, vec![bob_key_package])
-        .await?;
+    let welcome = alice_manager.invite_member(&channel_id, vec![bob_key_package]).await?;
     println!("   ✓ Welcome message created");
 
     // Bob joins
@@ -1265,7 +1208,7 @@ async fn test_complete_e2e_persistence_workflow() -> MvpResult<()> {
     // ═══════════════════════════════════════════════════════════════
     println!("📨 PHASE 2: Messaging & Threading");
     println!("─────────────────────────────────────────────────────────");
-    
+
     // Alice sends initial message
     println!("1️⃣  Alice: 'Welcome to the team!'");
     let msg1 = alice_manager
@@ -1283,44 +1226,41 @@ async fn test_complete_e2e_persistence_workflow() -> MvpResult<()> {
     // Alice starts a thread
     println!("3️⃣  Alice starts thread on message 1...");
     let thread_msg = alice_manager
-        .store_message(
-            crate::core_mvp::channel_manager::ChatMessage {
-                message_id: crate::core_mvp::channel_manager::MessageId::new(),
-                channel_id: channel_id.clone(),
-                sender_id: UserId("alice@spacepanda.local".to_string()),
-                content: "Let me know if you need anything!".to_string(),
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u64,
-                parent_message_id: Some(msg1.message_id.clone()),
-                reactions: Vec::new(),
-                edited: false,
-                deleted: false,
-            },
-        )
+        .store_message(crate::core_mvp::channel_manager::ChatMessage {
+            message_id: crate::core_mvp::channel_manager::MessageId::new(),
+            channel_id: channel_id.clone(),
+            sender_id: UserId("alice@spacepanda.local".to_string()),
+            content: "Let me know if you need anything!".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+            parent_message_id: Some(msg1.message_id.clone()),
+            reactions: Vec::new(),
+            edited: false,
+            deleted: false,
+        })
         .await?;
     println!("   ✓ Thread reply sent (ID: {})", thread_msg.message_id);
 
     // Bob replies in thread
     println!("4️⃣  Bob replies in thread...");
     let thread_reply = bob_manager
-        .store_message(
-            crate::core_mvp::channel_manager::ChatMessage {
-                message_id: crate::core_mvp::channel_manager::MessageId::new(),
-                channel_id: channel_id.clone(),
-                sender_id: UserId("bob@spacepanda.local".to_string()),
-                content: "Will do, appreciate it!".to_string(),
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u64 + 1,
-                parent_message_id: Some(msg1.message_id.clone()),
-                reactions: Vec::new(),
-                edited: false,
-                deleted: false,
-            },
-        )
+        .store_message(crate::core_mvp::channel_manager::ChatMessage {
+            message_id: crate::core_mvp::channel_manager::MessageId::new(),
+            channel_id: channel_id.clone(),
+            sender_id: UserId("bob@spacepanda.local".to_string()),
+            content: "Will do, appreciate it!".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64
+                + 1,
+            parent_message_id: Some(msg1.message_id.clone()),
+            reactions: Vec::new(),
+            edited: false,
+            deleted: false,
+        })
         .await?;
     println!("   ✓ Thread reply sent (ID: {})\n", thread_reply.message_id);
 
@@ -1335,29 +1275,21 @@ async fn test_complete_e2e_persistence_workflow() -> MvpResult<()> {
     // ═══════════════════════════════════════════════════════════════
     println!("💾 PHASE 3: Verify Persistence");
     println!("─────────────────────────────────────────────────────────");
-    
+
     println!("1️⃣  Query persisted messages...");
-    let stored_messages = alice_manager
-        .get_stored_messages(&channel_id)
-        .await?;
+    let stored_messages = alice_manager.get_stored_messages(&channel_id).await?;
     assert_eq!(stored_messages.len(), 4, "Should have 4 messages stored");
     println!("   ✓ 4 messages on disk");
 
     println!("2️⃣  Verify thread structure...");
-    let thread_replies = alice_manager
-        .get_stored_thread_replies(&msg1.message_id)
-        .await?;
+    let thread_replies = alice_manager.get_stored_thread_replies(&msg1.message_id).await?;
     assert_eq!(thread_replies.len(), 2, "Should have 2 thread replies");
     println!("   ✓ Thread has 2 replies");
 
     println!("3️⃣  Test pagination...");
-    let page1 = alice_manager
-        .get_stored_messages_paginated(&channel_id, 2, 0)
-        .await?;
+    let page1 = alice_manager.get_stored_messages_paginated(&channel_id, 2, 0).await?;
     assert_eq!(page1.len(), 2, "First page should have 2 messages");
-    let page2 = alice_manager
-        .get_stored_messages_paginated(&channel_id, 2, 2)
-        .await?;
+    let page2 = alice_manager.get_stored_messages_paginated(&channel_id, 2, 2).await?;
     assert_eq!(page2.len(), 2, "Second page should have 2 messages");
     println!("   ✓ Pagination works (2 pages of 2 messages)\n");
 
@@ -1366,7 +1298,7 @@ async fn test_complete_e2e_persistence_workflow() -> MvpResult<()> {
     // ═══════════════════════════════════════════════════════════════
     println!("🔄 PHASE 4: Simulate Application Restart");
     println!("─────────────────────────────────────────────────────────");
-    
+
     println!("1️⃣  Dropping old managers (simulating shutdown)...");
     drop(alice_manager);
     drop(bob_manager);
@@ -1416,12 +1348,8 @@ async fn test_complete_e2e_persistence_workflow() -> MvpResult<()> {
         "bob".to_string(),
         "bob-node".to_string(),
     ));
-    let bob_new = Arc::new(ChannelManager::new(
-        mls_service2,
-        bob_store,
-        bob_identity,
-        config.clone(),
-    ));
+    let bob_new =
+        Arc::new(ChannelManager::new(mls_service2, bob_store, bob_identity, config.clone()));
     println!("   ✓ Bob's new manager created\n");
 
     // ═══════════════════════════════════════════════════════════════
@@ -1429,7 +1357,7 @@ async fn test_complete_e2e_persistence_workflow() -> MvpResult<()> {
     // ═══════════════════════════════════════════════════════════════
     println!("📂 PHASE 5: Data Recovery");
     println!("─────────────────────────────────────────────────────────");
-    
+
     println!("1️⃣  Loading Alice's messages from disk...");
     alice_new.load_channel_messages(&channel_id).await?;
     println!("   ✓ Messages loaded into memory");
@@ -1443,7 +1371,7 @@ async fn test_complete_e2e_persistence_workflow() -> MvpResult<()> {
     // ═══════════════════════════════════════════════════════════════
     println!("✅ PHASE 6: Verification");
     println!("─────────────────────────────────────────────────────────");
-    
+
     println!("1️⃣  Verify message count...");
     let alice_messages = alice_new.get_messages(&channel_id).await?;
     assert_eq!(alice_messages.len(), 4, "Alice should have 4 messages");
@@ -1481,25 +1409,24 @@ async fn test_complete_e2e_persistence_workflow() -> MvpResult<()> {
     // ═══════════════════════════════════════════════════════════════
     println!("💬 PHASE 7: Continue Usage After Recovery");
     println!("─────────────────────────────────────────────────────────");
-    
+
     println!("1️⃣  Alice sends new message...");
     let new_msg = alice_new
-        .store_message(
-            crate::core_mvp::channel_manager::ChatMessage {
-                message_id: crate::core_mvp::channel_manager::MessageId::new(),
-                channel_id: channel_id.clone(),
-                sender_id: UserId("alice@spacepanda.local".to_string()),
-                content: "Great to have the team back online!".to_string(),
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u64 + 10,
-                parent_message_id: None,
-                reactions: Vec::new(),
-                edited: false,
-                deleted: false,
-            },
-        )
+        .store_message(crate::core_mvp::channel_manager::ChatMessage {
+            message_id: crate::core_mvp::channel_manager::MessageId::new(),
+            channel_id: channel_id.clone(),
+            sender_id: UserId("alice@spacepanda.local".to_string()),
+            content: "Great to have the team back online!".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64
+                + 10,
+            parent_message_id: None,
+            reactions: Vec::new(),
+            edited: false,
+            deleted: false,
+        })
         .await?;
     println!("   ✓ Message sent and persisted (ID: {})", new_msg.message_id);
 
@@ -1529,4 +1456,3 @@ async fn test_complete_e2e_persistence_workflow() -> MvpResult<()> {
 
     Ok(())
 }
-

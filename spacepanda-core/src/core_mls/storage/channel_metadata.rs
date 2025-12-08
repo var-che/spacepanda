@@ -28,26 +28,26 @@ use serde::{Deserialize, Serialize};
 pub struct ChannelMetadata {
     /// MLS group ID (not encrypted - needed for lookups)
     pub group_id: Vec<u8>,
-    
+
     /// Encrypted channel name
     /// Only decryptable by group members with MLS key
     pub encrypted_name: Vec<u8>,
-    
+
     /// Encrypted channel topic/description
     pub encrypted_topic: Vec<u8>,
-    
+
     /// Creation timestamp (Unix epoch seconds)
     /// Note: Only creation time, no "last activity" to prevent traffic analysis
     pub created_at: i64,
-    
+
     /// Encrypted member list
     /// Stored as encrypted blob, not individual rows (prevents membership analysis)
     pub encrypted_members: Vec<u8>,
-    
+
     /// Channel type (0=private, 1=group, 2=public)
     /// Not encrypted as it's structural metadata
     pub channel_type: u8,
-    
+
     /// Whether this is an archived channel (local only, not synced)
     pub archived: bool,
 }
@@ -85,19 +85,19 @@ impl ChannelMetadata {
 pub struct MessageMetadata {
     /// Message ID (hash of content + sequence)
     pub message_id: Vec<u8>,
-    
+
     /// Group ID this message belongs to
     pub group_id: Vec<u8>,
-    
+
     /// Encrypted message content
     pub encrypted_content: Vec<u8>,
-    
+
     /// Sender identity hash (not plaintext)
     pub sender_hash: Vec<u8>,
-    
+
     /// Sequence number (for ordering, not timing)
     pub sequence: i64,
-    
+
     /// Local-only: whether this device has processed this message
     /// (NOT synced - prevents correlation attacks)
     pub processed: bool,
@@ -112,14 +112,7 @@ impl MessageMetadata {
         sender_hash: Vec<u8>,
         sequence: i64,
     ) -> Self {
-        Self {
-            message_id,
-            group_id,
-            encrypted_content,
-            sender_hash,
-            sequence,
-            processed: false,
-        }
+        Self { message_id, group_id, encrypted_content, sender_hash, sequence, processed: false }
     }
 }
 
@@ -137,7 +130,7 @@ mod tests {
             b"encrypted_members".to_vec(),
             1, // group type
         );
-        
+
         assert_eq!(metadata.group_id, b"group123");
         assert_eq!(metadata.channel_type, 1);
         assert!(!metadata.archived);
@@ -152,7 +145,7 @@ mod tests {
             b"sender_hash".to_vec(),
             1,
         );
-        
+
         assert_eq!(metadata.sequence, 1);
         assert!(!metadata.processed);
     }

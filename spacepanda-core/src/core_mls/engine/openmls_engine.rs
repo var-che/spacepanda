@@ -197,22 +197,25 @@ impl<P: OpenMlsProvider + 'static> OpenMlsEngine<P> {
             let key_package = bundle.key_package();
             let leaf_node = key_package.leaf_node();
             let signature_public_key = leaf_node.signature_key();
-            
+
             // Retrieve the signature keys from provider storage using the public key bytes
             // The keys were stored when the KeyPackage was generated
             let sig_keys = SignatureKeyPair::read(
                 provider.storage(),
                 signature_public_key.as_slice(),
-                ciphersuite.signature_algorithm()
-            ).ok_or_else(|| {
-                MlsError::CryptoError("Failed to retrieve signature keys from provider storage".to_string())
+                ciphersuite.signature_algorithm(),
+            )
+            .ok_or_else(|| {
+                MlsError::CryptoError(
+                    "Failed to retrieve signature keys from provider storage".to_string(),
+                )
             })?;
 
             let cred = CredentialWithKey {
                 credential: leaf_node.credential().clone(),
                 signature_key: signature_public_key.clone(),
             };
-            
+
             (sig_keys, cred)
         } else {
             // Generate new signature keys
@@ -232,7 +235,7 @@ impl<P: OpenMlsProvider + 'static> OpenMlsEngine<P> {
                 credential: basic_credential.into(),
                 signature_key: signature_keys.public().into(),
             };
-            
+
             (signature_keys, credential_bundle)
         };
 
@@ -260,9 +263,7 @@ impl<P: OpenMlsProvider + 'static> OpenMlsEngine<P> {
         // Convert to active group
         let group = staged_welcome
             .into_group(&*provider)
-            .map_err(|e| {
-                MlsError::InvalidMessage(format!("Failed to join group: {:?}", e))
-            })?;
+            .map_err(|e| MlsError::InvalidMessage(format!("Failed to join group: {:?}", e)))?;
 
         // Get group info for event
         let group_id = GroupId::new(group.group_id().as_slice().to_vec());
@@ -565,7 +566,12 @@ impl<P: OpenMlsProvider + 'static> OpenMlsEngine<P> {
                 let leaf_index = member.index.u32();
                 let joined_at = join_times.get(&leaf_index).copied().unwrap_or(fallback_time);
 
-                MemberInfo { identity, leaf_index, joined_at, role: super::super::types::MemberRole::Member }
+                MemberInfo {
+                    identity,
+                    leaf_index,
+                    joined_at,
+                    role: super::super::types::MemberRole::Member,
+                }
             })
             .collect();
 
@@ -592,9 +598,9 @@ impl<P: OpenMlsProvider + 'static> OpenMlsEngine<P> {
     pub async fn export_ratchet_tree_bytes(&self) -> MlsResult<Vec<u8>> {
         let group = self.group.read().await;
         let ratchet_tree = group.export_ratchet_tree();
-        ratchet_tree.tls_serialize_detached().map_err(|e| {
-            MlsError::Internal(format!("Failed to serialize ratchet tree: {:?}", e))
-        })
+        ratchet_tree
+            .tls_serialize_detached()
+            .map_err(|e| MlsError::Internal(format!("Failed to serialize ratchet tree: {:?}", e)))
     }
 
     /// Export secret for application use
@@ -645,7 +651,12 @@ impl<P: OpenMlsProvider + 'static> OpenMlsEngine<P> {
             // Get actual join time from our tracking, or use fallback
             let joined_at = join_times.get(&leaf_index).copied().unwrap_or(fallback_time);
 
-            members.push(MemberInfo { identity, leaf_index, joined_at, role: super::super::types::MemberRole::Member });
+            members.push(MemberInfo {
+                identity,
+                leaf_index,
+                joined_at,
+                role: super::super::types::MemberRole::Member,
+            });
         }
 
         Ok(members)
@@ -664,7 +675,8 @@ mod tests {
         let config = MlsConfig::default();
         let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let result = OpenMlsEngine::create_group(group_id.clone(), identity, config, provider).await;
+        let result =
+            OpenMlsEngine::create_group(group_id.clone(), identity, config, provider).await;
 
         assert!(result.is_ok());
 
@@ -727,9 +739,10 @@ mod tests {
         let provider = Arc::new(OpenMlsRustCrypto::default());
 
         // Create engine and subscribe to events
-        let engine = OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config, provider)
-            .await
-            .expect("Failed to create group");
+        let engine =
+            OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config, provider)
+                .await
+                .expect("Failed to create group");
 
         let mut rx = engine.subscribe_events();
 

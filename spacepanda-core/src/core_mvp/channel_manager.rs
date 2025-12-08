@@ -97,11 +97,7 @@ pub struct Identity {
 impl Identity {
     /// Create a new identity
     pub fn new(user_id: UserId, display_name: String, node_id: String) -> Self {
-        Self {
-            user_id,
-            display_name,
-            node_id,
-        }
+        Self { user_id, display_name, node_id }
     }
 
     /// Get identity bytes for MLS
@@ -191,7 +187,7 @@ impl ChannelManager {
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             info!("Started commit processor task");
-            
+
             while let Some(incoming_commit) = commits_rx.recv().await {
                 debug!(
                     channel_id = %incoming_commit.channel_id,
@@ -199,7 +195,7 @@ impl ChannelManager {
                     peer_id = ?incoming_commit.sender_peer_id,
                     "Processing incoming commit"
                 );
-                
+
                 match self.process_commit(&incoming_commit.commit_data).await {
                     Ok(()) => {
                         info!(
@@ -216,7 +212,7 @@ impl ChannelManager {
                     }
                 }
             }
-            
+
             warn!("Commit processor task ended (channel closed)");
         })
     }
@@ -226,10 +222,10 @@ impl ChannelManager {
     /// Returns the identities from the MLS group membership
     pub async fn get_channel_members(&self, channel_id: &ChannelId) -> MvpResult<Vec<Vec<u8>>> {
         let group_id = GroupId::new(channel_id.0.as_bytes().to_vec());
-        
+
         // Get group metadata
         let metadata = self.mls_service.get_metadata(&group_id).await?;
-        
+
         Ok(metadata.members.into_iter().map(|m| m.identity).collect())
     }
 
@@ -278,10 +274,7 @@ impl ChannelManager {
             .generate_key_package(self.identity.user_id.0.as_bytes().to_vec())
             .await?;
 
-        debug!(
-            "Generated key package: {} bytes",
-            key_package.len()
-        );
+        debug!("Generated key package: {} bytes", key_package.len());
 
         Ok(key_package)
     }
@@ -340,7 +333,8 @@ impl ChannelManager {
 
         // Step 1: Create MLS group
         debug!(group_id = ?group_id, "Creating MLS group");
-        let actual_group_id = self.mls_service
+        let actual_group_id = self
+            .mls_service
             .create_group(channel_identity.as_bytes(), Some(group_id.clone()))
             .await
             .map_err(|e| {
@@ -434,10 +428,8 @@ impl ChannelManager {
 
         // Add member via MLS service and get Welcome
         debug!("Adding member to MLS group");
-        let (commit, welcome_bytes, ratchet_tree) = self
-            .mls_service
-            .add_members(&group_id, vec![key_package])
-            .await?;
+        let (commit, welcome_bytes, ratchet_tree) =
+            self.mls_service.add_members(&group_id, vec![key_package]).await?;
 
         if welcome_bytes.is_empty() {
             warn!("No Welcome message generated");
@@ -452,7 +444,8 @@ impl ChannelManager {
         };
 
         // Get channel name and is_public flag
-        let channel_name = channel.get_name().cloned().unwrap_or_else(|| "Unnamed Channel".to_string());
+        let channel_name =
+            channel.get_name().cloned().unwrap_or_else(|| "Unnamed Channel".to_string());
         let is_public = false; // TODO: Get from channel metadata when implemented
 
         // Create invite token with channel metadata
@@ -495,7 +488,7 @@ impl ChannelManager {
                     commit_size = commit.len(),
                     "Broadcasting add member commit to channel"
                 );
-                
+
                 if let Err(e) = network.broadcast_commit(channel_id, commit.clone()).await {
                     warn!(
                         error = %e,
@@ -506,7 +499,11 @@ impl ChannelManager {
         }
 
         // Return invite and the commit for existing members
-        let commit_opt = if commit.is_empty() { None } else { Some(commit) };
+        let commit_opt = if commit.is_empty() {
+            None
+        } else {
+            Some(commit)
+        };
         Ok((invite, commit_opt))
     }
 
@@ -542,14 +539,11 @@ impl ChannelManager {
 
         // Join MLS group from Welcome
         debug!("Joining MLS group from Welcome");
-        
+
         // Convert ratchet tree to Vec<u8> if present
         let ratchet_tree_vec = invite.ratchet_tree.clone();
-        
-        let group_id = self
-            .mls_service
-            .join_group(&invite.welcome_blob, ratchet_tree_vec)
-            .await?;
+
+        let group_id = self.mls_service.join_group(&invite.welcome_blob, ratchet_tree_vec).await?;
 
         // Verify group ID matches channel ID
         let expected_group_id = GroupId::new(invite.channel_id.0.as_bytes().to_vec());
@@ -580,9 +574,7 @@ impl ChannelManager {
                     Timestamp::now(),
                     self.identity.node_id.clone(),
                 );
-                self.store.store_channel(&channel).map_err(|e| {
-                    MvpError::Store(e.to_string())
-                })?;
+                self.store.store_channel(&channel).map_err(|e| MvpError::Store(e.to_string()))?;
             }
             Err(e) => {
                 return Err(MvpError::Store(e.to_string()));
@@ -595,14 +587,14 @@ impl ChannelManager {
         );
 
         // Register inviter's peer ID if provided in invite (invite-based peer discovery)
-        if let (Some(ref network), Some(ref inviter_peer_id)) = (&self.network, &invite.inviter_peer_id) {
+        if let (Some(ref network), Some(ref inviter_peer_id)) =
+            (&self.network, &invite.inviter_peer_id)
+        {
             debug!("Registering inviter's peer ID from invite");
             let peer_id = crate::core_router::session_manager::PeerId(inviter_peer_id.clone());
-            network.register_channel_member(
-                &invite.channel_id,
-                invite.inviter.clone(),
-                peer_id,
-            ).await;
+            network
+                .register_channel_member(&invite.channel_id, invite.inviter.clone(), peer_id)
+                .await;
         }
 
         // Trigger peer discovery if network is enabled
@@ -648,7 +640,7 @@ impl ChannelManager {
         // Apply message padding for traffic analysis resistance
         let padded_plaintext = crate::core_mls::padding::pad_message(plaintext)
             .map_err(|e| MvpError::InvalidOperation(format!("Failed to pad message: {}", e)))?;
-        
+
         debug!(
             original_size = plaintext.len(),
             padded_size = padded_plaintext.len(),
@@ -667,7 +659,7 @@ impl ChannelManager {
                 channel_id = %channel_id,
                 "Broadcasting message over network"
             );
-            
+
             network
                 .broadcast_message(channel_id, ciphertext.clone(), &self.identity.user_id)
                 .await?;
@@ -718,8 +710,10 @@ impl ChannelManager {
                 Ok(Some(padded_plaintext)) => {
                     // Remove padding to get original message
                     let plaintext = crate::core_mls::padding::unpad_message(&padded_plaintext)
-                        .map_err(|e| MvpError::InvalidMessage(format!("Failed to unpad message: {}", e)))?;
-                    
+                        .map_err(|e| {
+                            MvpError::InvalidMessage(format!("Failed to unpad message: {}", e))
+                        })?;
+
                     info!(
                         group_id = ?group_id,
                         padded_size = padded_plaintext.len(),
@@ -738,9 +732,7 @@ impl ChannelManager {
         }
 
         warn!("Failed to decrypt message with any of {} groups", groups.len());
-        Err(MvpError::InvalidMessage(
-            "Could not decrypt message".to_string(),
-        ))
+        Err(MvpError::InvalidMessage("Could not decrypt message".to_string()))
     }
 
     /// Process a commit message from the group
@@ -786,9 +778,7 @@ impl ChannelManager {
         }
 
         warn!("Failed to process commit with any of {} groups", groups.len());
-        Err(MvpError::InvalidMessage(
-            "Could not process commit".to_string(),
-        ))
+        Err(MvpError::InvalidMessage("Could not process commit".to_string()))
     }
 
     /// Get the role of a specific member in a channel
@@ -807,11 +797,8 @@ impl ChannelManager {
         member_identity: &[u8],
     ) -> MvpResult<MemberRole> {
         let group_id = GroupId::new(channel_id.0.as_bytes().to_vec());
-        let metadata = self
-            .mls_service
-            .get_metadata(&group_id)
-            .await
-            .map_err(|e| MvpError::Mls(e))?;
+        let metadata =
+            self.mls_service.get_metadata(&group_id).await.map_err(|e| MvpError::Mls(e))?;
 
         metadata
             .members
@@ -887,7 +874,7 @@ impl ChannelManager {
     /// // Alice removes Bob from the channel
     /// let bob_identity = bob_user_id.0.as_bytes();
     /// let commit = alice.remove_member(&channel_id, bob_identity).await?;
-    /// 
+    ///
     /// // Charlie and Dave process the removal commit
     /// charlie.process_commit(&commit).await?;
     /// dave.process_commit(&commit).await?;
@@ -914,9 +901,7 @@ impl ChannelManager {
                 actor = ?std::str::from_utf8(actor_identity).unwrap_or("<non-utf8>"),
                 "Permission denied: Actor is not an admin"
             );
-            return Err(MvpError::InvalidOperation(
-                "Only admins can remove members".to_string(),
-            ));
+            return Err(MvpError::InvalidOperation("Only admins can remove members".to_string()));
         }
 
         debug!("Permission check passed");
@@ -925,14 +910,10 @@ impl ChannelManager {
         let group_id = GroupId::new(channel_id.0.as_bytes().to_vec());
 
         // Get group metadata to find the member's leaf index
-        let metadata = self
-            .mls_service
-            .get_metadata(&group_id)
-            .await
-            .map_err(|e| {
-                warn!(error = ?e, "Failed to get group metadata");
-                MvpError::Mls(e)
-            })?;
+        let metadata = self.mls_service.get_metadata(&group_id).await.map_err(|e| {
+            warn!(error = ?e, "Failed to get group metadata");
+            MvpError::Mls(e)
+        })?;
 
         // Find the member's leaf index
         let leaf_index = metadata
@@ -954,14 +935,14 @@ impl ChannelManager {
         debug!(leaf_index, "Found member's leaf index");
 
         // Remove the member via MLS service
-        let commit = self
-            .mls_service
-            .remove_members(&group_id, vec![leaf_index])
-            .await
-            .map_err(|e| {
-                warn!(error = ?e, "Failed to remove member");
-                MvpError::Mls(e)
-            })?;
+        let commit =
+            self.mls_service
+                .remove_members(&group_id, vec![leaf_index])
+                .await
+                .map_err(|e| {
+                    warn!(error = ?e, "Failed to remove member");
+                    MvpError::Mls(e)
+                })?;
 
         // Broadcast removal commit to remaining channel members
         if let Some(ref network) = self.network {
@@ -970,7 +951,7 @@ impl ChannelManager {
                 commit_size = commit.len(),
                 "Broadcasting removal commit to channel"
             );
-            
+
             if let Err(e) = network.broadcast_commit(channel_id, commit.clone()).await {
                 warn!(
                     error = %e,
@@ -1019,9 +1000,7 @@ impl ChannelManager {
         // Check permission: Only admins can promote
         let actor_identity = self.identity.user_id.0.as_bytes();
         if !self.is_admin(channel_id, actor_identity).await? {
-            return Err(MvpError::InvalidOperation(
-                "Only admins can promote members".to_string(),
-            ));
+            return Err(MvpError::InvalidOperation("Only admins can promote members".to_string()));
         }
 
         // Verify member exists
@@ -1071,9 +1050,7 @@ impl ChannelManager {
         // Check permission: Only admins can demote
         let actor_identity = self.identity.user_id.0.as_bytes();
         if !self.is_admin(channel_id, actor_identity).await? {
-            return Err(MvpError::InvalidOperation(
-                "Only admins can demote members".to_string(),
-            ));
+            return Err(MvpError::InvalidOperation("Only admins can demote members".to_string()));
         }
 
         // Verify member exists
@@ -1163,13 +1140,9 @@ impl ChannelManager {
     /// # Errors
     ///
     /// Returns error if user has already reacted with this emoji
-    pub async fn add_reaction(
-        &self,
-        message_id: &MessageId,
-        emoji: String,
-    ) -> MvpResult<()> {
+    pub async fn add_reaction(&self, message_id: &MessageId, emoji: String) -> MvpResult<()> {
         let user_id = self.identity.user_id.clone();
-        
+
         info!(
             message_id = %message_id,
             emoji = %emoji,
@@ -1213,13 +1186,9 @@ impl ChannelManager {
     /// # Errors
     ///
     /// Returns error if reaction doesn't exist
-    pub async fn remove_reaction(
-        &self,
-        message_id: &MessageId,
-        emoji: String,
-    ) -> MvpResult<()> {
+    pub async fn remove_reaction(&self, message_id: &MessageId, emoji: String) -> MvpResult<()> {
         let user_id = self.identity.user_id.clone();
-        
+
         info!(
             message_id = %message_id,
             emoji = %emoji,
@@ -1228,15 +1197,13 @@ impl ChannelManager {
         );
 
         let mut reactions = self.reactions.write().await;
-        
+
         if let Some(message_reactions) = reactions.get_mut(message_id) {
             let initial_len = message_reactions.len();
             message_reactions.retain(|r| !(r.user_id == user_id && r.emoji == emoji));
-            
+
             if message_reactions.len() == initial_len {
-                return Err(MvpError::InvalidOperation(
-                    "Reaction not found".to_string(),
-                ));
+                return Err(MvpError::InvalidOperation("Reaction not found".to_string()));
             }
 
             debug!(
@@ -1247,9 +1214,7 @@ impl ChannelManager {
 
             Ok(())
         } else {
-            Err(MvpError::InvalidOperation(
-                "No reactions found for this message".to_string(),
-            ))
+            Err(MvpError::InvalidOperation("No reactions found for this message".to_string()))
         }
     }
 
@@ -1262,25 +1227,16 @@ impl ChannelManager {
     /// # Returns
     ///
     /// List of reaction summaries grouped by emoji
-    pub async fn get_reactions(
-        &self,
-        message_id: &MessageId,
-    ) -> MvpResult<Vec<ReactionSummary>> {
+    pub async fn get_reactions(&self, message_id: &MessageId) -> MvpResult<Vec<ReactionSummary>> {
         let reactions = self.reactions.read().await;
         let user_id = self.identity.user_id.clone();
 
-        let message_reactions = reactions
-            .get(message_id)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[]);
+        let message_reactions = reactions.get(message_id).map(|v| v.as_slice()).unwrap_or(&[]);
 
         // Group reactions by emoji
         let mut emoji_map: HashMap<String, Vec<&Reaction>> = HashMap::new();
         for reaction in message_reactions {
-            emoji_map
-                .entry(reaction.emoji.clone())
-                .or_insert_with(Vec::new)
-                .push(reaction);
+            emoji_map.entry(reaction.emoji.clone()).or_insert_with(Vec::new).push(reaction);
         }
 
         // Convert to ReactionSummary
@@ -1289,20 +1245,13 @@ impl ChannelManager {
             .map(|(emoji, reactions)| {
                 let users: Vec<UserId> = reactions.iter().map(|r| r.user_id.clone()).collect();
                 let user_reacted = users.contains(&user_id);
-                
-                ReactionSummary {
-                    emoji,
-                    count: reactions.len(),
-                    users,
-                    user_reacted,
-                }
+
+                ReactionSummary { emoji, count: reactions.len(), users, user_reacted }
             })
             .collect();
 
         // Sort by count (descending), then by emoji
-        summaries.sort_by(|a, b| {
-            b.count.cmp(&a.count).then_with(|| a.emoji.cmp(&b.emoji))
-        });
+        summaries.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.emoji.cmp(&b.emoji)));
 
         Ok(summaries)
     }
@@ -1322,10 +1271,10 @@ impl ChannelManager {
             .entry(message.channel_id.clone())
             .or_insert_with(Vec::new)
             .push(message.clone());
-        
+
         // Convert ChatMessage to store Message format
         use crate::core_store::model::Message as StoreMessage;
-        
+
         let store_msg = StoreMessage::new(
             message.message_id.clone(),
             message.channel_id.clone(),
@@ -1333,12 +1282,12 @@ impl ChannelManager {
             message.body.clone(), // In production, this would be encrypted
             message.timestamp,
         );
-        
+
         // Persist to CRDT store
         self.store
             .store_message(&store_msg)
             .map_err(|e| MvpError::Store(e.to_string()))?;
-        
+
         Ok(())
     }
 
@@ -1351,16 +1300,17 @@ impl ChannelManager {
     /// * `channel_id` - Channel to load messages for
     pub async fn load_channel_messages(&self, channel_id: &ChannelId) -> MvpResult<()> {
         use crate::core_store::model::Message as StoreMessage;
-        
+
         // Get messages from store
-        let store_messages = self.store
+        let store_messages = self
+            .store
             .get_channel_messages(channel_id)
             .map_err(|e| MvpError::Store(e.to_string()))?;
-        
+
         // Convert to ChatMessage and load into memory
         let mut messages = self.messages.write().await;
         let channel_messages = messages.entry(channel_id.clone()).or_insert_with(Vec::new);
-        
+
         for store_msg in store_messages {
             // Convert store Message to ChatMessage
             let chat_msg = ChatMessage {
@@ -1372,16 +1322,16 @@ impl ChannelManager {
                 reply_to: store_msg.reply_to.clone(),
                 message_type: crate::core_mvp::types::MessageType::Text,
             };
-            
+
             channel_messages.push(chat_msg);
         }
-        
+
         debug!(
             channel_id = %channel_id,
             count = channel_messages.len(),
             "Loaded messages from store"
         );
-        
+
         Ok(())
     }
 
@@ -1394,7 +1344,10 @@ impl ChannelManager {
     /// # Returns
     ///
     /// Vector of messages from the persistent store
-    pub async fn get_stored_messages(&self, channel_id: &ChannelId) -> MvpResult<Vec<crate::core_store::model::Message>> {
+    pub async fn get_stored_messages(
+        &self,
+        channel_id: &ChannelId,
+    ) -> MvpResult<Vec<crate::core_store::model::Message>> {
         self.store
             .get_channel_messages(channel_id)
             .map_err(|e| MvpError::Store(e.to_string()))
@@ -1431,7 +1384,10 @@ impl ChannelManager {
     /// # Returns
     ///
     /// Vector of reply messages from the store
-    pub async fn get_stored_thread_replies(&self, parent_id: &MessageId) -> MvpResult<Vec<crate::core_store::model::Message>> {
+    pub async fn get_stored_thread_replies(
+        &self,
+        parent_id: &MessageId,
+    ) -> MvpResult<Vec<crate::core_store::model::Message>> {
         self.store
             .get_thread_replies(parent_id)
             .map_err(|e| MvpError::Store(e.to_string()))
@@ -1450,10 +1406,10 @@ impl ChannelManager {
     /// ThreadInfo with reply count, participants, and last reply info
     pub async fn get_thread_info(&self, message_id: &MessageId) -> MvpResult<Option<ThreadInfo>> {
         let messages_lock = self.messages.read().await;
-        
+
         // Find all messages across all channels that reply to this message
         let mut replies: Vec<&ChatMessage> = Vec::new();
-        
+
         for channel_messages in messages_lock.values() {
             for msg in channel_messages {
                 if let Some(reply_to) = &msg.reply_to {
@@ -1469,28 +1425,20 @@ impl ChannelManager {
         }
 
         // Collect unique participants
-        let mut participants: Vec<UserId> = replies
-            .iter()
-            .map(|msg| msg.sender.clone())
-            .collect();
+        let mut participants: Vec<UserId> = replies.iter().map(|msg| msg.sender.clone()).collect();
         participants.sort();
         participants.dedup();
 
         // Get last reply
-        let last_reply = replies
-            .iter()
-            .max_by_key(|msg| msg.timestamp)
-            .unwrap();
+        let last_reply = replies.iter().max_by_key(|msg| msg.timestamp).unwrap();
 
-        let last_reply_preview = last_reply
-            .body_as_string()
-            .map(|s| {
-                if s.len() > 100 {
-                    format!("{}...", &s[..100])
-                } else {
-                    s
-                }
-            });
+        let last_reply_preview = last_reply.body_as_string().map(|s| {
+            if s.len() > 100 {
+                format!("{}...", &s[..100])
+            } else {
+                s
+            }
+        });
 
         Ok(Some(ThreadInfo {
             root_message_id: message_id.clone(),
@@ -1513,9 +1461,9 @@ impl ChannelManager {
     /// Vector of ChatMessages that reply to the given message, sorted by timestamp
     pub async fn get_thread_replies(&self, message_id: &MessageId) -> MvpResult<Vec<ChatMessage>> {
         let messages_lock = self.messages.read().await;
-        
+
         let mut replies: Vec<ChatMessage> = Vec::new();
-        
+
         for channel_messages in messages_lock.values() {
             for msg in channel_messages {
                 if let Some(reply_to) = &msg.reply_to {
@@ -1546,7 +1494,7 @@ impl ChannelManager {
         message_id: &MessageId,
     ) -> MvpResult<Option<MessageWithThread>> {
         let messages_lock = self.messages.read().await;
-        
+
         // Find the message
         let mut found_message: Option<ChatMessage> = None;
         for channel_messages in messages_lock.values() {
@@ -1580,11 +1528,7 @@ impl ChannelManager {
             None
         };
 
-        Ok(Some(MessageWithThread {
-            message,
-            thread_info,
-            parent_message,
-        }))
+        Ok(Some(MessageWithThread { message, thread_info, parent_message }))
     }
 
     /// Get all root messages (messages that are not replies) in a channel
@@ -1601,7 +1545,7 @@ impl ChannelManager {
         channel_id: &ChannelId,
     ) -> MvpResult<Vec<MessageWithThread>> {
         let messages_lock = self.messages.read().await;
-        
+
         let channel_messages = match messages_lock.get(channel_id) {
             Some(msgs) => msgs,
             None => return Ok(Vec::new()),
@@ -1613,7 +1557,7 @@ impl ChannelManager {
             // Only process root messages (not replies)
             if msg.reply_to.is_none() {
                 let thread_info = self.get_thread_info(&msg.message_id).await?;
-                
+
                 threads.push(MessageWithThread {
                     message: msg.clone(),
                     thread_info,
@@ -1695,8 +1639,7 @@ impl ChannelManager {
 mod tests {
     use super::*;
     use crate::{
-        config::Config,
-        core_store::store::local_store::LocalStoreConfig,
+        config::Config, core_store::store::local_store::LocalStoreConfig,
         shutdown::ShutdownCoordinator,
     };
     use tempfile::tempdir;
@@ -1726,12 +1669,7 @@ mod tests {
             "node_1".to_string(),
         ));
 
-        let manager = Arc::new(ChannelManager::new(
-            mls_service,
-            store,
-            identity,
-            config,
-        ));
+        let manager = Arc::new(ChannelManager::new(mls_service, store, identity, config));
 
         (manager, temp_dir)
     }
@@ -1740,10 +1678,7 @@ mod tests {
     async fn test_create_channel() {
         let (manager, _temp_dir) = create_test_manager().await;
 
-        let channel_id = manager
-            .create_channel("test_channel".to_string(), false)
-            .await
-            .unwrap();
+        let channel_id = manager.create_channel("test_channel".to_string(), false).await.unwrap();
 
         // Verify channel exists
         let descriptor = manager.get_channel(&channel_id).await.unwrap();

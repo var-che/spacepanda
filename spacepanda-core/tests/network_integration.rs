@@ -1,21 +1,22 @@
+use async_trait::async_trait;
 /// Integration tests for P2P networking between ChannelManagers
 ///
 /// Tests end-to-end message delivery over the network layer
-/// 
+///
 /// SECURITY NOTE: Peer discovery now uses invite-based exchange instead of DHT
 /// to prevent metadata leakage and maintain privacy-first architecture.
-
 use spacepanda_core::config::Config;
 use spacepanda_core::core_mls::service::MlsService;
 use spacepanda_core::core_mvp::network::NetworkLayer;
-use spacepanda_core::core_mvp::peer_discovery::{NoPeerDiscovery, PeerDiscovery, PeerDiscoveryService};
+use spacepanda_core::core_mvp::peer_discovery::{
+    NoPeerDiscovery, PeerDiscovery, PeerDiscoveryService,
+};
 use spacepanda_core::core_router::session_manager::PeerId;
 use spacepanda_core::core_router::RouterHandle;
 use spacepanda_core::core_store::model::types::{ChannelId, UserId};
 use spacepanda_core::core_store::store::{LocalStore, LocalStoreConfig};
 use spacepanda_core::shutdown::ShutdownCoordinator;
 use spacepanda_core::{ChannelManager, Identity};
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -28,9 +29,7 @@ struct MockPeerDiscovery {
 
 impl MockPeerDiscovery {
     fn new() -> Self {
-        Self {
-            mappings: Arc::new(RwLock::new(HashMap::new())),
-        }
+        Self { mappings: Arc::new(RwLock::new(HashMap::new())) }
     }
 
     async fn register(&self, identity: Vec<u8>, peer_id: PeerId) {
@@ -110,7 +109,10 @@ async fn test_register_channel_members() {
     let (manager2, _network2, _dir2) = create_networked_manager("bob", vec![5, 6, 7, 8]).await;
 
     // Create a channel on manager1
-    let channel_id = manager1.create_channel("test-network-channel".to_string(), false).await.unwrap();
+    let channel_id = manager1
+        .create_channel("test-network-channel".to_string(), false)
+        .await
+        .unwrap();
 
     // Register both users in the network layer
     let alice_user_id = manager1.identity().user_id.clone();
@@ -148,9 +150,7 @@ async fn test_send_message_with_network() {
         .await;
 
     // Send a message - this will attempt to broadcast over network
-    let result = manager1
-        .send_message(&channel_id, "Hello from Alice!".as_bytes())
-        .await;
+    let result = manager1.send_message(&channel_id, "Hello from Alice!".as_bytes()).await;
 
     // The message should be sent successfully (even though router is mock)
     assert!(result.is_ok(), "Message send failed: {:?}", result.err());
@@ -160,25 +160,18 @@ async fn test_send_message_with_network() {
 async fn test_network_broadcast_to_multiple_peers() {
     let (manager1, network1, _dir1) = create_networked_manager("alice", vec![1, 2, 3, 4]).await;
     let (_manager2, _network2, _dir2) = create_networked_manager("bob", vec![5, 6, 7, 8]).await;
-    let (_manager3, _network3, _dir3) = create_networked_manager("charlie", vec![9, 10, 11, 12]).await;
+    let (_manager3, _network3, _dir3) =
+        create_networked_manager("charlie", vec![9, 10, 11, 12]).await;
 
     // Create channel
     let channel_id = manager1.create_channel("multi-peer-test".to_string(), false).await.unwrap();
 
     // Register three users
     network1
-        .register_channel_member(
-            &channel_id,
-            UserId("alice".to_string()),
-            PeerId(vec![1, 2, 3, 4]),
-        )
+        .register_channel_member(&channel_id, UserId("alice".to_string()), PeerId(vec![1, 2, 3, 4]))
         .await;
     network1
-        .register_channel_member(
-            &channel_id,
-            UserId("bob".to_string()),
-            PeerId(vec![5, 6, 7, 8]),
-        )
+        .register_channel_member(&channel_id, UserId("bob".to_string()), PeerId(vec![5, 6, 7, 8]))
         .await;
     network1
         .register_channel_member(
@@ -193,9 +186,7 @@ async fn test_network_broadcast_to_multiple_peers() {
     assert_eq!(peers.len(), 3);
 
     // Send message should broadcast to all 3 peers (though router is mock)
-    let result = manager1
-        .send_message(&channel_id, "Broadcast message".as_bytes())
-        .await;
+    let result = manager1.send_message(&channel_id, "Broadcast message".as_bytes()).await;
 
     assert!(result.is_ok());
 }
@@ -209,7 +200,7 @@ async fn test_peer_discovery_on_channel_creation() {
 
     // Verify we can get channel members (discovery attempt was made)
     let members = manager.get_channel_members(&channel_id).await.unwrap();
-    
+
     // Creator should be the only member
     assert_eq!(members.len(), 1);
 }
@@ -220,7 +211,8 @@ async fn test_peer_discovery_on_channel_join() {
     let (manager2, _network2, _dir2) = create_networked_manager("bob", vec![5, 6, 7, 8]).await;
 
     // Alice creates channel
-    let channel_id = manager1.create_channel("join-discovery-test".to_string(), false).await.unwrap();
+    let channel_id =
+        manager1.create_channel("join-discovery-test".to_string(), false).await.unwrap();
 
     // Alice generates key package for Bob
     let bob_key_package = manager2.generate_key_package().await.unwrap();
@@ -241,7 +233,7 @@ async fn test_peer_discovery_on_channel_join() {
 async fn test_peer_discovery_integration() {
     // Create mock discovery service
     let discovery = Arc::new(MockPeerDiscovery::new());
-    
+
     // Create two managers
     let (manager1, network1, _dir1) = create_networked_manager("alice", vec![1, 2, 3, 4]).await;
     let (manager2, _network2, _dir2) = create_networked_manager("bob", vec![5, 6, 7, 8]).await;
@@ -283,7 +275,10 @@ async fn test_peer_discovery_integration() {
         .with_peer_discovery(discovery.clone() as PeerDiscoveryService);
 
     // Create channel - should trigger peer discovery
-    let channel_id = manager_with_discovery.create_channel("discovery-integration".to_string(), false).await.unwrap();
+    let channel_id = manager_with_discovery
+        .create_channel("discovery-integration".to_string(), false)
+        .await
+        .unwrap();
 
     // Verify discovery was called (peer should be registered if identity matches)
     let members = manager_with_discovery.get_channel_members(&channel_id).await.unwrap();
@@ -348,9 +343,7 @@ async fn test_manager_without_network_still_works() {
 
     // Should still be able to create channels and send messages
     let channel_id = manager.create_channel("local-channel".to_string(), false).await.unwrap();
-    let result = manager
-        .send_message(&channel_id, "Local message".as_bytes())
-        .await;
+    let result = manager.send_message(&channel_id, "Local message".as_bytes()).await;
 
     assert!(result.is_ok());
 }

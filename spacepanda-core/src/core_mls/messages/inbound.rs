@@ -177,11 +177,11 @@ mod tests {
     #[tokio::test]
     async fn test_verify_envelope_metadata_valid() {
         use crate::core_mls::sealed_sender;
-        
+
         let handler = InboundHandler::new();
         let group_id = GroupId::random();
         let epoch = 10;
-        
+
         // Create sealed sender
         let key = sealed_sender::derive_sender_key(b"test_secret");
         let sealed = sealed_sender::seal_sender(b"alice@example.com", &key, epoch)
@@ -202,12 +202,12 @@ mod tests {
     #[tokio::test]
     async fn test_verify_envelope_metadata_wrong_group() {
         use crate::core_mls::sealed_sender;
-        
+
         let handler = InboundHandler::new();
         let group_id = GroupId::random();
         let wrong_group_id = GroupId::random();
         let epoch = 10;
-        
+
         // Create sealed sender
         let key = sealed_sender::derive_sender_key(b"test_secret");
         let sealed = sealed_sender::seal_sender(b"alice@example.com", &key, epoch)
@@ -228,11 +228,11 @@ mod tests {
     #[tokio::test]
     async fn test_verify_envelope_metadata_epoch_too_old() {
         use crate::core_mls::sealed_sender;
-        
+
         let handler = InboundHandler::new();
         let group_id = GroupId::random();
         let epoch = 3;
-        
+
         // Create sealed sender
         let key = sealed_sender::derive_sender_key(b"test_secret");
         let sealed = sealed_sender::seal_sender(b"alice@example.com", &key, epoch)
@@ -253,11 +253,11 @@ mod tests {
     #[tokio::test]
     async fn test_verify_envelope_metadata_epoch_too_new() {
         use crate::core_mls::sealed_sender;
-        
+
         let handler = InboundHandler::new();
         let group_id = GroupId::random();
         let epoch = 20;
-        
+
         // Create sealed sender
         let key = sealed_sender::derive_sender_key(b"test_secret");
         let sealed = sealed_sender::seal_sender(b"alice@example.com", &key, epoch)

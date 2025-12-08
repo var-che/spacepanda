@@ -44,7 +44,7 @@ mod tests {
         let start = Instant::now();
         let messages = storage.load_messages(group_id, 100, 0).await.unwrap();
         let read_duration = start.elapsed();
-        
+
         assert_eq!(messages.len(), 100);
         assert_eq!(messages[0].3, 9999); // Most recent
         println!("Read first page (100) in {:?}", read_duration);
@@ -53,7 +53,7 @@ mod tests {
         let start = Instant::now();
         let messages = storage.load_messages(group_id, 100, 5000).await.unwrap();
         let mid_page_duration = start.elapsed();
-        
+
         assert_eq!(messages.len(), 100);
         assert_eq!(messages[0].3, 4999);
         println!("Read middle page (100) in {:?}", mid_page_duration);
@@ -62,7 +62,7 @@ mod tests {
         let start = Instant::now();
         let count = storage.get_unprocessed_count(group_id).await.unwrap();
         let count_duration = start.elapsed();
-        
+
         assert_eq!(count, 10_000);
         println!("Counted 10,000 unprocessed in {:?}", count_duration);
 
@@ -70,7 +70,7 @@ mod tests {
         let start = Instant::now();
         let deleted = storage.prune_old_messages(group_id, 1000).await.unwrap();
         let prune_duration = start.elapsed();
-        
+
         assert_eq!(deleted, 9_000);
         println!("Pruned 9,000 messages in {:?}", prune_duration);
 
@@ -103,7 +103,7 @@ mod tests {
         let start = Instant::now();
         let channels = storage.list_channels(false).await.unwrap();
         let list_duration = start.elapsed();
-        
+
         assert_eq!(channels.len(), 1000);
         println!("Listed 1,000 channels in {:?}", list_duration);
 
@@ -147,12 +147,9 @@ mod tests {
         for i in 0..1_000 {
             let group_id = format!("group_{}", i).into_bytes();
             let large_data = vec![0u8; 10_000]; // 10KB per group
-            
-            let snapshot = PersistedGroupSnapshot {
-                group_id,
-                epoch: i as u64,
-                serialized_group: large_data,
-            };
+
+            let snapshot =
+                PersistedGroupSnapshot { group_id, epoch: i as u64, serialized_group: large_data };
 
             storage.save_group_snapshot(snapshot).await.unwrap();
         }
@@ -163,7 +160,7 @@ mod tests {
         let start = Instant::now();
         let groups = storage.list_groups().await.unwrap();
         let list_duration = start.elapsed();
-        
+
         assert_eq!(groups.len(), 1000);
         println!("Listed 1,000 groups in {:?}", list_duration);
 
@@ -171,7 +168,7 @@ mod tests {
         let start = Instant::now();
         let loaded = storage.load_group_snapshot(&b"group_500".to_vec()).await.unwrap();
         let load_duration = start.elapsed();
-        
+
         assert_eq!(loaded.serialized_group.len(), 10_000);
         println!("Loaded 10KB group snapshot in {:?}", load_duration);
     }
@@ -192,10 +189,7 @@ mod tests {
         // Save 5,000 messages
         for i in 0..5_000 {
             let msg_id = format!("msg_{}", i).into_bytes();
-            storage
-                .save_message(&msg_id, group_id, b"content", b"sender", i)
-                .await
-                .unwrap();
+            storage.save_message(&msg_id, group_id, b"content", b"sender", i).await.unwrap();
         }
 
         // Mark all as processed
@@ -266,10 +260,7 @@ mod tests {
         // Save 1,000 messages with known sequence
         for i in 0..1_000 {
             let msg_id = format!("msg_{:04}", i).into_bytes();
-            storage
-                .save_message(&msg_id, group_id, b"content", b"sender", i)
-                .await
-                .unwrap();
+            storage.save_message(&msg_id, group_id, b"content", b"sender", i).await.unwrap();
         }
 
         // Paginate through all messages and verify order
@@ -277,10 +268,8 @@ mod tests {
         let mut all_sequences = Vec::new();
 
         for page in 0..20 {
-            let messages = storage
-                .load_messages(group_id, page_size, page * page_size)
-                .await
-                .unwrap();
+            let messages =
+                storage.load_messages(group_id, page_size, page * page_size).await.unwrap();
 
             for msg in messages {
                 all_sequences.push(msg.3); // sequence number
@@ -315,10 +304,7 @@ mod tests {
         for i in 0..1_000 {
             let msg_id = format!("msg_{}", i).into_bytes();
             let content = vec![0u8; 1024]; // 1KB
-            storage
-                .save_message(&msg_id, group_id, &content, b"sender", i)
-                .await
-                .unwrap();
+            storage.save_message(&msg_id, group_id, &content, b"sender", i).await.unwrap();
         }
 
         // Check database file size
@@ -380,12 +366,12 @@ mod tests {
         for task_id in 0..10 {
             let storage = storage.clone();
             let group_id = group_id.to_vec();
-            
+
             tasks.spawn(async move {
                 for i in 0..100 {
                     let msg_id = format!("task_{}_msg_{}", task_id, i).into_bytes();
                     let sequence = (task_id * 100 + i) as i64;
-                    
+
                     storage
                         .save_message(&msg_id, &group_id, b"content", b"sender", sequence)
                         .await

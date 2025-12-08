@@ -22,17 +22,11 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         match self {
             ApiError::Internal(err) => {
-                let error_response = ErrorResponse {
-                    error: err.to_string(),
-                    details: None,
-                };
+                let error_response = ErrorResponse { error: err.to_string(), details: None };
                 (StatusCode::INTERNAL_SERVER_ERROR, Json(error_response)).into_response()
             }
             ApiError::NotFound(msg) => {
-                let error_response = ErrorResponse {
-                    error: msg,
-                    details: None,
-                };
+                let error_response = ErrorResponse { error: msg, details: None };
                 (StatusCode::NOT_FOUND, Json(error_response)).into_response()
             }
         }
@@ -55,32 +49,31 @@ type ApiResult<T> = Result<T, ApiError>;
 // ============================================================================
 
 /// POST /identity/create - Create a new identity
-pub async fn create_identity(State(state): State<Arc<AppState>>) -> ApiResult<Json<IdentityCreateResponse>> {
+pub async fn create_identity(
+    State(state): State<Arc<AppState>>,
+) -> ApiResult<Json<IdentityCreateResponse>> {
     // For now, generate a simple identity (in production, this would use core_identity)
     // Using the channel manager's underlying provider
     let identity_id = uuid::uuid!("00000000-0000-0000-0000-000000000001").to_string();
     let public_key = vec![0u8; 32]; // Placeholder - would be real public key
-    
-    let identity = super::state::Identity {
-        identity_id: identity_id.clone(),
-        public_key: public_key.clone(),
-    };
-    
+
+    let identity =
+        super::state::Identity { identity_id: identity_id.clone(), public_key: public_key.clone() };
+
     state.set_identity(identity).await;
-    
-    Ok(Json(IdentityCreateResponse {
-        identity_id,
-        public_key,
-    }))
+
+    Ok(Json(IdentityCreateResponse { identity_id, public_key }))
 }
 
 /// GET /identity/me - Get current identity
-pub async fn get_identity(State(state): State<Arc<AppState>>) -> ApiResult<Json<IdentityInfoResponse>> {
+pub async fn get_identity(
+    State(state): State<Arc<AppState>>,
+) -> ApiResult<Json<IdentityInfoResponse>> {
     let identity = state
         .get_identity()
         .await
         .ok_or_else(|| anyhow::anyhow!("No identity created yet"))?;
-    
+
     Ok(Json(IdentityInfoResponse {
         identity_id: identity.identity_id,
         public_key: identity.public_key,
@@ -96,11 +89,8 @@ pub async fn create_channel(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ChannelCreateRequest>,
 ) -> ApiResult<Json<ChannelCreateResponse>> {
-    let channel_id = state
-        .channel_manager
-        .create_channel(req.name.clone(), req.is_public)
-        .await?;
-    
+    let channel_id = state.channel_manager.create_channel(req.name.clone(), req.is_public).await?;
+
     Ok(Json(ChannelCreateResponse {
         channel_id: channel_id.0,
         name: req.name,
@@ -114,11 +104,8 @@ pub async fn get_channel(
     Path(channel_id): Path<String>,
 ) -> ApiResult<Json<ChannelInfoResponse>> {
     let channel_id_typed = ChannelId(channel_id.clone());
-    let channel = state
-        .channel_manager
-        .get_channel(&channel_id_typed)
-        .await?;
-    
+    let channel = state.channel_manager.get_channel(&channel_id_typed).await?;
+
     Ok(Json(ChannelInfoResponse {
         channel_id,
         name: channel.name,
@@ -134,19 +121,14 @@ pub async fn create_invite(
     Json(req): Json<InviteRequest>,
 ) -> ApiResult<Json<InviteResponse>> {
     let channel_id_typed = ChannelId(channel_id);
-    let (invite_token, commit) = state
-        .channel_manager
-        .create_invite(&channel_id_typed, req.key_package)
-        .await?;
-    
+    let (invite_token, commit) =
+        state.channel_manager.create_invite(&channel_id_typed, req.key_package).await?;
+
     // Serialize the invite token
     let invite_bytes = bincode::serialize(&invite_token)
         .map_err(|e| anyhow::anyhow!("Failed to serialize invite: {}", e))?;
-    
-    Ok(Json(InviteResponse {
-        invite_token: invite_bytes,
-        commit,
-    }))
+
+    Ok(Json(InviteResponse { invite_token: invite_bytes, commit }))
 }
 
 /// POST /channels/:id/join - Join a channel
@@ -158,15 +140,12 @@ pub async fn join_channel(
     // Deserialize the invite token
     let invite_token: InviteToken = bincode::deserialize(&req.invite_token)
         .map_err(|e| anyhow::anyhow!("Failed to deserialize invite: {}", e))?;
-    
+
     let channel_name = invite_token.channel_name.clone();
     let is_public = invite_token.is_public;
-    
-    let channel_id = state
-        .channel_manager
-        .join_channel(&invite_token)
-        .await?;
-    
+
+    let channel_id = state.channel_manager.join_channel(&invite_token).await?;
+
     Ok(Json(JoinResponse {
         channel_id: channel_id.0,
         channel_name,
@@ -181,14 +160,11 @@ pub async fn list_members(
     Path(channel_id): Path<String>,
 ) -> ApiResult<Json<MemberListResponse>> {
     let channel_id_typed = ChannelId(channel_id);
-    let _channel = state
-        .channel_manager
-        .get_channel(&channel_id_typed)
-        .await?;
-    
+    let _channel = state.channel_manager.get_channel(&channel_id_typed).await?;
+
     // TODO: Get actual members from MLS group
     let members = vec![];
-    
+
     Ok(Json(MemberListResponse { members }))
 }
 
@@ -207,13 +183,10 @@ pub async fn send_message(
         .channel_manager
         .send_message(&channel_id_typed, req.plaintext.as_bytes())
         .await?;
-    
+
     let message_id = uuid::Uuid::new_v4().to_string();
-    
-    Ok(Json(SendMessageResponse {
-        message_id,
-        encrypted_bytes: encrypted.len(),
-    }))
+
+    Ok(Json(SendMessageResponse { message_id, encrypted_bytes: encrypted.len() }))
 }
 
 /// GET /channels/:id/messages - Get message history
@@ -222,7 +195,7 @@ pub async fn get_messages(
     Path(channel_id): Path<String>,
 ) -> ApiResult<Json<MessageHistoryResponse>> {
     let messages = state.get_messages(&channel_id).await;
-    
+
     let message_infos = messages
         .into_iter()
         .map(|msg| MessageInfo {
@@ -232,10 +205,8 @@ pub async fn get_messages(
             timestamp: msg.timestamp,
         })
         .collect();
-    
-    Ok(Json(MessageHistoryResponse {
-        messages: message_infos,
-    }))
+
+    Ok(Json(MessageHistoryResponse { messages: message_infos }))
 }
 
 // ============================================================================
@@ -248,11 +219,8 @@ pub async fn process_commit(
     Path(channel_id): Path<String>,
     Json(commit): Json<Vec<u8>>,
 ) -> ApiResult<StatusCode> {
-    state
-        .channel_manager
-        .process_commit(&commit)
-        .await?;
-    
+    state.channel_manager.process_commit(&commit).await?;
+
     Ok(StatusCode::OK)
 }
 
@@ -263,20 +231,14 @@ pub async fn remove_member(
     Json(req): Json<RemoveMemberRequest>,
 ) -> ApiResult<Json<RemoveMemberResponse>> {
     let channel_id = ChannelId(channel_id);
-    
+
     // Convert member_id string to bytes
     let member_identity = req.member_id.as_bytes();
-    
+
     // Remove the member
-    let commit = state
-        .channel_manager
-        .remove_member(&channel_id, member_identity)
-        .await?;
-    
-    Ok(Json(RemoveMemberResponse {
-        commit,
-        removed_member_id: req.member_id,
-    }))
+    let commit = state.channel_manager.remove_member(&channel_id, member_identity).await?;
+
+    Ok(Json(RemoveMemberResponse { commit, removed_member_id: req.member_id }))
 }
 
 /// POST /channels/:id/promote-member - Promote a member to Admin
@@ -287,12 +249,9 @@ pub async fn promote_member(
 ) -> ApiResult<Json<PromoteMemberResponse>> {
     let channel_id = ChannelId(channel_id);
     let member_identity = req.member_id.as_bytes();
-    
-    state
-        .channel_manager
-        .promote_member(&channel_id, member_identity)
-        .await?;
-    
+
+    state.channel_manager.promote_member(&channel_id, member_identity).await?;
+
     Ok(Json(PromoteMemberResponse {
         member_id: req.member_id,
         new_role: "Admin".to_string(),
@@ -307,12 +266,9 @@ pub async fn demote_member(
 ) -> ApiResult<Json<DemoteMemberResponse>> {
     let channel_id = ChannelId(channel_id);
     let member_identity = req.member_id.as_bytes();
-    
-    state
-        .channel_manager
-        .demote_member(&channel_id, member_identity)
-        .await?;
-    
+
+    state.channel_manager.demote_member(&channel_id, member_identity).await?;
+
     Ok(Json(DemoteMemberResponse {
         member_id: req.member_id,
         new_role: "Member".to_string(),
@@ -326,22 +282,16 @@ pub async fn get_member_role(
 ) -> ApiResult<Json<GetMemberRoleResponse>> {
     let channel_id = ChannelId(channel_id);
     let member_identity = member_id.as_bytes();
-    
-    let role = state
-        .channel_manager
-        .get_member_role(&channel_id, member_identity)
-        .await?;
-    
+
+    let role = state.channel_manager.get_member_role(&channel_id, member_identity).await?;
+
     let role_str = match role {
         crate::core_mls::types::MemberRole::Admin => "Admin",
         crate::core_mls::types::MemberRole::Member => "Member",
         crate::core_mls::types::MemberRole::ReadOnly => "ReadOnly",
     };
-    
-    Ok(Json(GetMemberRoleResponse {
-        member_id,
-        role: role_str.to_string(),
-    }))
+
+    Ok(Json(GetMemberRoleResponse { member_id, role: role_str.to_string() }))
 }
 
 /// POST /messages/:id/reactions - Add a reaction to a message
@@ -351,18 +301,12 @@ pub async fn add_reaction(
     Json(req): Json<AddReactionRequest>,
 ) -> ApiResult<Json<AddReactionResponse>> {
     use crate::core_store::model::types::MessageId;
-    
+
     let message_id = MessageId(message_id);
-    
-    state
-        .channel_manager
-        .add_reaction(&message_id, req.emoji.clone())
-        .await?;
-    
-    Ok(Json(AddReactionResponse {
-        message_id: message_id.0,
-        emoji: req.emoji,
-    }))
+
+    state.channel_manager.add_reaction(&message_id, req.emoji.clone()).await?;
+
+    Ok(Json(AddReactionResponse { message_id: message_id.0, emoji: req.emoji }))
 }
 
 /// DELETE /messages/:id/reactions/:emoji - Remove a reaction from a message
@@ -371,14 +315,11 @@ pub async fn remove_reaction(
     Path((message_id, emoji)): Path<(String, String)>,
 ) -> ApiResult<StatusCode> {
     use crate::core_store::model::types::MessageId;
-    
+
     let message_id = MessageId(message_id);
-    
-    state
-        .channel_manager
-        .remove_reaction(&message_id, emoji)
-        .await?;
-    
+
+    state.channel_manager.remove_reaction(&message_id, emoji).await?;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -388,14 +329,11 @@ pub async fn get_reactions(
     Path(message_id): Path<String>,
 ) -> ApiResult<Json<GetReactionsResponse>> {
     use crate::core_store::model::types::MessageId;
-    
+
     let message_id_obj = MessageId(message_id.clone());
-    
-    let summaries = state
-        .channel_manager
-        .get_reactions(&message_id_obj)
-        .await?;
-    
+
+    let summaries = state.channel_manager.get_reactions(&message_id_obj).await?;
+
     // Convert to HTTP response format
     let reactions = summaries
         .into_iter()
@@ -406,11 +344,8 @@ pub async fn get_reactions(
             user_reacted: s.user_reacted,
         })
         .collect();
-    
-    Ok(Json(GetReactionsResponse {
-        message_id,
-        reactions,
-    }))
+
+    Ok(Json(GetReactionsResponse { message_id, reactions }))
 }
 
 /// GET /messages/:id/thread - Get thread info for a message
@@ -419,14 +354,11 @@ pub async fn get_thread_info(
     Path(message_id): Path<String>,
 ) -> ApiResult<Json<GetThreadInfoResponse>> {
     use crate::core_store::model::types::MessageId;
-    
+
     let message_id_obj = MessageId(message_id.clone());
-    
-    let thread_info = state
-        .channel_manager
-        .get_thread_info(&message_id_obj)
-        .await?;
-    
+
+    let thread_info = state.channel_manager.get_thread_info(&message_id_obj).await?;
+
     match thread_info {
         Some(info) => Ok(Json(GetThreadInfoResponse {
             root_message_id: info.root_message_id.0,
@@ -436,10 +368,7 @@ pub async fn get_thread_info(
             last_reply_at: info.last_reply_at.map(|t| t.0),
             last_reply_preview: info.last_reply_preview,
         })),
-        None => Err(ApiError::NotFound(format!(
-            "No thread found for message {}",
-            message_id
-        ))),
+        None => Err(ApiError::NotFound(format!("No thread found for message {}", message_id))),
     }
 }
 
@@ -449,14 +378,11 @@ pub async fn get_thread_replies(
     Path(message_id): Path<String>,
 ) -> ApiResult<Json<GetThreadRepliesResponse>> {
     use crate::core_store::model::types::MessageId;
-    
+
     let message_id_obj = MessageId(message_id.clone());
-    
-    let replies = state
-        .channel_manager
-        .get_thread_replies(&message_id_obj)
-        .await?;
-    
+
+    let replies = state.channel_manager.get_thread_replies(&message_id_obj).await?;
+
     let replies_http: Vec<MessageInfoHttp> = replies
         .into_iter()
         .map(|msg| MessageInfoHttp {
@@ -468,7 +394,7 @@ pub async fn get_thread_replies(
             reply_to: msg.reply_to.map(|id| id.0),
         })
         .collect();
-    
+
     Ok(Json(GetThreadRepliesResponse {
         root_message_id: message_id,
         replies: replies_http,
@@ -481,14 +407,11 @@ pub async fn get_message_with_thread(
     Path(message_id): Path<String>,
 ) -> ApiResult<Json<GetMessageWithThreadResponse>> {
     use crate::core_store::model::types::MessageId;
-    
+
     let message_id_obj = MessageId(message_id.clone());
-    
-    let msg_with_thread = state
-        .channel_manager
-        .get_message_with_thread(&message_id_obj)
-        .await?;
-    
+
+    let msg_with_thread = state.channel_manager.get_message_with_thread(&message_id_obj).await?;
+
     match msg_with_thread {
         Some(mwt) => {
             let message = MessageInfoHttp {
@@ -520,11 +443,7 @@ pub async fn get_message_with_thread(
                 })
             });
 
-            Ok(Json(GetMessageWithThreadResponse {
-                message,
-                thread_info,
-                parent_message,
-            }))
+            Ok(Json(GetMessageWithThreadResponse { message, thread_info, parent_message }))
         }
         None => Err(ApiError::NotFound(format!("Message {} not found", message_id))),
     }
@@ -536,14 +455,11 @@ pub async fn get_channel_threads(
     Path(channel_id): Path<String>,
 ) -> ApiResult<Json<GetChannelThreadsResponse>> {
     use crate::core_store::model::types::ChannelId;
-    
+
     let channel_id_obj = ChannelId(channel_id.clone());
-    
-    let threads = state
-        .channel_manager
-        .get_channel_threads(&channel_id_obj)
-        .await?;
-    
+
+    let threads = state.channel_manager.get_channel_threads(&channel_id_obj).await?;
+
     let threads_http: Vec<ThreadSummaryHttp> = threads
         .into_iter()
         .map(|thread| {
@@ -565,16 +481,9 @@ pub async fn get_channel_threads(
                 last_reply_preview: info.last_reply_preview,
             });
 
-            ThreadSummaryHttp {
-                message,
-                thread_info,
-            }
+            ThreadSummaryHttp { message, thread_info }
         })
         .collect();
-    
-    Ok(Json(GetChannelThreadsResponse {
-        channel_id,
-        threads: threads_http,
-    }))
-}
 
+    Ok(Json(GetChannelThreadsResponse { channel_id, threads: threads_http }))
+}

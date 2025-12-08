@@ -1,5 +1,5 @@
 /// End-to-end CRDT integration tests
-/// 
+///
 /// These tests verify complete CRDT flows across scenarios:
 /// - Multi-node synchronization
 /// - Conflict resolution
@@ -10,9 +10,9 @@
 
 #[cfg(test)]
 mod e2e_crdt_tests {
-    use spacepanda_core::core_store::crdt::or_set::{ORSet, AddId};
-    use spacepanda_core::core_store::crdt::vector_clock::VectorClock;
+    use spacepanda_core::core_store::crdt::or_set::{AddId, ORSet};
     use spacepanda_core::core_store::crdt::traits::Crdt;
+    use spacepanda_core::core_store::crdt::vector_clock::VectorClock;
     use std::time::Duration;
     use tokio::time::sleep;
 
@@ -137,7 +137,7 @@ mod e2e_crdt_tests {
         // Simulate network partition: nodes 0-1 can sync, nodes 2-3 can sync
         let _ = node0.merge(&node1);
         let _ = node1.merge(&node0);
-        
+
         let _ = node2.merge(&node3);
         let _ = node3.merge(&node2);
 
@@ -150,37 +150,21 @@ mod e2e_crdt_tests {
         // Phase 2: Partition heals - all nodes sync
         let _ = node0.merge(&node2);
         let _ = node0.merge(&node3);
-        
+
         let _ = node1.merge(&node2);
         let _ = node1.merge(&node3);
-        
+
         let _ = node2.merge(&node0);
         let _ = node2.merge(&node1);
-        
+
         let _ = node3.merge(&node0);
         let _ = node3.merge(&node1);
 
         // All nodes should converge to 20 elements
-        assert_eq!(
-            node0.len(),
-            20,
-            "Node 0 should have all 20 elements after partition heals"
-        );
-        assert_eq!(
-            node1.len(),
-            20,
-            "Node 1 should have all 20 elements after partition heals"
-        );
-        assert_eq!(
-            node2.len(),
-            20,
-            "Node 2 should have all 20 elements after partition heals"
-        );
-        assert_eq!(
-            node3.len(),
-            20,
-            "Node 3 should have all 20 elements after partition heals"
-        );
+        assert_eq!(node0.len(), 20, "Node 0 should have all 20 elements after partition heals");
+        assert_eq!(node1.len(), 20, "Node 1 should have all 20 elements after partition heals");
+        assert_eq!(node2.len(), 20, "Node 2 should have all 20 elements after partition heals");
+        assert_eq!(node3.len(), 20, "Node 3 should have all 20 elements after partition heals");
     }
 
     /// Test concurrent add/remove waves
@@ -308,11 +292,7 @@ mod e2e_crdt_tests {
         let _ = abc_right.merge(&bc);
 
         // Should have same result
-        assert_eq!(
-            abc_left.len(),
-            abc_right.len(),
-            "Merge should be associative"
-        );
+        assert_eq!(abc_left.len(), abc_right.len(), "Merge should be associative");
         assert_eq!(abc_left.len(), 15);
     }
 

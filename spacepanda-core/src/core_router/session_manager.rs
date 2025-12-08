@@ -253,7 +253,7 @@ impl SessionManager {
     /// Initiate Noise handshake for a new connection
     async fn initiate_handshake(&self, conn_id: u64) -> Result<(), String> {
         eprintln!("[INITIATOR] Initiating handshake for conn_id={}", conn_id);
-        
+
         // Build Noise handshake state (initiator role)
         let builder = Builder::new(
             NOISE_PATTERN
@@ -315,9 +315,17 @@ impl SessionManager {
     }
 
     /// Create a responder handshake when receiving the first message from an incoming connection
-    async fn create_responder_handshake(&self, conn_id: u64, first_message: Vec<u8>) -> Result<(), String> {
-        eprintln!("[RESPONDER] Creating responder handshake for conn_id={}, msg_len={}", conn_id, first_message.len());
-        
+    async fn create_responder_handshake(
+        &self,
+        conn_id: u64,
+        first_message: Vec<u8>,
+    ) -> Result<(), String> {
+        eprintln!(
+            "[RESPONDER] Creating responder handshake for conn_id={}, msg_len={}",
+            conn_id,
+            first_message.len()
+        );
+
         // Build Noise handshake state (responder role)
         let builder = Builder::new(
             NOISE_PATTERN
@@ -348,16 +356,13 @@ impl SessionManager {
         }
 
         // Store handshake state
-        let session = Session {
-            conn_id,
-            state: SessionState::Handshaking(handshake, metadata),
-        };
+        let session = Session { conn_id, state: SessionState::Handshaking(handshake, metadata) };
         self.sessions.lock().await.insert(conn_id, session);
 
         // Send response if handshake isn't finished yet
         let mut sessions = self.sessions.lock().await;
         let session = sessions.get_mut(&conn_id).unwrap();
-        
+
         if let SessionState::Handshaking(ref mut hs, _) = session.state {
             if !hs.is_handshake_finished() {
                 let len = hs
@@ -378,7 +383,7 @@ impl SessionManager {
     /// Handle incoming data (handshake or encrypted message)
     async fn handle_data(&self, conn_id: u64, bytes: Vec<u8>) -> Result<(), String> {
         let mut sessions = self.sessions.lock().await;
-        
+
         // If no session exists, this is the first message from an incoming connection
         // Create a responder handshake
         if !sessions.contains_key(&conn_id) {
@@ -386,16 +391,20 @@ impl SessionManager {
             self.create_responder_handshake(conn_id, bytes).await?;
             return Ok(());
         }
-        
+
         let session = sessions
             .get_mut(&conn_id)
             .ok_or_else(|| format!("Session {} not found", conn_id))?;
 
         match &mut session.state {
             SessionState::Handshaking(handshake, metadata) => {
-                eprintln!("[HANDSHAKING] conn_id={} received {} bytes, is_finished={}", 
-                         conn_id, bytes.len(), handshake.is_handshake_finished());
-                
+                eprintln!(
+                    "[HANDSHAKING] conn_id={} received {} bytes, is_finished={}",
+                    conn_id,
+                    bytes.len(),
+                    handshake.is_handshake_finished()
+                );
+
                 // Check if handshake has expired
                 if metadata.is_expired() {
                     drop(sessions);
@@ -429,8 +438,11 @@ impl SessionManager {
 
                 // Check if handshake is complete
                 if handshake.is_handshake_finished() {
-                    eprintln!("[HANDSHAKING] conn_id={} COMPLETE! Transitioning to Established", conn_id);
-                    
+                    eprintln!(
+                        "[HANDSHAKING] conn_id={} COMPLETE! Transitioning to Established",
+                        conn_id
+                    );
+
                     // Extract peer's static public key
                     let remote_static = match handshake.get_remote_static() {
                         Some(key) => {
@@ -448,28 +460,29 @@ impl SessionManager {
                     drop(sessions);
                     let mut sessions = self.sessions.lock().await;
                     let mut session = sessions.remove(&conn_id).expect("Session disappeared");
-                    
+
                     eprintln!("[HANDSHAKING] conn_id={} converting to transport mode", conn_id);
-                    
+
                     // Take the handshake and convert to transport mode
                     if let SessionState::Handshaking(hs, _) = session.state {
-                        let transport = hs
-                            .into_transport_mode()
-                            .map_err(|e| {
-                                eprintln!("[ERROR] conn_id={} failed to enter transport mode: {}", conn_id, e);
-                                format!("Failed to enter transport mode: {}", e)
-                            })?;
+                        let transport = hs.into_transport_mode().map_err(|e| {
+                            eprintln!(
+                                "[ERROR] conn_id={} failed to enter transport mode: {}",
+                                conn_id, e
+                            );
+                            format!("Failed to enter transport mode: {}", e)
+                        })?;
                         session.state = SessionState::Established(transport, peer_id.clone());
                         eprintln!("[HANDSHAKING] conn_id={} state set to Established", conn_id);
                     }
 
                     // Put the session back in the map
                     sessions.insert(conn_id, session);
-                    
+
                     // Update peer mapping
                     drop(sessions);
                     self.peer_to_conn.lock().await.insert(peer_id.clone(), conn_id);
-                    
+
                     eprintln!("[ESTABLISHED] conn_id={} -> peer_id={:?}", conn_id, peer_id);
 
                     // Emit Established event
@@ -480,7 +493,7 @@ impl SessionManager {
                 } else {
                     // Continue handshake - send next message
                     eprintln!("[HANDSHAKING] conn_id={} continuing, payload_len={}", conn_id, len);
-                    
+
                     let len = handshake
                         .write_message(&[], &mut buffer)
                         .map_err(|e| format!("Handshake write failed: {}", e))?;
@@ -872,7 +885,11 @@ mod tests {
             let manager_clone = manager.clone();
             let handle = tokio::spawn(async move {
                 manager_clone
-                    .handle_transport_event(TransportEvent::Connected(i, format!("peer{}", i), true))
+                    .handle_transport_event(TransportEvent::Connected(
+                        i,
+                        format!("peer{}", i),
+                        true,
+                    ))
                     .await
             });
             handles.push(handle);
@@ -1004,13 +1021,21 @@ mod tests {
 
         // Start first handshake
         manager
-            .handle_transport_event(TransportEvent::Connected(conn_id_1, "same_peer".to_string(), true))
+            .handle_transport_event(TransportEvent::Connected(
+                conn_id_1,
+                "same_peer".to_string(),
+                true,
+            ))
             .await
             .expect("First handshake failed");
 
         // Start second handshake (same peer, different connection)
         manager
-            .handle_transport_event(TransportEvent::Connected(conn_id_2, "same_peer".to_string(), true))
+            .handle_transport_event(TransportEvent::Connected(
+                conn_id_2,
+                "same_peer".to_string(),
+                true,
+            ))
             .await
             .expect("Second handshake failed");
 

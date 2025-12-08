@@ -3,9 +3,7 @@
 //! Converts user intents into properly formatted MLS messages wrapped in envelopes.
 
 use super::{EncryptedEnvelope, MessageType};
-use crate::core_mls::{
-    engine::openmls_engine::OpenMlsEngine, errors::MlsResult, sealed_sender,
-};
+use crate::core_mls::{engine::openmls_engine::OpenMlsEngine, errors::MlsResult, sealed_sender};
 
 #[cfg(test)]
 use crate::core_mls::types::{GroupId, MlsConfig};
@@ -53,8 +51,7 @@ impl OutboundBuilder {
         let sender_key = sealed_sender::derive_sender_key(&group_secret);
 
         // Seal sender identity
-        let sealed_sender =
-            sealed_sender::seal_sender(&self.identity, &sender_key, epoch)?;
+        let sealed_sender = sealed_sender::seal_sender(&self.identity, &sender_key, epoch)?;
 
         // Encrypt the message
         let encrypted_payload = engine.send_message(plaintext).await?;
@@ -88,8 +85,7 @@ impl OutboundBuilder {
         let sender_key = sealed_sender::derive_sender_key(&group_secret);
 
         // Seal sender identity
-        let sealed_sender =
-            sealed_sender::seal_sender(&self.identity, &sender_key, epoch)?;
+        let sealed_sender = sealed_sender::seal_sender(&self.identity, &sender_key, epoch)?;
 
         // Create commit for pending proposals
         let (commit_payload, welcome_messages) = engine.commit_pending().await?;
@@ -123,8 +119,7 @@ impl OutboundBuilder {
         let sender_key = sealed_sender::derive_sender_key(&group_secret);
 
         // Seal sender identity
-        let sealed_sender =
-            sealed_sender::seal_sender(&self.identity, &sender_key, epoch)?;
+        let sealed_sender = sealed_sender::seal_sender(&self.identity, &sender_key, epoch)?;
 
         // For now, we skip the proposal step and go straight to commit
         // In a production system, you'd first create proposals, then commit them
@@ -158,8 +153,7 @@ impl OutboundBuilder {
         let sender_key = sealed_sender::derive_sender_key(&group_secret);
 
         // Seal sender identity
-        let sealed_sender =
-            sealed_sender::seal_sender(&self.identity, &sender_key, epoch)?;
+        let sealed_sender = sealed_sender::seal_sender(&self.identity, &sender_key, epoch)?;
 
         // For now, we skip the proposal step and go straight to commit
         use crate::core_mls::engine::group_ops::GroupOperations;
@@ -200,9 +194,10 @@ mod tests {
         let provider = Arc::new(OpenMlsRustCrypto::default());
 
         // Create a group
-        let engine = OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config, provider)
-            .await
-            .expect("Failed to create group");
+        let engine =
+            OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config, provider)
+                .await
+                .expect("Failed to create group");
 
         // Create builder
         let builder = OutboundBuilder::new(identity.clone());
@@ -216,15 +211,18 @@ mod tests {
         // Verify envelope metadata
         assert_eq!(envelope.group_id(), &group_id);
         assert_eq!(envelope.epoch(), 0);
-        
+
         // Verify sealed sender can be unsealed
         use crate::core_mls::sealed_sender;
-        let group_secret = engine.export_secret("sender_key", b"", 32).await.expect("Export secret should work");
+        let group_secret = engine
+            .export_secret("sender_key", b"", 32)
+            .await
+            .expect("Export secret should work");
         let key = sealed_sender::derive_sender_key(&group_secret);
         let unsealed_sender = sealed_sender::unseal_sender(envelope.sealed_sender(), &key, 0)
             .expect("Unsealing should succeed");
         assert_eq!(unsealed_sender, identity);
-        
+
         assert_eq!(envelope.message_type(), MessageType::Application);
         assert!(!envelope.payload().is_empty());
     }
@@ -237,33 +235,38 @@ mod tests {
         let provider = Arc::new(OpenMlsRustCrypto::default());
 
         // Create a group
-        let engine = OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config, provider)
-            .await
-            .expect("Failed to create group");
+        let engine =
+            OpenMlsEngine::create_group(group_id.clone(), identity.clone(), config, provider)
+                .await
+                .expect("Failed to create group");
 
         // Get the secret BEFORE committing (same secret used to seal)
         let pre_commit_epoch = engine.epoch().await;
-        let pre_commit_secret = engine.export_secret("sender_key", b"", 32).await.expect("Export secret should work");
-        
+        let pre_commit_secret = engine
+            .export_secret("sender_key", b"", 32)
+            .await
+            .expect("Export secret should work");
+
         // Create builder
         let builder = OutboundBuilder::new(identity.clone());
 
-        // Build commit message  
+        // Build commit message
         // Note: This may fail if there are no pending proposals, which is expected
         let result = builder.build_commit_message(&engine).await;
-        
+
         // If commit succeeds (there were pending proposals), verify the envelope
         if let Ok((envelope, _welcome)) = result {
             assert_eq!(envelope.group_id(), &group_id);
             assert_eq!(envelope.epoch(), pre_commit_epoch); // Should be epoch BEFORE commit
-            
+
             // Verify sealed sender can be unsealed using pre-commit secret
             use crate::core_mls::sealed_sender;
             let key = sealed_sender::derive_sender_key(&pre_commit_secret);
-            let unsealed_sender = sealed_sender::unseal_sender(envelope.sealed_sender(), &key, pre_commit_epoch)
-                .expect("Unsealing should succeed");
+            let unsealed_sender =
+                sealed_sender::unseal_sender(envelope.sealed_sender(), &key, pre_commit_epoch)
+                    .expect("Unsealing should succeed");
             assert_eq!(unsealed_sender, identity);
-            
+
             assert_eq!(envelope.message_type(), MessageType::Commit);
             assert!(!envelope.payload().is_empty());
         }
