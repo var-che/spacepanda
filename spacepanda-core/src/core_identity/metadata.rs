@@ -37,17 +37,30 @@ impl DeviceMetadata {
         DeviceMetadata {
             device_id,
             device_name: LWWRegister::with_value(device_name, node_id.to_string()),
-            last_seen: LWWRegister::with_value(now, node_id.to_string()),
+            last_seen: LWWRegister::with_value(Self::coarse_timestamp(now), node_id.to_string()),
             key_package_ref: LWWRegister::with_value(None, node_id.to_string()),
             capabilities: LWWRegister::with_value(HashMap::new(), node_id.to_string()),
         }
     }
 
-    /// Update last seen timestamp
+    /// Round timestamp to nearest day for privacy (reduces timing correlation)
+    /// 
+    /// Privacy rationale: Per privacy audit, fine-grained last_seen timestamps
+    /// can reveal user activity patterns. Coarse-grained (daily) timestamps
+    /// maintain utility for device freshness while reducing privacy risk.
+    fn coarse_timestamp(ts: Timestamp) -> Timestamp {
+        const DAY_IN_MILLIS: u64 = 24 * 60 * 60 * 1000;
+        let millis = ts.as_millis();
+        let rounded = (millis / DAY_IN_MILLIS) * DAY_IN_MILLIS;
+        Timestamp::from_millis(rounded)
+    }
+
+    /// Update last seen timestamp (rounded to nearest day for privacy)
     pub fn update_last_seen(&mut self, ts: Timestamp, node_id: &str) {
+        let coarse_ts = Self::coarse_timestamp(ts);
         let mut vc = VectorClock::new();
         vc.increment(node_id);
-        self.last_seen.set(ts, ts.as_millis(), node_id.to_string(), vc);
+        self.last_seen.set(coarse_ts, coarse_ts.as_millis(), node_id.to_string(), vc);
     }
 
     /// Set key package reference

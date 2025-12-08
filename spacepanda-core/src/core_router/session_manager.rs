@@ -220,8 +220,12 @@ impl SessionManager {
     /// Handle incoming transport events
     pub async fn handle_transport_event(&self, event: TransportEvent) -> Result<(), String> {
         match event {
-            TransportEvent::Connected(conn_id, _addr) => {
-                self.initiate_handshake(conn_id).await?;
+            TransportEvent::Connected(conn_id, _addr, is_outgoing) => {
+                // Only initiate handshake if we dialed (outgoing connection)
+                // For incoming connections, wait for first data to create responder
+                if is_outgoing {
+                    self.initiate_handshake(conn_id).await?;
+                }
             }
             TransportEvent::Data(conn_id, bytes) => {
                 self.handle_data(conn_id, bytes).await?;
@@ -248,6 +252,8 @@ impl SessionManager {
 
     /// Initiate Noise handshake for a new connection
     async fn initiate_handshake(&self, conn_id: u64) -> Result<(), String> {
+        eprintln!("[INITIATOR] Initiating handshake for conn_id={}", conn_id);
+        
         // Build Noise handshake state (initiator role)
         let builder = Builder::new(
             NOISE_PATTERN
@@ -308,15 +314,88 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Create a responder handshake when receiving the first message from an incoming connection
+    async fn create_responder_handshake(&self, conn_id: u64, first_message: Vec<u8>) -> Result<(), String> {
+        eprintln!("[RESPONDER] Creating responder handshake for conn_id={}, msg_len={}", conn_id, first_message.len());
+        
+        // Build Noise handshake state (responder role)
+        let builder = Builder::new(
+            NOISE_PATTERN
+                .parse()
+                .expect("Invalid noise pattern - this is a programming error"),
+        );
+        let builder = builder.local_private_key(&self.static_keypair);
+
+        let mut handshake = builder
+            .build_responder()
+            .map_err(|e| format!("Failed to build responder: {}", e))?;
+
+        // Create handshake metadata
+        let metadata = HandshakeMetadata::new();
+
+        // Process the first message from initiator
+        let mut buffer = vec![0u8; 1024];
+        let len = handshake
+            .read_message(&first_message, &mut buffer)
+            .map_err(|e| format!("Responder handshake read failed: {}", e))?;
+
+        // Extract and validate nonce if present
+        if len >= 8 {
+            let nonce_bytes: [u8; 8] =
+                buffer[..8].try_into().expect("Buffer slice is exactly 8 bytes");
+            let _nonce = u64::from_le_bytes(nonce_bytes);
+            // For responder, we just receive the nonce, no replay check needed
+        }
+
+        // Store handshake state
+        let session = Session {
+            conn_id,
+            state: SessionState::Handshaking(handshake, metadata),
+        };
+        self.sessions.lock().await.insert(conn_id, session);
+
+        // Send response if handshake isn't finished yet
+        let mut sessions = self.sessions.lock().await;
+        let session = sessions.get_mut(&conn_id).unwrap();
+        
+        if let SessionState::Handshaking(ref mut hs, _) = session.state {
+            if !hs.is_handshake_finished() {
+                let len = hs
+                    .write_message(&[], &mut buffer)
+                    .map_err(|e| format!("Responder handshake write failed: {}", e))?;
+
+                drop(sessions);
+                self.transport_tx
+                    .send(TransportCommand::Send(conn_id, buffer[..len].to_vec()))
+                    .await
+                    .map_err(|e| format!("Failed to send handshake response: {}", e))?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Handle incoming data (handshake or encrypted message)
     async fn handle_data(&self, conn_id: u64, bytes: Vec<u8>) -> Result<(), String> {
         let mut sessions = self.sessions.lock().await;
+        
+        // If no session exists, this is the first message from an incoming connection
+        // Create a responder handshake
+        if !sessions.contains_key(&conn_id) {
+            drop(sessions);
+            self.create_responder_handshake(conn_id, bytes).await?;
+            return Ok(());
+        }
+        
         let session = sessions
             .get_mut(&conn_id)
             .ok_or_else(|| format!("Session {} not found", conn_id))?;
 
         match &mut session.state {
             SessionState::Handshaking(handshake, metadata) => {
+                eprintln!("[HANDSHAKING] conn_id={} received {} bytes, is_finished={}", 
+                         conn_id, bytes.len(), handshake.is_handshake_finished());
+                
                 // Check if handshake has expired
                 if metadata.is_expired() {
                     drop(sessions);
@@ -350,37 +429,48 @@ impl SessionManager {
 
                 // Check if handshake is complete
                 if handshake.is_handshake_finished() {
+                    eprintln!("[HANDSHAKING] conn_id={} COMPLETE! Transitioning to Established", conn_id);
+                    
                     // Extract peer's static public key
-                    let remote_static =
-                        handshake.get_remote_static().ok_or("No remote static key")?.to_vec();
+                    let remote_static = match handshake.get_remote_static() {
+                        Some(key) => {
+                            eprintln!("[HANDSHAKING] conn_id={} got remote static key", conn_id);
+                            key.to_vec()
+                        }
+                        None => {
+                            eprintln!("[ERROR] conn_id={} No remote static key!", conn_id);
+                            return Err("No remote static key".to_string());
+                        }
+                    };
                     let peer_id = PeerId::from_bytes(remote_static);
 
-                    // Take ownership and transition to transport mode
-                    // We need to replace the handshake state temporarily
-                    let old_state = std::mem::replace(
-                        &mut session.state,
-                        SessionState::Handshaking(
-                            Builder::new(
-                                NOISE_PATTERN
-                                    .parse()
-                                    .expect("Invalid noise pattern - this is a programming error"),
-                            )
-                            .build_initiator()
-                            .expect("Failed to build temporary initiator"),
-                            HandshakeMetadata::new(),
-                        ),
-                    );
-
-                    if let SessionState::Handshaking(hs, _) = old_state {
+                    // Remove the session from the map to take ownership
+                    drop(sessions);
+                    let mut sessions = self.sessions.lock().await;
+                    let mut session = sessions.remove(&conn_id).expect("Session disappeared");
+                    
+                    eprintln!("[HANDSHAKING] conn_id={} converting to transport mode", conn_id);
+                    
+                    // Take the handshake and convert to transport mode
+                    if let SessionState::Handshaking(hs, _) = session.state {
                         let transport = hs
                             .into_transport_mode()
-                            .map_err(|e| format!("Failed to enter transport mode: {}", e))?;
+                            .map_err(|e| {
+                                eprintln!("[ERROR] conn_id={} failed to enter transport mode: {}", conn_id, e);
+                                format!("Failed to enter transport mode: {}", e)
+                            })?;
                         session.state = SessionState::Established(transport, peer_id.clone());
+                        eprintln!("[HANDSHAKING] conn_id={} state set to Established", conn_id);
                     }
 
+                    // Put the session back in the map
+                    sessions.insert(conn_id, session);
+                    
                     // Update peer mapping
                     drop(sessions);
                     self.peer_to_conn.lock().await.insert(peer_id.clone(), conn_id);
+                    
+                    eprintln!("[ESTABLISHED] conn_id={} -> peer_id={:?}", conn_id, peer_id);
 
                     // Emit Established event
                     self.event_tx
@@ -388,18 +478,19 @@ impl SessionManager {
                         .await
                         .map_err(|e| format!("Failed to send event: {}", e))?;
                 } else {
-                    // Continue handshake
-                    if len > 0 {
-                        let len = handshake
-                            .write_message(&[], &mut buffer)
-                            .map_err(|e| format!("Handshake write failed: {}", e))?;
+                    // Continue handshake - send next message
+                    eprintln!("[HANDSHAKING] conn_id={} continuing, payload_len={}", conn_id, len);
+                    
+                    let len = handshake
+                        .write_message(&[], &mut buffer)
+                        .map_err(|e| format!("Handshake write failed: {}", e))?;
 
-                        drop(sessions);
-                        self.transport_tx
-                            .send(TransportCommand::Send(conn_id, buffer[..len].to_vec()))
-                            .await
-                            .map_err(|e| format!("Failed to send handshake: {}", e))?;
-                    }
+                    eprintln!("[HANDSHAKING] conn_id={} sending {} bytes", conn_id, len);
+                    drop(sessions);
+                    self.transport_tx
+                        .send(TransportCommand::Send(conn_id, buffer[..len].to_vec()))
+                        .await
+                        .map_err(|e| format!("Failed to send handshake: {}", e))?;
                 }
             }
             SessionState::Established(transport, peer_id) => {
@@ -523,7 +614,7 @@ mod tests {
 
         // Manager1 initiates handshake
         manager1
-            .handle_transport_event(TransportEvent::Connected(conn_id_1, "peer2".to_string()))
+            .handle_transport_event(TransportEvent::Connected(conn_id_1, "peer2".to_string(), true))
             .await
             .expect("Failed to initiate handshake");
 
@@ -641,7 +732,7 @@ mod tests {
 
         // Initiate handshake
         manager
-            .handle_transport_event(TransportEvent::Connected(conn_id, "peer".to_string()))
+            .handle_transport_event(TransportEvent::Connected(conn_id, "peer".to_string(), true))
             .await
             .expect("Failed to initiate handshake");
 
@@ -781,7 +872,7 @@ mod tests {
             let manager_clone = manager.clone();
             let handle = tokio::spawn(async move {
                 manager_clone
-                    .handle_transport_event(TransportEvent::Connected(i, format!("peer{}", i)))
+                    .handle_transport_event(TransportEvent::Connected(i, format!("peer{}", i), true))
                     .await
             });
             handles.push(handle);
@@ -821,7 +912,7 @@ mod tests {
         // Initiate handshake (sends first message)
         let conn_id = 1;
         manager
-            .handle_transport_event(TransportEvent::Connected(conn_id, "peer1".to_string()))
+            .handle_transport_event(TransportEvent::Connected(conn_id, "peer1".to_string(), true))
             .await
             .expect("Failed to initiate handshake");
 
@@ -863,7 +954,7 @@ mod tests {
 
         // Initiate handshake (sends first message)
         manager
-            .handle_transport_event(TransportEvent::Connected(conn_id, "peer1".to_string()))
+            .handle_transport_event(TransportEvent::Connected(conn_id, "peer1".to_string(), true))
             .await
             .expect("Failed to initiate handshake");
 
@@ -913,13 +1004,13 @@ mod tests {
 
         // Start first handshake
         manager
-            .handle_transport_event(TransportEvent::Connected(conn_id_1, "same_peer".to_string()))
+            .handle_transport_event(TransportEvent::Connected(conn_id_1, "same_peer".to_string(), true))
             .await
             .expect("First handshake failed");
 
         // Start second handshake (same peer, different connection)
         manager
-            .handle_transport_event(TransportEvent::Connected(conn_id_2, "same_peer".to_string()))
+            .handle_transport_event(TransportEvent::Connected(conn_id_2, "same_peer".to_string(), true))
             .await
             .expect("Second handshake failed");
 

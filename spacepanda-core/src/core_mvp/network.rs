@@ -66,6 +66,22 @@ pub enum ChannelNetworkMessage {
 /// Maps channel members to their network peer IDs
 type ChannelMemberMap = HashMap<ChannelId, HashMap<UserId, PeerId>>;
 
+/// Incoming message from the network
+#[derive(Debug)]
+pub struct IncomingMessage {
+    pub channel_id: ChannelId,
+    pub ciphertext: Vec<u8>,
+    pub sender_peer_id: PeerId,
+}
+
+/// Incoming commit from the network
+#[derive(Debug)]
+pub struct IncomingCommit {
+    pub channel_id: ChannelId,
+    pub commit_data: Vec<u8>,
+    pub sender_peer_id: PeerId,
+}
+
 /// Network layer for P2P messaging
 pub struct NetworkLayer {
     /// Router handle for P2P communication
@@ -77,16 +93,11 @@ pub struct NetworkLayer {
     /// Channel for incoming messages
     incoming_tx: mpsc::Sender<IncomingMessage>,
     
+    /// Channel for incoming commits
+    incoming_commits_tx: mpsc::Sender<IncomingCommit>,
+    
     /// Our peer ID
     local_peer_id: PeerId,
-}
-
-/// Incoming message from the network
-#[derive(Debug)]
-pub struct IncomingMessage {
-    pub channel_id: ChannelId,
-    pub ciphertext: Vec<u8>,
-    pub sender_peer_id: PeerId,
 }
 
 impl NetworkLayer {
@@ -97,21 +108,23 @@ impl NetworkLayer {
     /// * `local_peer_id` - Our peer ID on the network
     ///
     /// # Returns
-    /// Network layer and receiver for incoming messages
+    /// Network layer and receivers for incoming messages and commits
     pub fn new(
         router: RouterHandle,
         local_peer_id: PeerId,
-    ) -> (Self, mpsc::Receiver<IncomingMessage>) {
+    ) -> (Self, mpsc::Receiver<IncomingMessage>, mpsc::Receiver<IncomingCommit>) {
         let (incoming_tx, incoming_rx) = mpsc::channel(100);
+        let (incoming_commits_tx, incoming_commits_rx) = mpsc::channel(100);
         
         let network = Self {
             router,
             channel_members: Arc::new(RwLock::new(HashMap::new())),
             incoming_tx,
+            incoming_commits_tx,
             local_peer_id,
         };
         
-        (network, incoming_rx)
+        (network, incoming_rx, incoming_commits_rx)
     }
     
     /// Start listening on an address
@@ -297,7 +310,10 @@ impl NetworkLayer {
     }
     
     /// Handle incoming data from a peer
-    async fn handle_incoming_data(&self, peer_id: PeerId, data: Vec<u8>) -> MvpResult<()> {
+    /// Handle incoming data from a peer
+    /// 
+    /// This is called by the network event processor when data arrives
+    pub async fn handle_incoming_data(&self, peer_id: PeerId, data: Vec<u8>) -> MvpResult<()> {
         // Deserialize network message
         let message: ChannelNetworkMessage = serde_json::from_slice(&data)
             .map_err(|e| MvpError::InvalidMessage(format!("Failed to deserialize: {}", e)))?;
@@ -325,7 +341,17 @@ impl NetworkLayer {
                     size = commit_data.len(),
                     "Received commit message"
                 );
-                // TODO: Forward to channel manager for processing
+                
+                // Forward to channel manager for processing
+                let incoming_commit = IncomingCommit {
+                    channel_id: ChannelId(channel_id),
+                    commit_data,
+                    sender_peer_id: peer_id.clone(),
+                };
+                
+                if let Err(e) = self.incoming_commits_tx.send(incoming_commit).await {
+                    error!(error = %e, "Failed to forward incoming commit");
+                }
             }
             ChannelNetworkMessage::Proposal { channel_id, proposal_data } => {
                 debug!(
@@ -372,7 +398,7 @@ mod tests {
         let (router, _handle) = RouterHandle::new();
         let peer_id = PeerId(vec![1, 2, 3, 4]);
         
-        let (_network, _rx) = NetworkLayer::new(router, peer_id);
+        let (_network, _rx, _commits_rx) = NetworkLayer::new(router, peer_id);
         
         // Network layer created successfully
     }
@@ -381,7 +407,7 @@ mod tests {
     async fn test_register_channel_member() {
         let (router, _handle) = RouterHandle::new();
         let peer_id = PeerId(vec![1, 2, 3, 4]);
-        let (network, _rx) = NetworkLayer::new(router, peer_id);
+        let (network, _rx, _commits_rx) = NetworkLayer::new(router, peer_id);
         
         let channel_id = ChannelId("test-channel".to_string());
         let user_id = UserId("user123".to_string());

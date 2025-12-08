@@ -40,6 +40,14 @@ pub enum MlsError {
     #[error("Crypto error: {0}")]
     CryptoError(String),
 
+    /// Encryption failed
+    #[error("Encryption error: {0}")]
+    Encryption(String),
+
+    /// Decryption failed
+    #[error("Decryption error: {0}")]
+    Decryption(String),
+
     /// Group not found
     #[error("Group not found: {0}")]
     GroupNotFound(String),

@@ -43,3 +43,17 @@ path = "fuzz_targets/fuzz_snapshot_parsing.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_metadata_encryption"
+path = "fuzz_targets/fuzz_metadata_encryption.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_sealed_sender"
+path = "fuzz_targets/fuzz_sealed_sender.rs"
+test = false
+doc = false
+bench = false
