@@ -148,8 +148,6 @@ pub fn create_rng(config: &BenchConfig) -> rand::rngs::StdRng {
 
 #[cfg(test)]
 mod tests {
-    
-    
 
     #[test]
     fn test_bench_config_default() {
