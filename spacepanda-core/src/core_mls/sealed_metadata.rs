@@ -46,8 +46,8 @@
 //! let metadata = unseal_metadata(&sealed, &encryption_key)?;
 //! ```
 
-use super::types::GroupMetadata;
 use super::errors::{MlsError, MlsResult};
+use super::types::GroupMetadata;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
@@ -99,7 +99,7 @@ pub fn derive_metadata_key(group_secret: &[u8]) -> [u8; KEY_SIZE] {
     let mut hasher = Sha256::new();
     hasher.update(METADATA_KEY_LABEL);
     hasher.update(group_secret);
-    
+
     let hash = hasher.finalize();
     let mut key = [0u8; KEY_SIZE];
     key.copy_from_slice(&hash[..KEY_SIZE]);
@@ -122,10 +122,7 @@ pub fn derive_metadata_key(group_secret: &[u8]) -> [u8; KEY_SIZE] {
 /// - Uses fresh random nonce per encryption
 /// - AEAD provides authenticity + confidentiality
 /// - Epoch left visible for MLS protocol
-pub fn seal_metadata(
-    metadata: &GroupMetadata,
-    key: &[u8; KEY_SIZE],
-) -> MlsResult<SealedMetadata> {
+pub fn seal_metadata(metadata: &GroupMetadata, key: &[u8; KEY_SIZE]) -> MlsResult<SealedMetadata> {
     if key.len() != KEY_SIZE {
         return Err(MlsError::CryptoError(format!(
             "Invalid key size: {} (expected {})",
@@ -135,8 +132,9 @@ pub fn seal_metadata(
     }
 
     // Serialize metadata to JSON
-    let plaintext = serde_json::to_vec(metadata)
-        .map_err(|e| MlsError::SerializationError(format!("Failed to serialize metadata: {}", e)))?;
+    let plaintext = serde_json::to_vec(metadata).map_err(|e| {
+        MlsError::SerializationError(format!("Failed to serialize metadata: {}", e))
+    })?;
 
     // Generate random nonce
     let mut nonce_bytes = [0u8; NONCE_SIZE];
@@ -150,10 +148,7 @@ pub fn seal_metadata(
     // Encrypt with AAD = epoch (binds epoch to ciphertext)
     let aad = metadata.epoch.to_be_bytes();
     let ciphertext = cipher
-        .encrypt(nonce, aes_gcm::aead::Payload {
-            msg: &plaintext,
-            aad: &aad,
-        })
+        .encrypt(nonce, aes_gcm::aead::Payload { msg: &plaintext, aad: &aad })
         .map_err(|e| MlsError::CryptoError(format!("Encryption failed: {}", e)))?;
 
     Ok(SealedMetadata {
@@ -181,10 +176,7 @@ pub fn seal_metadata(
 /// - Key mismatch
 /// - Tampered ciphertext (AEAD verification fails)
 /// - Corrupted data
-pub fn unseal_metadata(
-    sealed: &SealedMetadata,
-    key: &[u8; KEY_SIZE],
-) -> MlsResult<GroupMetadata> {
+pub fn unseal_metadata(sealed: &SealedMetadata, key: &[u8; KEY_SIZE]) -> MlsResult<GroupMetadata> {
     // Check version
     if sealed.version != SEALED_VERSION {
         return Err(MlsError::InvalidInput(format!(
@@ -208,24 +200,23 @@ pub fn unseal_metadata(
     // Decrypt with AAD = epoch
     let nonce = Nonce::from_slice(&sealed.nonce);
     let aad = sealed.epoch.to_be_bytes();
-    
+
     let plaintext = cipher
-        .decrypt(nonce, aes_gcm::aead::Payload {
-            msg: &sealed.ciphertext,
-            aad: &aad,
-        })
-        .map_err(|_| MlsError::CryptoError("Decryption failed (wrong key or tampered data)".to_string()))?;
+        .decrypt(nonce, aes_gcm::aead::Payload { msg: &sealed.ciphertext, aad: &aad })
+        .map_err(|_| {
+            MlsError::CryptoError("Decryption failed (wrong key or tampered data)".to_string())
+        })?;
 
     // Deserialize metadata
-    let metadata: GroupMetadata = serde_json::from_slice(&plaintext)
-        .map_err(|e| MlsError::SerializationError(format!("Failed to deserialize metadata: {}", e)))?;
+    let metadata: GroupMetadata = serde_json::from_slice(&plaintext).map_err(|e| {
+        MlsError::SerializationError(format!("Failed to deserialize metadata: {}", e))
+    })?;
 
     // Verify epoch matches (defense in depth)
     if metadata.epoch != sealed.epoch {
         return Err(MlsError::InvalidInput(format!(
             "Epoch mismatch: sealed={}, decrypted={}",
-            sealed.epoch,
-            metadata.epoch
+            sealed.epoch, metadata.epoch
         )));
     }
 
@@ -307,7 +298,7 @@ mod tests {
         let key = derive_metadata_key(b"test_key");
 
         let mut sealed = seal_metadata(&metadata, &key).unwrap();
-        
+
         // Tamper with ciphertext
         if !sealed.ciphertext.is_empty() {
             sealed.ciphertext[0] ^= 0xFF;
@@ -327,11 +318,11 @@ mod tests {
 
         // Nonces should be different (random)
         assert_ne!(sealed1.nonce, sealed2.nonce);
-        
+
         // But both should decrypt correctly
         let unsealed1 = unseal_metadata(&sealed1, &key).unwrap();
         let unsealed2 = unseal_metadata(&sealed2, &key).unwrap();
-        
+
         assert_eq!(unsealed1.name, unsealed2.name);
     }
 
@@ -357,30 +348,24 @@ mod tests {
         // Channel name should NOT be visible in ciphertext
         let secret_name = b"Secret Channel";
         let ciphertext_str = String::from_utf8_lossy(&sealed.ciphertext);
-        
-        assert!(
-            !ciphertext_str.contains("Secret"),
-            "Channel name leaked in ciphertext"
-        );
+
+        assert!(!ciphertext_str.contains("Secret"), "Channel name leaked in ciphertext");
         assert!(
             !sealed.ciphertext.windows(secret_name.len()).any(|w| w == secret_name),
             "Channel name found as plaintext in sealed blob"
         );
 
         // Member identities should NOT be visible
-        assert!(
-            !ciphertext_str.contains("alice"),
-            "Member identity leaked in ciphertext"
-        );
+        assert!(!ciphertext_str.contains("alice"), "Member identity leaked in ciphertext");
     }
 
     #[test]
     fn test_key_derivation_deterministic() {
         let secret = b"test_group_secret";
-        
+
         let key1 = derive_metadata_key(secret);
         let key2 = derive_metadata_key(secret);
-        
+
         assert_eq!(key1, key2, "Key derivation should be deterministic");
     }
 
@@ -388,7 +373,7 @@ mod tests {
     fn test_key_derivation_unique() {
         let key1 = derive_metadata_key(b"secret1");
         let key2 = derive_metadata_key(b"secret2");
-        
+
         assert_ne!(key1, key2, "Different secrets should produce different keys");
     }
 
@@ -396,10 +381,10 @@ mod tests {
     fn test_epoch_binding() {
         let mut metadata1 = test_metadata();
         metadata1.epoch = 10;
-        
+
         let mut metadata2 = test_metadata();
         metadata2.epoch = 20;
-        
+
         let key = derive_metadata_key(b"test");
 
         let sealed1 = seal_metadata(&metadata1, &key).unwrap();

@@ -6,13 +6,12 @@
 */
 
 use spacepanda_core::core_dht::{DhtKey, DhtStorage, DhtValue, RoutingTable};
-use spacepanda_core::core_identity::{DeviceId, DeviceMetadata, GlobalIdentity, KeyType, Keypair};
+use spacepanda_core::core_identity::{DeviceId, GlobalIdentity, KeyType, Keypair};
 use spacepanda_core::core_store::crdt::{LWWRegister, VectorClock};
 use spacepanda_core::core_store::model::{
     Channel, ChannelId, ChannelType, Space, SpaceId, Timestamp, UserId,
 };
 use spacepanda_core::core_store::store::{LocalStore, LocalStoreConfig};
-use std::collections::HashMap;
 use tempfile::tempdir;
 
 /// Test 6.1: Basic Identity + Store Integration

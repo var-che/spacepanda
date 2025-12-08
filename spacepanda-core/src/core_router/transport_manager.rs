@@ -60,8 +60,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex};
 
 #[derive(Debug)]
@@ -142,11 +142,13 @@ impl TransportManager {
                         {
                             eprintln!("Failed to send Connected event: {}", e);
                         }
-                        
+
                         // Spawn reader task with the read half
                         let event_tx_clone = event_tx.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = Self::read_connection(conn_id, read_half, event_tx_clone).await {
+                            if let Err(e) =
+                                Self::read_connection(conn_id, read_half, event_tx_clone).await
+                            {
                                 eprintln!("Connection {} read error: {}", conn_id, e);
                             }
                         });
@@ -178,7 +180,7 @@ impl TransportManager {
         if let Err(e) = self.event_tx.send(TransportEvent::Connected(conn_id, addr, true)).await {
             eprintln!("Failed to send Connected event: {}", e);
         }
-        
+
         // Spawn reader task with the read half
         let event_tx_clone = self.event_tx.clone();
         tokio::spawn(async move {
@@ -209,7 +211,7 @@ impl TransportManager {
 
         Ok(())
     }
-    
+
     /// Read from a connection and emit Data events
     /// This is spawned as a separate task for each connection
     async fn read_connection(
@@ -221,7 +223,7 @@ impl TransportManager {
             // Read length prefix (4 bytes)
             let mut len_buf = [0u8; 4];
             match read_half.read_exact(&mut len_buf).await {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                     // Connection closed gracefully
                     let _ = event_tx.send(TransportEvent::Disconnected(conn_id)).await;
@@ -231,18 +233,21 @@ impl TransportManager {
                     return Err(format!("Failed to read length: {}", e));
                 }
             }
-            
+
             let len = u32::from_be_bytes(len_buf) as usize;
-            
-            if len == 0 || len > 10_000_000 {  // Max 10MB per message
+
+            if len == 0 || len > 10_000_000 {
+                // Max 10MB per message
                 return Err(format!("Invalid message length: {}", len));
             }
-            
+
             // Read message data
             let mut data = vec![0u8; len];
-            read_half.read_exact(&mut data).await
+            read_half
+                .read_exact(&mut data)
+                .await
                 .map_err(|e| format!("Failed to read data: {}", e))?;
-            
+
             // Emit Data event
             if let Err(e) = event_tx.send(TransportEvent::Data(conn_id, data)).await {
                 return Err(format!("Failed to send Data event: {}", e));

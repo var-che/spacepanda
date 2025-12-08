@@ -148,8 +148,8 @@ pub fn create_rng(config: &BenchConfig) -> rand::rngs::StdRng {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use tempfile::tempdir;
+    
+    
 
     #[test]
     fn test_bench_config_default() {

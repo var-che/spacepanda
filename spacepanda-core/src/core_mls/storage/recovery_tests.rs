@@ -85,7 +85,13 @@ mod tests {
             for i in 0..3 {
                 let gid = format!("channel_group_{}", i).into_bytes();
                 storage
-                    .save_channel_metadata(&gid, encrypted_name, Some(encrypted_topic), encrypted_members, 1)
+                    .save_channel_metadata(
+                        &gid,
+                        encrypted_name,
+                        Some(encrypted_topic),
+                        encrypted_members,
+                        1,
+                    )
                     .await
                     .unwrap();
             }
@@ -104,10 +110,8 @@ mod tests {
             assert_eq!(channels.len(), 3);
 
             // Verify channel data integrity
-            let (name, topic, _, members, ch_type, archived) = storage
-                .load_channel_metadata(b"channel_group_1")
-                .await
-                .unwrap();
+            let (name, topic, _, members, ch_type, archived) =
+                storage.load_channel_metadata(b"channel_group_1").await.unwrap();
 
             assert_eq!(name, encrypted_name);
             assert_eq!(topic, Some(encrypted_topic.to_vec()));
@@ -233,10 +237,7 @@ mod tests {
         {
             let storage = SqlStorageProvider::new(&db_path).unwrap();
 
-            storage
-                .store_key_package(kp_id, kp_data, cred_id, None)
-                .await
-                .unwrap();
+            storage.store_key_package(kp_id, kp_data, cred_id, None).await.unwrap();
         }
 
         // Phase 2: Restart and load key package (marks as used)
@@ -317,10 +318,7 @@ mod tests {
             // Save 10 messages
             for i in 0..10 {
                 let msg_id = format!("msg_{}", i).into_bytes();
-                storage
-                    .save_message(&msg_id, group_id, b"content", b"sender", i)
-                    .await
-                    .unwrap();
+                storage.save_message(&msg_id, group_id, b"content", b"sender", i).await.unwrap();
             }
 
             // Mark first 5 as processed

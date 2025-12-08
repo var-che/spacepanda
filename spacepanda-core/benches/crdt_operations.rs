@@ -1,8 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use spacepanda_core::core_store::crdt::lww_register::LWWRegister;
-use spacepanda_core::core_store::crdt::vector_clock::VectorClock;
-use spacepanda_core::core_store::crdt::or_set::{ORSet, AddId};
+use spacepanda_core::core_store::crdt::or_set::{AddId, ORSet};
 use spacepanda_core::core_store::crdt::traits::Crdt;
+use spacepanda_core::core_store::crdt::vector_clock::VectorClock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod bench_config;
@@ -77,7 +77,7 @@ fn bench_lww_register_set(c: &mut Criterion) {
 
     group.bench_function("single_set", |b| {
         b.iter_batched(
-            || LWWRegister::<String>::new(),
+            LWWRegister::<String>::new,
             |mut register| {
                 let mut vc = VectorClock::new();
                 vc.increment("node_1");
@@ -101,7 +101,7 @@ fn bench_lww_register_set(c: &mut Criterion) {
             update_count,
             |b, &n| {
                 b.iter_batched(
-                    || LWWRegister::<String>::new(),
+                    LWWRegister::<String>::new,
                     |mut register| {
                         for i in 0..n {
                             let mut vc = VectorClock::new();
@@ -185,7 +185,7 @@ fn bench_lww_register_conflict_resolution(c: &mut Criterion) {
             conflict_count,
             |b, &n| {
                 b.iter_batched(
-                    || LWWRegister::<String>::new(),
+                    LWWRegister::<String>::new,
                     |mut register| {
                         for i in 0..n {
                             let mut vc = VectorClock::new();
@@ -221,7 +221,7 @@ fn bench_vector_clock_operations(c: &mut Criterion) {
 
     group.bench_function("increment", |b| {
         b.iter_batched(
-            || VectorClock::new(),
+            VectorClock::new,
             |mut vc| {
                 vc.increment("node_1");
                 black_box(vc)
@@ -308,7 +308,7 @@ fn bench_or_set_operations(c: &mut Criterion) {
             let add_id = AddId::new("node1".to_string(), i);
             set.add(i, add_id, vc.clone());
         }
-        
+
         b.iter(|| {
             let contains = set.contains(&50);
             black_box(contains)
@@ -349,19 +349,19 @@ fn bench_or_set_merge(c: &mut Criterion) {
                 || {
                     let mut set1 = ORSet::<u64>::new();
                     let mut set2 = ORSet::<u64>::new();
-                    
+
                     // Set 1: elements 0 to size
                     for i in 0..size {
                         let add_id = AddId::new("node1".to_string(), i as u64);
                         set1.add(i as u64, add_id, vc.clone());
                     }
-                    
+
                     // Set 2: elements size/2 to size*3/2 (50% overlap)
-                    for i in (size/2)..(size * 3 / 2) {
+                    for i in (size / 2)..(size * 3 / 2) {
                         let add_id = AddId::new("node2".to_string(), i as u64);
                         set2.add(i as u64, add_id, vc.clone());
                     }
-                    
+
                     (set1, set2)
                 },
                 |(mut set1, set2)| {
@@ -383,39 +383,35 @@ fn bench_or_set_convergence(c: &mut Criterion) {
     // Benchmark convergence scenario (3 nodes merging)
     for size in [50, 100, 200].iter() {
         group.throughput(Throughput::Elements(*size as u64 * 3));
-        group.bench_with_input(
-            BenchmarkId::new("three_way_merge", size),
-            size,
-            |b, &size| {
-                b.iter_batched(
-                    || {
-                        let mut set1 = ORSet::<u64>::new();
-                        let mut set2 = ORSet::<u64>::new();
-                        let mut set3 = ORSet::<u64>::new();
-                        
-                        // Each set adds unique elements
-                        for i in 0..size {
-                            let add_id1 = AddId::new("node1".to_string(), i as u64);
-                            set1.add(i as u64, add_id1, vc.clone());
-                            
-                            let add_id2 = AddId::new("node2".to_string(), i as u64);
-                            set2.add((i + size) as u64, add_id2, vc.clone());
-                            
-                            let add_id3 = AddId::new("node3".to_string(), i as u64);
-                            set3.add((i + size * 2) as u64, add_id3, vc.clone());
-                        }
-                        
-                        (set1, set2, set3)
-                    },
-                    |(mut set1, set2, set3)| {
-                        let _ = set1.merge(&set2);
-                        let _ = set1.merge(&set3);
-                        black_box(set1)
-                    },
-                    criterion::BatchSize::SmallInput,
-                );
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("three_way_merge", size), size, |b, &size| {
+            b.iter_batched(
+                || {
+                    let mut set1 = ORSet::<u64>::new();
+                    let mut set2 = ORSet::<u64>::new();
+                    let mut set3 = ORSet::<u64>::new();
+
+                    // Each set adds unique elements
+                    for i in 0..size {
+                        let add_id1 = AddId::new("node1".to_string(), i as u64);
+                        set1.add(i as u64, add_id1, vc.clone());
+
+                        let add_id2 = AddId::new("node2".to_string(), i as u64);
+                        set2.add((i + size) as u64, add_id2, vc.clone());
+
+                        let add_id3 = AddId::new("node3".to_string(), i as u64);
+                        set3.add((i + size * 2) as u64, add_id3, vc.clone());
+                    }
+
+                    (set1, set2, set3)
+                },
+                |(mut set1, set2, set3)| {
+                    let _ = set1.merge(&set2);
+                    let _ = set1.merge(&set3);
+                    black_box(set1)
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
     }
 
     group.finish();

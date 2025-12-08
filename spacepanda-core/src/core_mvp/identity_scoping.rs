@@ -145,10 +145,8 @@ impl IdentityScoper {
                     identity.clone()
                 } else {
                     // Generate new per-channel identity
-                    let channel_identity = Self::derive_channel_identity(
-                        &self.global_identity,
-                        channel_id,
-                    );
+                    let channel_identity =
+                        Self::derive_channel_identity(&self.global_identity, channel_id);
                     let identity_arc = Arc::new(channel_identity);
                     identities.insert(channel_id.to_string(), identity_arc.clone());
                     identity_arc
@@ -185,7 +183,12 @@ impl IdentityScoper {
         let channel_suffix = hex::encode(&hash[..8]);
         let channel_user_id = format!(
             "{}-{}",
-            global_identity.user_id.0.split('@').next().unwrap_or(&global_identity.user_id.0),
+            global_identity
+                .user_id
+                .0
+                .split('@')
+                .next()
+                .unwrap_or(&global_identity.user_id.0),
             channel_suffix
         );
 
@@ -426,8 +429,12 @@ mod tests {
         let global = Arc::new(create_test_identity());
         let scoper = IdentityScoper::new(global.clone());
 
-        scoper.get_or_create_channel_identity("channel1", ChannelIdentityMode::PerChannel).await;
-        scoper.get_or_create_channel_identity("channel2", ChannelIdentityMode::PerChannel).await;
+        scoper
+            .get_or_create_channel_identity("channel1", ChannelIdentityMode::PerChannel)
+            .await;
+        scoper
+            .get_or_create_channel_identity("channel2", ChannelIdentityMode::PerChannel)
+            .await;
 
         let list = scoper.list_channel_identities().await;
         assert_eq!(list.len(), 2);

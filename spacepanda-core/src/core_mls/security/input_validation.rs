@@ -14,8 +14,11 @@ mod tests {
     use super::*;
 
     fn temp_db_path(name: &str) -> String {
-        format!("/tmp/spacepanda_validation_{}_{}.db", name, 
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos())
+        format!(
+            "/tmp/spacepanda_validation_{}_{}.db",
+            name,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        )
     }
 
     #[tokio::test]
@@ -26,15 +29,9 @@ mod tests {
 
         // Attempt SQL injection in group_id
         let malicious_group_id = b"'; DROP TABLE channels; --";
-        
+
         let result = storage
-            .save_channel_metadata(
-                malicious_group_id,
-                b"name",
-                None,
-                b"members",
-                1,
-            )
+            .save_channel_metadata(malicious_group_id, b"name", None, b"members", 1)
             .await;
 
         // Should succeed (safely escape the input)
@@ -42,7 +39,7 @@ mod tests {
 
         // Verify table still exists
         let channels = storage.list_channels(false).await.unwrap();
-        
+
         // Clean up
         let _ = storage.delete_channel(malicious_group_id).await;
         let _ = std::fs::remove_file(&db_path);
@@ -55,28 +52,19 @@ mod tests {
         let storage = SqlStorageProvider::new(&db_path).unwrap();
 
         let group_id = b"test_group";
-        
+
         // Large encrypted blob (1 MB)
         let large_blob = vec![0u8; 1024 * 1024];
 
         let result = storage
-            .save_channel_metadata(
-                group_id,
-                &large_blob,
-                Some(&large_blob),
-                &large_blob,
-                1,
-            )
+            .save_channel_metadata(group_id, &large_blob, Some(&large_blob), &large_blob, 1)
             .await;
 
         // Should handle large blobs gracefully
         assert!(result.is_ok(), "Should handle large encrypted blobs");
 
         // Verify we can load it back
-        let (loaded_name, _, _, _, _, _) = storage
-            .load_channel_metadata(group_id)
-            .await
-            .unwrap();
+        let (loaded_name, _, _, _, _, _) = storage.load_channel_metadata(group_id).await.unwrap();
 
         assert_eq!(loaded_name.len(), large_blob.len());
 
@@ -91,17 +79,9 @@ mod tests {
         let storage = SqlStorageProvider::new(&db_path).unwrap();
 
         let group_id = b"";
-        
+
         // Empty group ID should be handled
-        let result = storage
-            .save_channel_metadata(
-                group_id,
-                b"name",
-                None,
-                b"members",
-                1,
-            )
-            .await;
+        let result = storage.save_channel_metadata(group_id, b"name", None, b"members", 1).await;
 
         // Empty group_id is valid (zero-length blob)
         assert!(result.is_ok(), "Should handle empty group_id");
@@ -132,10 +112,8 @@ mod tests {
         assert!(result.is_ok(), "Should handle null bytes in binary data");
 
         // Verify data round-trips correctly
-        let (loaded_name, loaded_topic, _, _, _, _) = storage
-            .load_channel_metadata(group_id)
-            .await
-            .unwrap();
+        let (loaded_name, loaded_topic, _, _, _, _) =
+            storage.load_channel_metadata(group_id).await.unwrap();
 
         assert_eq!(loaded_name, data_with_nulls);
         assert_eq!(loaded_topic, Some(data_with_nulls.to_vec()));
@@ -169,7 +147,7 @@ mod tests {
         let storage = SqlStorageProvider::new(&db_path).unwrap();
 
         let group_id = b"concurrent_group";
-        
+
         // Create channel first
         storage
             .save_channel_metadata(group_id, b"name", None, b"members", 1)
@@ -185,7 +163,13 @@ mod tests {
                 for j in 0..10 {
                     let msg_id = format!("msg_{}_{}", i, j).into_bytes();
                     storage
-                        .save_message(&msg_id, b"concurrent_group", b"content", b"sender", (i * 10 + j) as i64)
+                        .save_message(
+                            &msg_id,
+                            b"concurrent_group",
+                            b"content",
+                            b"sender",
+                            (i * 10 + j) as i64,
+                        )
                         .await
                         .unwrap();
                 }
@@ -221,7 +205,13 @@ mod tests {
         // Add some messages
         for i in 0..10 {
             storage
-                .save_message(&format!("msg_{}", i).into_bytes(), group_id, b"content", b"sender", i)
+                .save_message(
+                    &format!("msg_{}", i).into_bytes(),
+                    group_id,
+                    b"content",
+                    b"sender",
+                    i,
+                )
                 .await
                 .unwrap();
         }
@@ -264,10 +254,8 @@ mod tests {
         assert!(result.is_ok(), "Should handle arbitrary binary data");
 
         // Verify round-trip
-        let (loaded, _, _, _, _, _) = storage
-            .load_channel_metadata(&random_data[0..32])
-            .await
-            .unwrap();
+        let (loaded, _, _, _, _, _) =
+            storage.load_channel_metadata(&random_data[0..32]).await.unwrap();
 
         assert_eq!(loaded, random_data);
 
@@ -297,10 +285,8 @@ mod tests {
         assert!(result.is_ok(), "Should handle Unicode and special chars");
 
         // Verify round-trip
-        let (loaded_name, loaded_topic, _, _, _, _) = storage
-            .load_channel_metadata(b"unicode_group")
-            .await
-            .unwrap();
+        let (loaded_name, loaded_topic, _, _, _, _) =
+            storage.load_channel_metadata(b"unicode_group").await.unwrap();
 
         assert_eq!(loaded_name, unicode_data);
         assert_eq!(loaded_topic, Some(special_chars.to_vec()));

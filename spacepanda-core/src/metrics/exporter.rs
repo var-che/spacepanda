@@ -17,26 +17,24 @@ pub struct PrometheusExporter {
 impl PrometheusExporter {
     /// Create a new Prometheus exporter
     pub fn new() -> Self {
-        Self {
-            registry: Arc::new(RwLock::new(Vec::new())),
-        }
+        Self { registry: Arc::new(RwLock::new(Vec::new())) }
     }
-    
+
     /// Record a metric value
     pub async fn record(&self, name: String, value: f64) {
         let mut registry = self.registry.write().await;
         registry.push((name, value));
     }
-    
+
     /// Export metrics in Prometheus text format
     pub async fn export_prometheus(&self) -> String {
         let registry = self.registry.read().await;
         let mut output = String::new();
-        
+
         for (name, value) in registry.iter() {
             output.push_str(&format!("{} {}\n", name, value));
         }
-        
+
         output
     }
 }
@@ -58,14 +56,14 @@ impl MetricsExporter for PrometheusExporter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_prometheus_exporter() {
         let exporter = PrometheusExporter::new();
-        
+
         exporter.record("test_metric".to_string(), 42.0).await;
         exporter.record("another_metric".to_string(), 100.0).await;
-        
+
         let output = exporter.export_prometheus().await;
         assert!(output.contains("test_metric 42"));
         assert!(output.contains("another_metric 100"));

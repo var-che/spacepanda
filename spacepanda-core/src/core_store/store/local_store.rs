@@ -274,11 +274,11 @@ impl LocalStore {
     ) -> StoreResult<Vec<Message>> {
         let cache = self.messages_cache.read().map_err(handle_poison)?;
         let messages = cache.get(channel_id).cloned().unwrap_or_default();
-        
+
         // Sort by timestamp (newest first)
         let mut sorted: Vec<Message> = messages;
         sorted.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        
+
         // Apply pagination
         Ok(sorted.into_iter().skip(offset).take(limit).collect())
     }
@@ -287,7 +287,7 @@ impl LocalStore {
     pub fn get_thread_replies(&self, parent_id: &MessageId) -> StoreResult<Vec<Message>> {
         let cache = self.messages_cache.read().map_err(handle_poison)?;
         let mut replies = Vec::new();
-        
+
         for messages in cache.values() {
             for msg in messages {
                 if let Some(reply_to) = &msg.reply_to {
@@ -297,10 +297,10 @@ impl LocalStore {
                 }
             }
         }
-        
+
         // Sort by timestamp
         replies.sort_by_key(|m| m.timestamp);
-        
+
         Ok(replies)
     }
 
@@ -369,7 +369,7 @@ impl LocalStore {
         // Replay commit log entries after snapshot
         // For now, we replay ALL entries since we don't track snapshot positions
         let entries = self.commit_log.read().map_err(handle_poison)?.read_all()?;
-        
+
         for entry in entries {
             // Try to decrypt if encryption is enabled
             let data = if let Some(enc) = &self.encryption {
@@ -377,7 +377,7 @@ impl LocalStore {
             } else {
                 entry.data.clone()
             };
-            
+
             // Try to deserialize as Channel first (most common in our case)
             if let Ok(channel) = bincode::deserialize::<Channel>(&data) {
                 self.channels_cache
@@ -386,7 +386,7 @@ impl LocalStore {
                     .insert(channel.id.clone(), channel);
                 continue;
             }
-            
+
             // Try to deserialize as Space
             if let Ok(space) = bincode::deserialize::<Space>(&data) {
                 self.spaces_cache
@@ -395,7 +395,7 @@ impl LocalStore {
                     .insert(space.id.clone(), space);
                 continue;
             }
-            
+
             // If we can't deserialize as either, skip this entry
             // (could be a message or other data type we're not loading yet)
         }

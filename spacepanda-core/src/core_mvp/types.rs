@@ -215,11 +215,7 @@ pub struct Reaction {
 impl Reaction {
     /// Create a new reaction
     pub fn new(emoji: String, user_id: UserId) -> Self {
-        Self {
-            emoji,
-            user_id,
-            timestamp: Timestamp::now(),
-        }
+        Self { emoji, user_id, timestamp: Timestamp::now() }
     }
 }
 
@@ -380,8 +376,8 @@ mod tests {
         assert!(!invite.is_expired());
 
         let expired_invite = invite.with_expiry(0); // Expires immediately
-        // Note: This might pass or fail depending on timing
-        // In production, use proper time mocking
+                                                    // Note: This might pass or fail depending on timing
+                                                    // In production, use proper time mocking
     }
 
     #[test]
@@ -400,8 +396,8 @@ mod tests {
         assert!(msg.reply_to.is_none());
 
         let parent_id = MessageId::generate();
-        let reply = ChatMessage::new(channel_id, sender, b"Reply".to_vec())
-            .reply_to(parent_id.clone());
+        let reply =
+            ChatMessage::new(channel_id, sender, b"Reply".to_vec()).reply_to(parent_id.clone());
 
         assert_eq!(reply.reply_to, Some(parent_id));
     }
@@ -412,13 +408,7 @@ mod tests {
         let owner = UserId::generate();
         let group_id = GroupId::new(vec![1, 2, 3]);
 
-        let desc = ChannelDescriptor::new(
-            channel_id,
-            owner,
-            "test".to_string(),
-            false,
-            group_id,
-        );
+        let desc = ChannelDescriptor::new(channel_id, owner, "test".to_string(), false, group_id);
 
         let json = serde_json::to_string(&desc).unwrap();
         let deserialized: ChannelDescriptor = serde_json::from_str(&json).unwrap();

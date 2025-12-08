@@ -3,13 +3,10 @@
 //! This adapter wraps our existing MlsService to implement the GroupProvider trait,
 //! enabling ChannelManager to work with a clean abstraction.
 
+use crate::core_mls::{service::MlsService, types::GroupId};
 use crate::core_mvp::{
     errors::{MvpError, MvpResult},
     group_provider::{GroupConfig, GroupHandle, GroupProvider, Welcome},
-};
-use crate::core_mls::{
-    service::MlsService,
-    types::GroupId,
 };
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -50,13 +47,9 @@ impl GroupProvider for CoreMlsAdapter {
             .map_err(|e| MvpError::Mls(e))
     }
 
-    async fn create_group(
-        &self,
-        identity: &[u8],
-        config: GroupConfig,
-    ) -> MvpResult<GroupHandle> {
+    async fn create_group(&self, identity: &[u8], config: GroupConfig) -> MvpResult<GroupHandle> {
         let group_id_opt = config.group_id.map(GroupId::new);
-        
+
         let group_id = self
             .mls_service
             .create_group(identity.to_vec(), group_id_opt)
@@ -86,10 +79,7 @@ impl GroupProvider for CoreMlsAdapter {
             Some(ratchet_tree)
         };
 
-        Ok(Welcome {
-            blob: welcome_blob,
-            ratchet_tree: ratchet_tree_opt,
-        })
+        Ok(Welcome { blob: welcome_blob, ratchet_tree: ratchet_tree_opt })
     }
 
     async fn join_from_welcome(
@@ -106,11 +96,7 @@ impl GroupProvider for CoreMlsAdapter {
         Ok(Self::from_group_id(group_id))
     }
 
-    async fn seal_message(
-        &self,
-        handle: &GroupHandle,
-        plaintext: &[u8],
-    ) -> MvpResult<Vec<u8>> {
+    async fn seal_message(&self, handle: &GroupHandle, plaintext: &[u8]) -> MvpResult<Vec<u8>> {
         let group_id = Self::to_group_id(handle);
 
         let ciphertext = self
@@ -122,11 +108,7 @@ impl GroupProvider for CoreMlsAdapter {
         Ok(ciphertext)
     }
 
-    async fn open_message(
-        &self,
-        handle: &GroupHandle,
-        ciphertext: &[u8],
-    ) -> MvpResult<Vec<u8>> {
+    async fn open_message(&self, handle: &GroupHandle, ciphertext: &[u8]) -> MvpResult<Vec<u8>> {
         let group_id = Self::to_group_id(handle);
 
         let plaintext = self
@@ -178,11 +160,8 @@ impl GroupProvider for CoreMlsAdapter {
     async fn epoch(&self, handle: &GroupHandle) -> MvpResult<u64> {
         let group_id = Self::to_group_id(handle);
 
-        let metadata = self
-            .mls_service
-            .get_metadata(&group_id)
-            .await
-            .map_err(|e| MvpError::Mls(e))?;
+        let metadata =
+            self.mls_service.get_metadata(&group_id).await.map_err(|e| MvpError::Mls(e))?;
 
         Ok(metadata.epoch)
     }
@@ -190,11 +169,8 @@ impl GroupProvider for CoreMlsAdapter {
     async fn member_count(&self, handle: &GroupHandle) -> MvpResult<usize> {
         let group_id = Self::to_group_id(handle);
 
-        let metadata = self
-            .mls_service
-            .get_metadata(&group_id)
-            .await
-            .map_err(|e| MvpError::Mls(e))?;
+        let metadata =
+            self.mls_service.get_metadata(&group_id).await.map_err(|e| MvpError::Mls(e))?;
 
         Ok(metadata.members.len())
     }
@@ -202,10 +178,7 @@ impl GroupProvider for CoreMlsAdapter {
     async fn list_groups(&self) -> MvpResult<Vec<GroupHandle>> {
         let group_ids = self.mls_service.list_groups().await;
 
-        let handles = group_ids
-            .into_iter()
-            .map(Self::from_group_id)
-            .collect();
+        let handles = group_ids.into_iter().map(Self::from_group_id).collect();
 
         Ok(handles)
     }
@@ -239,7 +212,7 @@ mod tests {
         let config = Arc::new(Config::default());
         let shutdown = Arc::new(ShutdownCoordinator::new(Duration::from_secs(5)));
         let mls_service = Arc::new(MlsService::new(&config, shutdown));
-        
+
         CoreMlsAdapter::new(mls_service)
     }
 
@@ -250,36 +223,27 @@ mod tests {
         let config = GroupConfig::default();
 
         let handle = adapter.create_group(identity, config).await.unwrap();
-        
+
         assert!(!handle.id.is_empty());
     }
 
     #[tokio::test]
     async fn test_list_groups() {
         let adapter = create_test_adapter().await;
-        
+
         // Create two groups
-        let _group1 = adapter
-            .create_group(b"alice", GroupConfig::default())
-            .await
-            .unwrap();
-        let _group2 = adapter
-            .create_group(b"bob", GroupConfig::default())
-            .await
-            .unwrap();
+        let _group1 = adapter.create_group(b"alice", GroupConfig::default()).await.unwrap();
+        let _group2 = adapter.create_group(b"bob", GroupConfig::default()).await.unwrap();
 
         let groups = adapter.list_groups().await.unwrap();
-        
+
         assert_eq!(groups.len(), 2);
     }
 
     #[tokio::test]
     async fn test_group_metadata() {
         let adapter = create_test_adapter().await;
-        let handle = adapter
-            .create_group(b"test", GroupConfig::default())
-            .await
-            .unwrap();
+        let handle = adapter.create_group(b"test", GroupConfig::default()).await.unwrap();
 
         let epoch = adapter.epoch(&handle).await.unwrap();
         let count = adapter.member_count(&handle).await.unwrap();

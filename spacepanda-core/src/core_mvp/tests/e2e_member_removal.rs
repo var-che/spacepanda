@@ -23,11 +23,8 @@ use tempfile::TempDir;
 /// Helper to create a test manager with unique storage
 async fn create_test_manager(name: &str, temp_dir: &TempDir) -> Arc<ChannelManager> {
     let user_id = UserId(format!("user-{}", name));
-    let identity = Arc::new(Identity::new(
-        user_id.clone(),
-        name.to_string(),
-        format!("node-{}", name),
-    ));
+    let identity =
+        Arc::new(Identity::new(user_id.clone(), name.to_string(), format!("node-{}", name)));
 
     let config = Arc::new(Config::default());
     let shutdown = Arc::new(ShutdownCoordinator::new(std::time::Duration::from_secs(30)));
@@ -61,7 +58,7 @@ async fn create_test_manager(name: &str, temp_dir: &TempDir) -> Arc<ChannelManag
 async fn test_three_member_channel_with_removal() {
     // Create three users
     let temp_dir = TempDir::new().unwrap();
-    
+
     let alice_manager = create_test_manager("alice", &temp_dir).await;
     let bob_manager = create_test_manager("bob", &temp_dir).await;
     let charlie_manager = create_test_manager("charlie", &temp_dir).await;
@@ -95,10 +92,8 @@ async fn test_three_member_channel_with_removal() {
         .expect("Alice should create invite for Bob");
 
     // Bob joins (Alice's state is already updated from create_invite)
-    let bob_channel_id = bob_manager
-        .join_channel(&bob_invite)
-        .await
-        .expect("Bob should join channel");
+    let bob_channel_id =
+        bob_manager.join_channel(&bob_invite).await.expect("Bob should join channel");
     assert_eq!(bob_channel_id, channel_id);
     println!("✅ Bob joined channel");
 
@@ -129,10 +124,7 @@ async fn test_three_member_channel_with_removal() {
 
     // Bob processes the commit (Charlie being added) to stay in sync
     if let Some(commit) = commit_for_group {
-        bob_manager
-            .process_commit(&commit)
-            .await
-            .expect("Bob should process commit");
+        bob_manager.process_commit(&commit).await.expect("Bob should process commit");
     }
 
     let members = alice_manager.get_channel_members(&channel_id).await.unwrap();
@@ -140,7 +132,7 @@ async fn test_three_member_channel_with_removal() {
     assert_eq!(members.len(), 3, "Should have 3 members after Charlie joins");
 
     println!("\n=== Phase 4: All three can communicate ===");
-    
+
     // Alice sends message
     let alice_msg_1 = alice_manager
         .send_message(&channel_id, b"Hello team!")
@@ -187,10 +179,10 @@ async fn test_three_member_channel_with_removal() {
     println!("✅ Charlie decrypted: '{}'", String::from_utf8_lossy(&charlie_received_2));
 
     println!("\n=== Phase 5: Alice removes Charlie ===");
-    
+
     // Get Charlie's identity for removal
     let charlie_identity = charlie_manager.identity().as_bytes();
-    
+
     // Alice removes Charlie
     let removal_commit = alice_manager
         .remove_member(&channel_id, &charlie_identity)
@@ -226,10 +218,8 @@ async fn test_three_member_channel_with_removal() {
     println!("✅ Bob decrypted: '{}'", String::from_utf8_lossy(&bob_received_2));
 
     // Charlie CANNOT decrypt (removed from group)
-    let charlie_decrypt_result = charlie_manager
-        .receive_message(&alice_msg_2)
-        .await;
-    
+    let charlie_decrypt_result = charlie_manager.receive_message(&alice_msg_2).await;
+
     match charlie_decrypt_result {
         Err(_) => {
             println!("✅ Charlie CANNOT decrypt new messages (forward secrecy working!)");
@@ -260,10 +250,8 @@ async fn test_three_member_channel_with_removal() {
     println!("✅ Alice decrypted: '{}'", String::from_utf8_lossy(&alice_received_2));
 
     // Charlie still cannot decrypt
-    let charlie_decrypt_result_2 = charlie_manager
-        .receive_message(&bob_msg_2)
-        .await;
-    
+    let charlie_decrypt_result_2 = charlie_manager.receive_message(&bob_msg_2).await;
+
     assert!(
         charlie_decrypt_result_2.is_err(),
         "Charlie should not be able to decrypt messages after removal"
@@ -280,38 +268,27 @@ async fn test_three_member_channel_with_removal() {
 async fn test_member_removal_epoch_progression() {
     // This test verifies that removing a member increments the epoch
     let temp_dir = TempDir::new().unwrap();
-    
+
     let alice_manager = create_test_manager("alice", &temp_dir).await;
     let bob_manager = create_test_manager("bob", &temp_dir).await;
 
     // Alice creates channel
-    let channel_id = alice_manager
-        .create_channel("test".to_string(), false)
-        .await
-        .unwrap();
+    let channel_id = alice_manager.create_channel("test".to_string(), false).await.unwrap();
 
     // Bob joins
     let bob_key_package = bob_manager.generate_key_package().await.unwrap();
-    let (bob_invite, commit) = alice_manager
-        .create_invite(&channel_id, bob_key_package)
-        .await
-        .unwrap();
-    
+    let (bob_invite, commit) =
+        alice_manager.create_invite(&channel_id, bob_key_package).await.unwrap();
+
     bob_manager.join_channel(&bob_invite).await.unwrap();
 
     // Get metadata before removal
-    let metadata_before = alice_manager
-        .get_channel(&channel_id)
-        .await
-        .unwrap();
+    let metadata_before = alice_manager.get_channel(&channel_id).await.unwrap();
     println!("Epoch before removal: (metadata doesn't expose epoch, but MLS tracks it internally)");
 
     // Remove Bob
     let bob_identity = bob_manager.identity().as_bytes();
-    let removal_commit = alice_manager
-        .remove_member(&channel_id, &bob_identity)
-        .await
-        .unwrap();
+    let removal_commit = alice_manager.remove_member(&channel_id, &bob_identity).await.unwrap();
 
     println!("✅ Member removal creates new epoch with rekeyed encryption");
     println!("✅ Old epoch keys are no longer valid for new messages");

@@ -14,8 +14,11 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_db_path(name: &str) -> String {
-        format!("/tmp/spacepanda_crypto_test_{}_{}.db", name, 
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos())
+        format!(
+            "/tmp/spacepanda_crypto_test_{}_{}.db",
+            name,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        )
     }
 
     #[tokio::test]
@@ -28,11 +31,8 @@ mod tests {
         let kp_id = b"expired_key_package";
         let kp_data = b"key_package_data";
         let cred_id = b"credential";
-        let expired_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64
-            - 3600; // 1 hour ago
+        let expired_at =
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64 - 3600; // 1 hour ago
 
         storage
             .store_key_package(kp_id, kp_data, cred_id, Some(expired_at))
@@ -41,10 +41,7 @@ mod tests {
 
         // Try to load expired key package (should fail)
         let result = storage.load_key_package(kp_id).await;
-        assert!(
-            result.is_err(),
-            "Expired key packages should not be loadable"
-        );
+        assert!(result.is_err(), "Expired key packages should not be loadable");
 
         // Cleanup should remove it
         let removed = storage.cleanup_expired_key_packages().unwrap();
@@ -64,10 +61,7 @@ mod tests {
         for i in 0..10 {
             let kp_id = format!("kp_{}", i).into_bytes();
             let kp_data = format!("data_{}", i).into_bytes();
-            storage
-                .store_key_package(&kp_id, &kp_data, b"cred", None)
-                .await
-                .unwrap();
+            storage.store_key_package(&kp_id, &kp_data, b"cred", None).await.unwrap();
         }
 
         // Verify all are stored
@@ -91,10 +85,7 @@ mod tests {
         let kp_data = b"key_package_data";
 
         // Store
-        storage
-            .store_key_package(kp_id, kp_data, b"cred", None)
-            .await
-            .unwrap();
+        storage.store_key_package(kp_id, kp_data, b"cred", None).await.unwrap();
 
         // Load (automatically marks as used)
         let loaded = storage.load_key_package(kp_id).await.unwrap();
@@ -148,14 +139,11 @@ mod tests {
     async fn test_storage_persistence() {
         // Verify data persists across storage instances
         let db_path = temp_db_path("persistence");
-        
+
         {
             let storage = SqlStorageProvider::new(&db_path).unwrap();
 
-            storage
-                .store_key_package(b"persist_kp", b"data", b"cred", None)
-                .await
-                .unwrap();
+            storage.store_key_package(b"persist_kp", b"data", b"cred", None).await.unwrap();
         } // Drop storage
 
         // Reopen database

@@ -450,9 +450,10 @@ mod security_tests {
         let alice_identity = b"alice@example.com".to_vec();
         let config = MlsConfig::default();
         let provider = Arc::new(OpenMlsRustCrypto::default());
-        let alice_engine = OpenMlsEngine::create_group(group_id.clone(), alice_identity, config, provider)
-            .await
-            .expect("Failed to create Alice's engine");
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id.clone(), alice_identity, config, provider)
+                .await
+                .expect("Failed to create Alice's engine");
 
         let bob_kp = create_key_package(b"bob").await;
         let bob_kp_bytes = serialize_key_package(&bob_kp);
@@ -494,9 +495,10 @@ mod security_tests {
         let alice_identity = b"alice@example.com".to_vec();
         let config = MlsConfig::default();
         let provider = Arc::new(OpenMlsRustCrypto::default());
-        let alice_engine = OpenMlsEngine::create_group(group_id.clone(), alice_identity, config, provider)
-            .await
-            .expect("Failed to create Alice's engine");
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id.clone(), alice_identity, config, provider)
+                .await
+                .expect("Failed to create Alice's engine");
 
         // Add Bob to get a valid member
         let bob_kp = create_key_package(b"bob").await;
@@ -539,9 +541,10 @@ mod security_tests {
         let alice_identity = b"alice@example.com".to_vec();
         let config = MlsConfig::default();
         let provider = Arc::new(OpenMlsRustCrypto::default());
-        let alice_engine = OpenMlsEngine::create_group(group_id.clone(), alice_identity, config, provider)
-            .await
-            .expect("Failed to create Alice's engine");
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id.clone(), alice_identity, config, provider)
+                .await
+                .expect("Failed to create Alice's engine");
 
         // Add 50 members (reduced from 500 for test performance)
         // In production, this would be 500+ members
@@ -574,9 +577,10 @@ mod security_tests {
         let alice_identity = b"alice@example.com".to_vec();
         let config = MlsConfig::default();
         let provider = Arc::new(OpenMlsRustCrypto::default());
-        let alice_engine = OpenMlsEngine::create_group(group_id.clone(), alice_identity, config, provider)
-            .await
-            .expect("Failed to create Alice's engine");
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id.clone(), alice_identity, config, provider)
+                .await
+                .expect("Failed to create Alice's engine");
 
         // Add a member to create some state
         let bob_kp = create_key_package(b"bob").await;
@@ -639,9 +643,10 @@ mod security_tests {
         let alice_identity = b"alice@example.com".to_vec();
         let config = MlsConfig::default();
         let provider = Arc::new(OpenMlsRustCrypto::default());
-        let alice_engine = OpenMlsEngine::create_group(group_id.clone(), alice_identity, config, provider)
-            .await
-            .expect("Failed to create Alice's engine");
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id.clone(), alice_identity, config, provider)
+                .await
+                .expect("Failed to create Alice's engine");
 
         // Create some state
         let bob_kp = create_key_package(b"bob").await;
@@ -679,9 +684,10 @@ mod security_tests {
         let alice_identity = b"alice@example.com".to_vec();
         let config = MlsConfig::default();
         let provider = Arc::new(OpenMlsRustCrypto::default());
-        let alice_engine = OpenMlsEngine::create_group(group_id.clone(), alice_identity, config, provider)
-            .await
-            .expect("Failed to create Alice's engine");
+        let alice_engine =
+            OpenMlsEngine::create_group(group_id.clone(), alice_identity, config, provider)
+                .await
+                .expect("Failed to create Alice's engine");
 
         // Add multiple members to generate many requests
         const REQUEST_COUNT: usize = 100;

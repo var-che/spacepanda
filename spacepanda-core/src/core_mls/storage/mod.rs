@@ -19,4 +19,3 @@ pub use file_store::FileStorageProvider;
 pub use memory_store::MemoryStorageProvider;
 pub use migrations::{migrate, CURRENT_SCHEMA_VERSION};
 pub use sql_store::SqlStorageProvider;
-

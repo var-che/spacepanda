@@ -310,13 +310,8 @@ mod tests {
         let owner = UserId::generate();
         let now = Timestamp::now();
 
-        let mut space = Space::new(
-            space_id,
-            "Old Space".to_string(),
-            owner.clone(),
-            now,
-            "node1".to_string(),
-        );
+        let mut space =
+            Space::new(space_id, "Old Space".to_string(), owner.clone(), now, "node1".to_string());
 
         thread::sleep(Duration::from_millis(2));
 

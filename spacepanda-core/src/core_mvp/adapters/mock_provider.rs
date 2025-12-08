@@ -26,9 +26,7 @@ pub struct MockGroupProvider {
 impl MockGroupProvider {
     /// Create a new mock provider
     pub fn new() -> Self {
-        Self {
-            groups: Arc::new(Mutex::new(HashMap::new())),
-        }
+        Self { groups: Arc::new(Mutex::new(HashMap::new())) }
     }
 }
 
@@ -46,20 +44,12 @@ impl GroupProvider for MockGroupProvider {
         Ok(identity.to_vec())
     }
 
-    async fn create_group(
-        &self,
-        identity: &[u8],
-        config: GroupConfig,
-    ) -> MvpResult<GroupHandle> {
+    async fn create_group(&self, identity: &[u8], config: GroupConfig) -> MvpResult<GroupHandle> {
         let group_id = config
             .group_id
             .unwrap_or_else(|| format!("group-{}", uuid::Uuid::new_v4()).into_bytes());
 
-        let group = MockGroup {
-            id: group_id.clone(),
-            epoch: 0,
-            members: vec![identity.to_vec()],
-        };
+        let group = MockGroup { id: group_id.clone(), epoch: 0, members: vec![identity.to_vec()] };
 
         self.groups.lock().unwrap().insert(group_id.clone(), group);
 
@@ -83,10 +73,7 @@ impl GroupProvider for MockGroupProvider {
         }
         group.epoch += 1;
 
-        let welcome = Welcome {
-            blob: handle.as_bytes().to_vec(),
-            ratchet_tree: None,
-        };
+        let welcome = Welcome { blob: handle.as_bytes().to_vec(), ratchet_tree: None };
 
         Ok(welcome)
     }
@@ -109,22 +96,14 @@ impl GroupProvider for MockGroupProvider {
         Ok(handle)
     }
 
-    async fn seal_message(
-        &self,
-        handle: &GroupHandle,
-        plaintext: &[u8],
-    ) -> MvpResult<Vec<u8>> {
+    async fn seal_message(&self, handle: &GroupHandle, plaintext: &[u8]) -> MvpResult<Vec<u8>> {
         // Mock encryption: just prepend "ENCRYPTED:" prefix
         let mut ciphertext = b"ENCRYPTED:".to_vec();
         ciphertext.extend_from_slice(plaintext);
         Ok(ciphertext)
     }
 
-    async fn open_message(
-        &self,
-        handle: &GroupHandle,
-        ciphertext: &[u8],
-    ) -> MvpResult<Vec<u8>> {
+    async fn open_message(&self, handle: &GroupHandle, ciphertext: &[u8]) -> MvpResult<Vec<u8>> {
         // Mock decryption: strip "ENCRYPTED:" prefix
         if !ciphertext.starts_with(b"ENCRYPTED:") {
             return Err(MvpError::InvalidMessage("Bad ciphertext".to_string()));
@@ -193,10 +172,7 @@ impl GroupProvider for MockGroupProvider {
 
     async fn list_groups(&self) -> MvpResult<Vec<GroupHandle>> {
         let groups = self.groups.lock().unwrap();
-        let handles = groups
-            .keys()
-            .map(|id| GroupHandle::new(id.clone()))
-            .collect();
+        let handles = groups.keys().map(|id| GroupHandle::new(id.clone())).collect();
 
         Ok(handles)
     }
@@ -214,14 +190,8 @@ mod tests {
     async fn test_mock_create_and_list() {
         let provider = MockGroupProvider::new();
 
-        let handle1 = provider
-            .create_group(b"alice", GroupConfig::default())
-            .await
-            .unwrap();
-        let handle2 = provider
-            .create_group(b"bob", GroupConfig::default())
-            .await
-            .unwrap();
+        let handle1 = provider.create_group(b"alice", GroupConfig::default()).await.unwrap();
+        let handle2 = provider.create_group(b"bob", GroupConfig::default()).await.unwrap();
 
         let groups = provider.list_groups().await.unwrap();
         assert_eq!(groups.len(), 2);
@@ -230,10 +200,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_encrypt_decrypt() {
         let provider = MockGroupProvider::new();
-        let handle = provider
-            .create_group(b"test", GroupConfig::default())
-            .await
-            .unwrap();
+        let handle = provider.create_group(b"test", GroupConfig::default()).await.unwrap();
 
         let plaintext = b"Hello, World!";
         let ciphertext = provider.seal_message(&handle, plaintext).await.unwrap();
@@ -245,20 +212,11 @@ mod tests {
     #[tokio::test]
     async fn test_mock_welcome_join() {
         let provider = MockGroupProvider::new();
-        let handle = provider
-            .create_group(b"alice", GroupConfig::default())
-            .await
-            .unwrap();
+        let handle = provider.create_group(b"alice", GroupConfig::default()).await.unwrap();
 
-        let welcome = provider
-            .create_welcome(&handle, vec![b"bob".to_vec()])
-            .await
-            .unwrap();
+        let welcome = provider.create_welcome(&handle, vec![b"bob".to_vec()]).await.unwrap();
 
-        let joined = provider
-            .join_from_welcome(&welcome, b"bob")
-            .await
-            .unwrap();
+        let joined = provider.join_from_welcome(&welcome, b"bob").await.unwrap();
 
         assert_eq!(joined.id, handle.id);
     }
@@ -266,10 +224,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_member_operations() {
         let provider = MockGroupProvider::new();
-        let handle = provider
-            .create_group(b"alice", GroupConfig::default())
-            .await
-            .unwrap();
+        let handle = provider.create_group(b"alice", GroupConfig::default()).await.unwrap();
 
         // Initial: 1 member
         let count1 = provider.member_count(&handle).await.unwrap();
@@ -294,18 +249,12 @@ mod tests {
     #[tokio::test]
     async fn test_mock_epoch_tracking() {
         let provider = MockGroupProvider::new();
-        let handle = provider
-            .create_group(b"test", GroupConfig::default())
-            .await
-            .unwrap();
+        let handle = provider.create_group(b"test", GroupConfig::default()).await.unwrap();
 
         let epoch0 = provider.epoch(&handle).await.unwrap();
         assert_eq!(epoch0, 0);
 
-        provider
-            .propose_add(&handle, vec![b"member".to_vec()])
-            .await
-            .unwrap();
+        provider.propose_add(&handle, vec![b"member".to_vec()]).await.unwrap();
 
         let epoch1 = provider.epoch(&handle).await.unwrap();
         assert_eq!(epoch1, 1);

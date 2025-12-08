@@ -267,7 +267,7 @@ mod proptests {
         #[test]
         fn prop_increment_increases(node_id in "[a-z]+", iterations in 1usize..100) {
             let mut vc = VectorClock::new();
-            
+
             for i in 1..=iterations {
                 vc.increment(&node_id);
                 prop_assert_eq!(vc.get(&node_id), i as u64);
@@ -345,9 +345,9 @@ mod proptests {
             vc_a2.merge(&vc_b2);
 
             // Should be equal
-            let all_nodes: std::collections::HashSet<_> = 
+            let all_nodes: std::collections::HashSet<_> =
                 vc_a1.node_ids().into_iter().chain(vc_a2.node_ids()).collect();
-            
+
             for node in all_nodes {
                 prop_assert_eq!(vc_a1.get(&node), vc_a2.get(&node));
             }
@@ -368,7 +368,7 @@ mod proptests {
                 vc2.set(node, *val);
             }
 
-            let original: std::collections::HashMap<_, _> = 
+            let original: std::collections::HashMap<_, _> =
                 vc1.node_ids().iter().map(|n| (n.clone(), vc1.get(n))).collect();
 
             vc1.merge(&vc2);

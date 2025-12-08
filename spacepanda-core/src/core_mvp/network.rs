@@ -41,26 +41,13 @@ use tracing::{debug, error, info, warn};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ChannelNetworkMessage {
     /// Encrypted application message (MLS ciphertext)
-    EncryptedMessage {
-        channel_id: String,
-        ciphertext: Vec<u8>,
-        sender_id: String,
-    },
+    EncryptedMessage { channel_id: String, ciphertext: Vec<u8>, sender_id: String },
     /// Commit message (group state change)
-    Commit {
-        channel_id: String,
-        commit_data: Vec<u8>,
-    },
+    Commit { channel_id: String, commit_data: Vec<u8> },
     /// Proposal message
-    Proposal {
-        channel_id: String,
-        proposal_data: Vec<u8>,
-    },
+    Proposal { channel_id: String, proposal_data: Vec<u8> },
     /// Peer wants to join a channel
-    JoinRequest {
-        channel_id: String,
-        key_package: Vec<u8>,
-    },
+    JoinRequest { channel_id: String, key_package: Vec<u8> },
 }
 
 /// Maps channel members to their network peer IDs
@@ -86,16 +73,16 @@ pub struct IncomingCommit {
 pub struct NetworkLayer {
     /// Router handle for P2P communication
     router: RouterHandle,
-    
+
     /// Maps channel members to their peer IDs
     channel_members: Arc<RwLock<ChannelMemberMap>>,
-    
+
     /// Channel for incoming messages
     incoming_tx: mpsc::Sender<IncomingMessage>,
-    
+
     /// Channel for incoming commits
     incoming_commits_tx: mpsc::Sender<IncomingCommit>,
-    
+
     /// Our peer ID
     local_peer_id: PeerId,
 }
@@ -115,7 +102,7 @@ impl NetworkLayer {
     ) -> (Self, mpsc::Receiver<IncomingMessage>, mpsc::Receiver<IncomingCommit>) {
         let (incoming_tx, incoming_rx) = mpsc::channel(100);
         let (incoming_commits_tx, incoming_commits_rx) = mpsc::channel(100);
-        
+
         let network = Self {
             router,
             channel_members: Arc::new(RwLock::new(HashMap::new())),
@@ -123,10 +110,10 @@ impl NetworkLayer {
             incoming_commits_tx,
             local_peer_id,
         };
-        
+
         (network, incoming_rx, incoming_commits_rx)
     }
-    
+
     /// Start listening on an address
     pub async fn listen(&self, addr: &str) -> MvpResult<()> {
         self.router
@@ -134,7 +121,7 @@ impl NetworkLayer {
             .await
             .map_err(|e| MvpError::NetworkError(format!("Failed to listen: {}", e)))
     }
-    
+
     /// Connect to a peer
     pub async fn dial(&self, addr: &str) -> MvpResult<()> {
         self.router
@@ -142,7 +129,7 @@ impl NetworkLayer {
             .await
             .map_err(|e| MvpError::NetworkError(format!("Failed to dial: {}", e)))
     }
-    
+
     /// Register a channel member
     ///
     /// Maps a user ID to their network peer ID for message routing
@@ -159,7 +146,7 @@ impl NetworkLayer {
             .entry(channel_id.clone())
             .or_insert_with(HashMap::new)
             .insert(user_id, peer_id);
-        
+
         info!(
             channel_id = %channel_id,
             user_id = %user_id_str,
@@ -167,12 +154,12 @@ impl NetworkLayer {
             "Registered channel member"
         );
     }
-    
+
     /// Get our local peer ID
     pub async fn get_local_peer_id(&self) -> Option<PeerId> {
         Some(self.local_peer_id.clone())
     }
-    
+
     /// Broadcast encrypted message to all channel members
     ///
     /// # Arguments
@@ -186,29 +173,29 @@ impl NetworkLayer {
         sender_id: &UserId,
     ) -> MvpResult<()> {
         let members = self.channel_members.read().await;
-        
-        let channel_members = members.get(channel_id).ok_or_else(|| {
-            MvpError::ChannelNotFound(channel_id.0.clone())
-        })?;
-        
+
+        let channel_members = members
+            .get(channel_id)
+            .ok_or_else(|| MvpError::ChannelNotFound(channel_id.0.clone()))?;
+
         let message = ChannelNetworkMessage::EncryptedMessage {
             channel_id: channel_id.0.clone(),
             ciphertext: ciphertext.clone(),
             sender_id: sender_id.0.clone(),
         };
-        
+
         let message_bytes = serde_json::to_vec(&message)
             .map_err(|e| MvpError::SerializationError(format!("Failed to serialize: {}", e)))?;
-        
+
         let mut sent_count = 0;
         let mut error_count = 0;
-        
+
         // Send to all members except ourselves
         for (user_id, peer_id) in channel_members.iter() {
             if user_id == sender_id {
                 continue; // Don't send to ourselves
             }
-            
+
             match self.router.send_direct(peer_id.clone(), message_bytes.clone()).await {
                 Ok(_) => {
                     sent_count += 1;
@@ -229,7 +216,7 @@ impl NetworkLayer {
                 }
             }
         }
-        
+
         info!(
             channel_id = %channel_id,
             sent = sent_count,
@@ -237,17 +224,17 @@ impl NetworkLayer {
             total_members = channel_members.len(),
             "Broadcast complete"
         );
-        
+
         if error_count > 0 && sent_count == 0 {
             return Err(MvpError::NetworkError(format!(
                 "Failed to send to any channel members ({} errors)",
                 error_count
             )));
         }
-        
+
         Ok(())
     }
-    
+
     /// Send commit message to channel members
     pub async fn broadcast_commit(
         &self,
@@ -255,29 +242,27 @@ impl NetworkLayer {
         commit_data: Vec<u8>,
     ) -> MvpResult<()> {
         let members = self.channel_members.read().await;
-        
-        let channel_members = members.get(channel_id).ok_or_else(|| {
-            MvpError::ChannelNotFound(channel_id.0.clone())
-        })?;
-        
-        let message = ChannelNetworkMessage::Commit {
-            channel_id: channel_id.0.clone(),
-            commit_data,
-        };
-        
+
+        let channel_members = members
+            .get(channel_id)
+            .ok_or_else(|| MvpError::ChannelNotFound(channel_id.0.clone()))?;
+
+        let message =
+            ChannelNetworkMessage::Commit { channel_id: channel_id.0.clone(), commit_data };
+
         let message_bytes = serde_json::to_vec(&message)
             .map_err(|e| MvpError::SerializationError(format!("Failed to serialize: {}", e)))?;
-        
+
         // Send to all members
         for (_user_id, peer_id) in channel_members.iter() {
             if let Err(e) = self.router.send_direct(peer_id.clone(), message_bytes.clone()).await {
                 warn!(peer_id = ?peer_id, error = %e, "Failed to send commit");
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Start processing incoming network events
     ///
     /// This spawns a background task that listens for router events
@@ -308,29 +293,25 @@ impl NetworkLayer {
             }
         })
     }
-    
+
     /// Handle incoming data from a peer
     /// Handle incoming data from a peer
-    /// 
+    ///
     /// This is called by the network event processor when data arrives
     pub async fn handle_incoming_data(&self, peer_id: PeerId, data: Vec<u8>) -> MvpResult<()> {
         // Deserialize network message
         let message: ChannelNetworkMessage = serde_json::from_slice(&data)
             .map_err(|e| MvpError::InvalidMessage(format!("Failed to deserialize: {}", e)))?;
-        
+
         match message {
-            ChannelNetworkMessage::EncryptedMessage {
-                channel_id,
-                ciphertext,
-                sender_id: _,
-            } => {
+            ChannelNetworkMessage::EncryptedMessage { channel_id, ciphertext, sender_id: _ } => {
                 // Forward to channel manager for decryption
                 let incoming = IncomingMessage {
                     channel_id: ChannelId(channel_id),
                     ciphertext,
                     sender_peer_id: peer_id,
                 };
-                
+
                 if let Err(e) = self.incoming_tx.send(incoming).await {
                     error!(error = %e, "Failed to forward incoming message");
                 }
@@ -341,14 +322,14 @@ impl NetworkLayer {
                     size = commit_data.len(),
                     "Received commit message"
                 );
-                
+
                 // Forward to channel manager for processing
                 let incoming_commit = IncomingCommit {
                     channel_id: ChannelId(channel_id),
                     commit_data,
                     sender_peer_id: peer_id.clone(),
                 };
-                
+
                 if let Err(e) = self.incoming_commits_tx.send(incoming_commit).await {
                     error!(error = %e, "Failed to forward incoming commit");
                 }
@@ -370,10 +351,10 @@ impl NetworkLayer {
                 // TODO: Forward to channel manager for processing
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Get list of peers in a channel
     pub async fn get_channel_peers(&self, channel_id: &ChannelId) -> Vec<PeerId> {
         let members = self.channel_members.read().await;
@@ -382,7 +363,7 @@ impl NetworkLayer {
             .map(|m| m.values().cloned().collect())
             .unwrap_or_default()
     }
-    
+
     /// Get our local peer ID
     pub fn local_peer_id(&self) -> &PeerId {
         &self.local_peer_id
@@ -392,29 +373,31 @@ impl NetworkLayer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_network_layer_creation() {
         let (router, _handle) = RouterHandle::new();
         let peer_id = PeerId(vec![1, 2, 3, 4]);
-        
+
         let (_network, _rx, _commits_rx) = NetworkLayer::new(router, peer_id);
-        
+
         // Network layer created successfully
     }
-    
+
     #[tokio::test]
     async fn test_register_channel_member() {
         let (router, _handle) = RouterHandle::new();
         let peer_id = PeerId(vec![1, 2, 3, 4]);
         let (network, _rx, _commits_rx) = NetworkLayer::new(router, peer_id);
-        
+
         let channel_id = ChannelId("test-channel".to_string());
         let user_id = UserId("user123".to_string());
         let member_peer_id = PeerId(vec![5, 6, 7, 8]);
-        
-        network.register_channel_member(&channel_id, user_id.clone(), member_peer_id.clone()).await;
-        
+
+        network
+            .register_channel_member(&channel_id, user_id.clone(), member_peer_id.clone())
+            .await;
+
         let peers = network.get_channel_peers(&channel_id).await;
         assert_eq!(peers.len(), 1);
         assert_eq!(peers[0], member_peer_id);

@@ -57,10 +57,7 @@ impl<P: OpenMlsProvider + 'static> OpenMlsHandleAdapter<P> {
     ///
     /// This is used when restoring groups from persistence.
     pub fn from_engine(engine: OpenMlsEngine<P>, config: MlsConfig) -> Self {
-        Self {
-            engine: Arc::new(RwLock::new(engine)),
-            config,
-        }
+        Self { engine: Arc::new(RwLock::new(engine)), config }
     }
 
     /// Join an existing group from a Welcome message
@@ -78,8 +75,14 @@ impl<P: OpenMlsProvider + 'static> OpenMlsHandleAdapter<P> {
         key_package_bundle: Option<KeyPackageBundle>,
         provider: Arc<P>,
     ) -> MlsResult<Self> {
-        let engine =
-            OpenMlsEngine::join_from_welcome(welcome_bytes, ratchet_tree, config.clone(), key_package_bundle, provider).await?;
+        let engine = OpenMlsEngine::join_from_welcome(
+            welcome_bytes,
+            ratchet_tree,
+            config.clone(),
+            key_package_bundle,
+            provider,
+        )
+        .await?;
 
         Ok(Self { engine: Arc::new(RwLock::new(engine)), config })
     }
@@ -179,9 +182,10 @@ mod tests {
         let identity = b"bob@example.com".to_vec();
         let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let adapter = OpenMlsHandleAdapter::create_group(Some(group_id.clone()), identity, config, provider)
-            .await
-            .expect("Failed to create group");
+        let adapter =
+            OpenMlsHandleAdapter::create_group(Some(group_id.clone()), identity, config, provider)
+                .await
+                .expect("Failed to create group");
 
         let actual_id = adapter.group_id().await;
         assert_eq!(actual_id, group_id);
@@ -192,15 +196,23 @@ mod tests {
         let config = MlsConfig::default();
         let provider = Arc::new(OpenMlsRustCrypto::default());
 
-        let adapter1 =
-            OpenMlsHandleAdapter::create_group(None, b"user1@example.com".to_vec(), config.clone(), provider.clone())
-                .await
-                .expect("Failed to create adapter 1");
+        let adapter1 = OpenMlsHandleAdapter::create_group(
+            None,
+            b"user1@example.com".to_vec(),
+            config.clone(),
+            provider.clone(),
+        )
+        .await
+        .expect("Failed to create adapter 1");
 
-        let adapter2 =
-            OpenMlsHandleAdapter::create_group(None, b"user2@example.com".to_vec(), config, provider.clone())
-                .await
-                .expect("Failed to create adapter 2");
+        let adapter2 = OpenMlsHandleAdapter::create_group(
+            None,
+            b"user2@example.com".to_vec(),
+            config,
+            provider.clone(),
+        )
+        .await
+        .expect("Failed to create adapter 2");
 
         let id1 = adapter1.group_id().await;
         let id2 = adapter2.group_id().await;
@@ -244,7 +256,9 @@ mod tests {
         assert!(!bytes.is_empty());
 
         // Load snapshot from bytes
-        let loaded = OpenMlsHandleAdapter::<openmls_rust_crypto::OpenMlsRustCrypto>::load_snapshot(&bytes).expect("Failed to load snapshot");
+        let loaded =
+            OpenMlsHandleAdapter::<openmls_rust_crypto::OpenMlsRustCrypto>::load_snapshot(&bytes)
+                .expect("Failed to load snapshot");
 
         // Verify loaded snapshot matches
         assert_eq!(loaded.group_id(), &group_id);

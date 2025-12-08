@@ -290,7 +290,7 @@ mod proptests {
 
             // Write with earlier timestamp
             reg.set(value1, ts1, "node1".to_string(), vc.clone());
-            
+
             // Write with later timestamp
             reg.set(value2, ts2, "node2".to_string(), vc);
 
@@ -310,7 +310,7 @@ mod proptests {
             ts_b in 500u64..1000,
         ) {
             let vc = VectorClock::new();
-            
+
             let mut reg_a1: LWWRegister<i32> = LWWRegister::new();
             let mut reg_a2: LWWRegister<i32> = LWWRegister::new();
             let mut reg_b1: LWWRegister<i32> = LWWRegister::new();
@@ -344,7 +344,7 @@ mod proptests {
             ts_c in 200u64..300,
         ) {
             let vc = VectorClock::new();
-            
+
             let mut reg_a1: LWWRegister<i32> = LWWRegister::new();
             let mut reg_a2: LWWRegister<i32> = LWWRegister::new();
             let mut reg_b1: LWWRegister<i32> = LWWRegister::new();
@@ -378,7 +378,7 @@ mod proptests {
         #[test]
         fn prop_merge_idempotent(value in 0..1000i32, timestamp in 1u64..1000) {
             let vc = VectorClock::new();
-            
+
             let mut reg1: LWWRegister<i32> = LWWRegister::new();
             let mut reg2: LWWRegister<i32> = LWWRegister::new();
 
@@ -406,7 +406,7 @@ mod proptests {
             timestamp in 1u64..1000,
         ) {
             let vc = VectorClock::new();
-            
+
             let mut reg: LWWRegister<i32> = LWWRegister::new();
 
             // Both writes at same timestamp, different nodes
@@ -426,7 +426,7 @@ mod proptests {
             values in prop::collection::vec((0..100i32, 1u64..1000), 1..10),
         ) {
             let vc = VectorClock::new();
-            
+
             // Create registers for each value
             let mut registers: Vec<LWWRegister<i32>> = Vec::new();
             for (i, (value, ts)) in values.iter().enumerate() {

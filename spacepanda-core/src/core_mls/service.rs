@@ -30,11 +30,11 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 // OpenMLS imports for key package generation
-use openmls::prelude::*;
+use openmls::key_packages::KeyPackage as MlsKeyPackage;
 use openmls::prelude::tls_codec::Serialize;
+use openmls::prelude::*;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::OpenMlsProvider;
-use openmls::key_packages::KeyPackage as MlsKeyPackage;
 
 /// MLS Service for managing multiple groups
 pub struct MlsService {
@@ -91,19 +91,20 @@ impl MlsService {
         info!("Initializing MLS service with storage at: {:?}", storage_dir);
 
         let mls_config = MlsConfig::default();
-        
+
         // Create persistent provider with SQLite database
         std::fs::create_dir_all(&storage_dir)
             .map_err(|e| MlsError::Storage(format!("Failed to create storage directory: {}", e)))?;
-        
+
         let db_path = storage_dir.join("mls_state.db");
         let persistent_provider = PersistentProvider::new(
-            db_path.to_str()
-                .ok_or_else(|| MlsError::Storage("Invalid database path".to_string()))?
+            db_path
+                .to_str()
+                .ok_or_else(|| MlsError::Storage("Invalid database path".to_string()))?,
         )?;
-        
+
         info!("Using SQL storage at: {:?}", db_path);
-        
+
         // Get SQL storage reference before moving provider into Arc
         let sql_storage = persistent_provider.sql_storage_arc();
         let provider = Arc::new(persistent_provider);
@@ -122,7 +123,7 @@ impl MlsService {
     /// Load all persisted groups from storage
     ///
     /// Should be called on service initialization to restore previous session state.
-    /// 
+    ///
     /// This implementation uses OpenMLS native persistence to restore groups
     /// from the PersistentProvider's storage. Groups are fully functional after loading.
     pub async fn load_persisted_groups(&self) -> MlsResult<usize> {
@@ -132,21 +133,21 @@ impl MlsService {
         };
 
         info!("Loading persisted groups from storage");
-        
+
         // List all group snapshots
         let group_ids = storage.list_groups().await?;
-        
+
         if group_ids.is_empty() {
             debug!("No persisted groups found");
             return Ok(0);
         }
-        
+
         info!("Found {} persisted group snapshot(s)", group_ids.len());
-        
+
         // Restore groups from OpenMLS provider storage
         let mut loaded = 0;
         let mut groups = self.groups.write().await;
-        
+
         for gid in &group_ids {
             // Parse group ID - the snapshot storage uses hex-encoded strings as keys
             let group_id = match std::str::from_utf8(gid) {
@@ -156,21 +157,18 @@ impl MlsService {
                     GroupId::new(gid.clone())
                 }
             };
-            
+
             // Load group using OpenMLS native load
             let openmls_group_id = openmls::prelude::GroupId::from_slice(group_id.as_bytes());
-            
-            match openmls::prelude::MlsGroup::load(
-                self.provider.storage(),
-                &openmls_group_id
-            ) {
+
+            match openmls::prelude::MlsGroup::load(self.provider.storage(), &openmls_group_id) {
                 Ok(Some(mls_group)) => {
                     info!(
                         "Restored group {} from OpenMLS storage at epoch {}",
                         group_id,
                         mls_group.epoch()
                     );
-                    
+
                     // Load snapshot to get additional metadata
                     let snapshot = match storage.load_group_snapshot(gid).await {
                         Ok(s) => s,
@@ -179,30 +177,29 @@ impl MlsService {
                             continue;
                         }
                     };
-                    
+
                     // Extract credential from the loaded group
                     let own_leaf = mls_group.own_leaf().expect("Group must have own leaf");
                     let credential = own_leaf.credential().clone();
                     let signature_key = own_leaf.signature_key().clone();
-                    
+
                     // Retrieve signature keys from provider storage
                     let signature_keys = openmls_basic_credential::SignatureKeyPair::read(
                         self.provider.storage(),
                         signature_key.as_slice(),
-                        mls_group.ciphersuite().signature_algorithm()
-                    ).ok_or_else(|| {
+                        mls_group.ciphersuite().signature_algorithm(),
+                    )
+                    .ok_or_else(|| {
                         MlsError::CryptoError(format!(
                             "Failed to retrieve signature keys for group {}",
                             group_id
                         ))
                     })?;
-                    
+
                     // Create credential bundle
-                    let credential_bundle = openmls::prelude::CredentialWithKey {
-                        credential,
-                        signature_key,
-                    };
-                    
+                    let credential_bundle =
+                        openmls::prelude::CredentialWithKey { credential, signature_key };
+
                     // Create engine from loaded group
                     use crate::core_mls::engine::openmls_engine::OpenMlsEngine;
                     let engine = OpenMlsEngine::from_group_with_provider(
@@ -212,15 +209,15 @@ impl MlsService {
                         signature_keys,
                         credential_bundle,
                     );
-                    
+
                     // Wrap in adapter
                     use crate::core_mls::engine::adapter::OpenMlsHandleAdapter;
                     let adapter = OpenMlsHandleAdapter::from_engine(engine, self.config.clone());
-                    
+
                     // Add to active groups
                     groups.insert(group_id.clone(), Arc::new(adapter));
                     loaded += 1;
-                    
+
                     info!("✅ Successfully restored group {} to active state", group_id);
                 }
                 Ok(None) => {
@@ -231,11 +228,11 @@ impl MlsService {
                 }
             }
         }
-        
+
         if loaded > 0 {
             info!("✅ Successfully restored {} group(s) from persistence!", loaded);
         }
-        
+
         Ok(loaded)
     }
 
@@ -255,7 +252,7 @@ impl MlsService {
 
         // Export snapshot
         let snapshot = adapter.export_snapshot().await?;
-        
+
         // Convert to persisted format
         let snapshot_bytes = snapshot.to_bytes()?;
         let persisted_snapshot = crate::core_mls::traits::storage::PersistedGroupSnapshot {
@@ -280,23 +277,22 @@ impl MlsService {
         info!("Loading group {} from storage", group_id);
 
         // Load snapshot from storage
-        let persisted_snapshot = storage
-            .load_group_snapshot(&group_id.as_bytes().to_vec())
-            .await?;
+        let persisted_snapshot = storage.load_group_snapshot(&group_id.as_bytes().to_vec()).await?;
 
         // TODO: Restore group from snapshot
         // This requires implementing restoration in OpenMlsHandleAdapter
         // For MVP, we'll log that this needs implementation
-        
+
         warn!("Group restoration from snapshot not yet implemented");
-        warn!("Loaded snapshot: epoch={}, size={} bytes", 
-            persisted_snapshot.epoch, 
+        warn!(
+            "Loaded snapshot: epoch={}, size={} bytes",
+            persisted_snapshot.epoch,
             persisted_snapshot.serialized_group.len()
         );
 
         // For now, return error indicating this is not yet supported
         Err(MlsError::Internal(
-            "Group restoration from snapshot not yet implemented".to_string()
+            "Group restoration from snapshot not yet implemented".to_string(),
         ))
     }
 
@@ -326,15 +322,13 @@ impl MlsService {
     /// 6. Returns serialized public key package
     pub async fn generate_key_package(&self, identity: Vec<u8>) -> MlsResult<Vec<u8>> {
         let timer = Timer::new("mls.generate_key_package.duration_ms");
-        
+
         info!("Generating key package for identity: {:?}", hex::encode(&identity));
 
         // Check if shutting down
         if self.shutdown.is_shutting_down().await {
             warn!("Cannot generate key package: service is shutting down");
-            return Err(MlsError::ServiceUnavailable(
-                "MLS service is shutting down".to_string(),
-            ));
+            return Err(MlsError::ServiceUnavailable("MLS service is shutting down".to_string()));
         }
 
         // Use the same ciphersuite as our groups
@@ -344,13 +338,15 @@ impl MlsService {
         let provider = self.provider.clone();
 
         // Generate signature keys
-        let signature_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm())
-            .map_err(|e| MlsError::InvalidMessage(format!("Failed to generate signature keys: {:?}", e)))?;
+        let signature_keys =
+            SignatureKeyPair::new(ciphersuite.signature_algorithm()).map_err(|e| {
+                MlsError::InvalidMessage(format!("Failed to generate signature keys: {:?}", e))
+            })?;
 
         // Store keys in provider (OpenMLS stores them indexed by public key hash)
-        signature_keys
-            .store(provider.storage())
-            .map_err(|e| MlsError::InvalidMessage(format!("Failed to store signature keys: {:?}", e)))?;
+        signature_keys.store(provider.storage()).map_err(|e| {
+            MlsError::InvalidMessage(format!("Failed to store signature keys: {:?}", e))
+        })?;
 
         // Create credential with the user's identity
         let basic_credential = BasicCredential::new(identity.clone());
@@ -364,13 +360,15 @@ impl MlsService {
         // when built. This allows join_from_welcome to find it later.
         let key_package_bundle = KeyPackage::builder()
             .build(ciphersuite, provider.as_ref(), &signature_keys, credential_with_key)
-            .map_err(|e| MlsError::InvalidMessage(format!("Failed to build key package: {:?}", e)))?;
+            .map_err(|e| {
+                MlsError::InvalidMessage(format!("Failed to build key package: {:?}", e))
+            })?;
 
         // Serialize just the public key package
-        let key_package_bytes = key_package_bundle
-            .key_package()
-            .tls_serialize_detached()
-            .map_err(|e| MlsError::InvalidMessage(format!("Failed to serialize key package: {:?}", e)))?;
+        let key_package_bytes =
+            key_package_bundle.key_package().tls_serialize_detached().map_err(|e| {
+                MlsError::InvalidMessage(format!("Failed to serialize key package: {:?}", e))
+            })?;
 
         // Store the KeyPackageBundle indexed by the serialized key package bytes
         // This allows us to retrieve it later when joining from Welcome
@@ -405,9 +403,7 @@ impl MlsService {
         // Check if shutting down
         if self.shutdown.is_shutting_down().await {
             warn!("Cannot create group: service is shutting down");
-            return Err(MlsError::ServiceUnavailable(
-                "MLS service is shutting down".to_string(),
-            ));
+            return Err(MlsError::ServiceUnavailable("MLS service is shutting down".to_string()));
         }
 
         // Create the group with shared provider
@@ -466,9 +462,7 @@ impl MlsService {
         // Check if shutting down
         if self.shutdown.is_shutting_down().await {
             warn!("Cannot join group: service is shutting down");
-            return Err(MlsError::ServiceUnavailable(
-                "MLS service is shutting down".to_string(),
-            ));
+            return Err(MlsError::ServiceUnavailable("MLS service is shutting down".to_string()));
         }
 
         // Parse Welcome to find which KeyPackage was used
@@ -516,7 +510,7 @@ impl MlsService {
     }
 
     /// Find the KeyPackageBundle that matches the Welcome message
-    /// 
+    ///
     /// This is a simplified implementation that tries all stored bundles.
     /// In production, we would parse the Welcome to get the specific KeyPackage hash.
     async fn find_key_package_bundle_for_welcome(
@@ -524,7 +518,7 @@ impl MlsService {
         _welcome_bytes: &[u8],
     ) -> MlsResult<KeyPackageBundle> {
         let bundles = self.key_package_bundles.read().await;
-        
+
         // For MVP: just return the first (and likely only) bundle
         // TODO: Parse Welcome message to find the correct KeyPackage hash
         if let Some((_, bundle)) = bundles.iter().next() {
@@ -566,8 +560,11 @@ impl MlsService {
         trace.record_event("message encrypted");
         trace.complete();
 
-        debug!("Message encrypted: {} bytes plaintext -> {} bytes ciphertext", 
-               plaintext.len(), ciphertext.len());
+        debug!(
+            "Message encrypted: {} bytes plaintext -> {} bytes ciphertext",
+            plaintext.len(),
+            ciphertext.len()
+        );
 
         Ok(ciphertext)
     }
@@ -652,7 +649,7 @@ impl MlsService {
         let ratchet_tree = if !welcome.is_empty() {
             // Release the engine lock before calling export_ratchet_tree
             drop(engine);
-            
+
             // Get fresh reference and export tree
             let engine_ref = adapter.engine();
             let engine = engine_ref.read().await;

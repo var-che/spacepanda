@@ -34,11 +34,7 @@ pub enum MvpError {
 
     /// Permission denied
     #[error("Permission denied: {user} cannot {action} in channel {channel}")]
-    PermissionDenied {
-        user: String,
-        action: String,
-        channel: String,
-    },
+    PermissionDenied { user: String, action: String, channel: String },
 
     /// Invalid invite token
     #[error("Invalid invite token: {0}")]
@@ -51,7 +47,7 @@ pub enum MvpError {
     /// Serialization error
     #[error("Serialization error: {0}")]
     Serialization(String),
-    
+
     /// Serialization error (alias for network layer compatibility)
     #[error("Serialization error: {0}")]
     SerializationError(String),
@@ -63,11 +59,11 @@ pub enum MvpError {
     /// Configuration error
     #[error("Configuration error: {0}")]
     Config(String),
-    
+
     /// Network error
     #[error("Network error: {0}")]
     NetworkError(String),
-    
+
     /// Message not found
     #[error("Message not found: {0}")]
     MessageNotFound(String),

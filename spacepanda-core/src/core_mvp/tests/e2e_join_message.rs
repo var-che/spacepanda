@@ -14,12 +14,12 @@
 //! - Message encryption/decryption
 //! - Cross-instance communication
 
+use crate::config::Config;
+use crate::core_mls::service::MlsService;
 use crate::core_mvp::channel_manager::{ChannelManager, Identity};
 use crate::core_mvp::errors::MvpResult;
 use crate::core_store::model::types::UserId;
-use crate::core_mls::service::MlsService;
 use crate::core_store::store::local_store::{LocalStore, LocalStoreConfig};
-use crate::config::Config;
 use crate::shutdown::ShutdownCoordinator;
 use std::sync::Arc;
 use std::time::Duration;
@@ -50,18 +50,9 @@ async fn create_test_manager(name: &str) -> (Arc<ChannelManager>, tempfile::Temp
 
     // Create identity
     let user_id = UserId(format!("{}@spacepanda.local", name));
-    let identity = Arc::new(Identity::new(
-        user_id,
-        name.to_string(),
-        format!("{}-node", name),
-    ));
+    let identity = Arc::new(Identity::new(user_id, name.to_string(), format!("{}-node", name)));
 
-    let manager = Arc::new(ChannelManager::new(
-        mls_service,
-        store,
-        identity,
-        config,
-    ));
+    let manager = Arc::new(ChannelManager::new(mls_service, store, identity, config));
 
     (manager, temp_dir)
 }
@@ -102,7 +93,7 @@ async fn test_e2e_list_channels() -> MvpResult<()> {
 
     // Verify all channels present
     assert_eq!(channels.len(), 3);
-    
+
     let channel_ids: Vec<_> = channels.iter().map(|c| &c.channel_id).collect();
     assert!(channel_ids.contains(&&channel1));
     assert!(channel_ids.contains(&&channel2));
@@ -112,7 +103,7 @@ async fn test_e2e_list_channels() -> MvpResult<()> {
     let general = channels.iter().find(|c| c.name == "general").unwrap();
     // TODO: is_public not yet stored in Channel model, always returns false
     // assert!(!general.is_public);
-    
+
     let random = channels.iter().find(|c| c.name == "random").unwrap();
     // TODO: is_public not yet stored in Channel model
     // assert!(random.is_public);
@@ -129,24 +120,20 @@ async fn test_e2e_two_managers() -> MvpResult<()> {
     let (bob_manager, _bob_dir) = create_test_manager("bob").await;
 
     // Alice creates a channel
-    let alice_channel = alice_manager
-        .create_channel("alice-room".to_string(), false)
-        .await?;
-    
+    let alice_channel = alice_manager.create_channel("alice-room".to_string(), false).await?;
+
     // Bob creates a channel
-    let bob_channel = bob_manager
-        .create_channel("bob-room".to_string(), false)
-        .await?;
+    let bob_channel = bob_manager.create_channel("bob-room".to_string(), false).await?;
 
     // Verify they're independent
     assert_ne!(alice_channel, bob_channel);
-    
+
     let alice_channels = alice_manager.list_channels().await?;
     let bob_channels = bob_manager.list_channels().await?;
-    
+
     assert_eq!(alice_channels.len(), 1);
     assert_eq!(bob_channels.len(), 1);
-    
+
     println!("  Two managers test PASSED!");
     Ok(())
 }
