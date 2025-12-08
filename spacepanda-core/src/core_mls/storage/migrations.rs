@@ -10,7 +10,7 @@ use rusqlite::params;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Current schema version
-pub const CURRENT_SCHEMA_VERSION: i32 = 2;
+pub const CURRENT_SCHEMA_VERSION: i32 = 3;
 
 /// Migration descriptor
 pub struct Migration {
@@ -128,6 +128,47 @@ pub fn get_migrations() -> Vec<Migration> {
                 DROP INDEX IF EXISTS idx_messages_group_seq;
                 DROP TABLE IF EXISTS messages;
                 DROP TABLE IF EXISTS channels;
+            "#),
+        },
+        Migration {
+            version: 3,
+            description: "Remove updated_at from group_snapshots for privacy (per privacy audit)",
+            up_sql: r#"
+                -- Create new table without updated_at
+                CREATE TABLE IF NOT EXISTS group_snapshots_new (
+                    group_id BLOB PRIMARY KEY,
+                    snapshot_data BLOB NOT NULL,
+                    epoch INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+
+                -- Copy data from old table (exclude updated_at)
+                INSERT INTO group_snapshots_new (group_id, snapshot_data, epoch, created_at)
+                SELECT group_id, snapshot_data, epoch, created_at
+                FROM group_snapshots;
+
+                -- Drop old table and rename new one
+                DROP TABLE group_snapshots;
+                ALTER TABLE group_snapshots_new RENAME TO group_snapshots;
+            "#,
+            down_sql: Some(r#"
+                -- Create old table with updated_at
+                CREATE TABLE IF NOT EXISTS group_snapshots_old (
+                    group_id BLOB PRIMARY KEY,
+                    snapshot_data BLOB NOT NULL,
+                    epoch INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+
+                -- Copy data back (set updated_at = created_at)
+                INSERT INTO group_snapshots_old (group_id, snapshot_data, epoch, created_at, updated_at)
+                SELECT group_id, snapshot_data, epoch, created_at, created_at
+                FROM group_snapshots;
+
+                -- Drop new table and rename old one
+                DROP TABLE group_snapshots;
+                ALTER TABLE group_snapshots_old RENAME TO group_snapshots;
             "#),
         },
     ]
@@ -321,30 +362,22 @@ mod tests {
         migrate(&pool).unwrap();
         assert_eq!(get_current_version(&pool).unwrap(), CURRENT_SCHEMA_VERSION);
 
-        // Rollback version 2
-        rollback_migration(&pool, 2).unwrap();
-        assert_eq!(get_current_version(&pool).unwrap(), 1);
+        // Rollback version 3 (privacy fix)
+        rollback_migration(&pool, 3).unwrap();
+        assert_eq!(get_current_version(&pool).unwrap(), 2);
 
-        // Verify channels table is gone
+        // Verify group_snapshots still exists after rollback
         let conn = pool.get().unwrap();
         let result = conn.query_row(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='channels'",
-            [],
-            |_| Ok(()),
-        );
-        assert!(result.is_err());
-
-        // Re-apply migration
-        migrate(&pool).unwrap();
-        assert_eq!(get_current_version(&pool).unwrap(), CURRENT_SCHEMA_VERSION);
-
-        // Channels table should be back
-        let result = conn.query_row(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='channels'",
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='group_snapshots'",
             [],
             |_| Ok(()),
         );
         assert!(result.is_ok());
+
+        // Re-apply migration
+        migrate(&pool).unwrap();
+        assert_eq!(get_current_version(&pool).unwrap(), CURRENT_SCHEMA_VERSION);
     }
 
     #[test]

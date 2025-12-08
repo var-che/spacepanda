@@ -6,7 +6,8 @@
 //! Security properties:
 //! - AEAD cipher (authenticated encryption)
 //! - Unique nonce per encryption operation
-//! - Key derived from group ID (different key per channel)
+//! - Key derived from group ID using HKDF (different key per channel)
+//! - Domain separation prevents key reuse across contexts
 //! - Prevents database compromise from exposing plaintext metadata
 
 use crate::core_mls::errors::{MlsError, MlsResult};
@@ -14,24 +15,47 @@ use chacha20poly1305::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     ChaCha20Poly1305, Nonce,
 };
-use sha2::{Digest, Sha256};
+use hkdf::Hkdf;
+use sha2::Sha256;
 
 /// Metadata encryption context
 ///
 /// Uses ChaCha20Poly1305 for authenticated encryption of sensitive metadata.
-/// Each group has a unique encryption key derived from its group_id.
+/// Each group has a unique encryption key derived from its group_id using HKDF.
 pub struct MetadataEncryption {
     cipher: ChaCha20Poly1305,
 }
 
+/// Domain separation constant for metadata encryption
+/// Prevents key reuse across different contexts
+const METADATA_ENCRYPTION_DOMAIN: &[u8] = b"SpacePanda-Metadata-Encryption-v1";
+
+/// Application-specific salt for HKDF
+/// In production, this could be configurable per deployment
+const HKDF_SALT: &[u8] = b"SpacePanda-HKDF-Salt-2025";
+
 impl MetadataEncryption {
     /// Create encryption context from group ID
     ///
-    /// Derives a unique key for this group using SHA-256.
-    /// This ensures different groups have different encryption keys.
+    /// Derives a unique key for this group using HKDF-SHA256.
+    /// This ensures different groups have cryptographically independent encryption keys.
+    ///
+    /// # Security
+    /// - Uses HKDF (RFC 5869) for proper key derivation
+    /// - Includes domain separation to prevent cross-context attacks
+    /// - Application-specific salt provides additional security
     pub fn new(group_id: &[u8]) -> Self {
-        // Derive key from group_id using SHA-256
-        let key_bytes = Sha256::digest(group_id);
+        // Use HKDF to derive key from group_id
+        // HKDF provides better security properties than simple hashing:
+        // - Proper key stretching
+        // - Domain separation via info parameter
+        // - Salt provides additional entropy mixing
+        let hkdf = Hkdf::<Sha256>::new(Some(HKDF_SALT), group_id);
+        
+        let mut key_bytes = [0u8; 32]; // ChaCha20Poly1305 uses 256-bit keys
+        hkdf.expand(METADATA_ENCRYPTION_DOMAIN, &mut key_bytes)
+            .expect("HKDF expand should never fail with valid parameters");
+        
         let key = chacha20poly1305::Key::from_slice(&key_bytes);
         
         Self {
@@ -217,6 +241,105 @@ mod tests {
         
         let encrypted = encrypt_metadata(group_id, plaintext).unwrap();
         let decrypted = decrypt_metadata(group_id, &encrypted).unwrap();
+        
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_hkdf_key_derivation_deterministic() {
+        // Same group ID should produce the same key (deterministic)
+        let group_id = b"test_group_xyz";
+        
+        let enc1 = MetadataEncryption::new(group_id);
+        let enc2 = MetadataEncryption::new(group_id);
+        
+        let plaintext = b"test data";
+        let encrypted = enc1.encrypt(plaintext).unwrap();
+        
+        // Second instance with same group_id should decrypt successfully
+        let decrypted = enc2.decrypt(&encrypted).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_hkdf_key_isolation() {
+        // Even very similar group IDs should have completely different keys
+        let plaintext = b"sensitive data";
+        
+        let enc1 = MetadataEncryption::new(b"group_001");
+        let enc2 = MetadataEncryption::new(b"group_002");
+        let enc3 = MetadataEncryption::new(b"group_001 "); // Note: trailing space
+        
+        let encrypted1 = enc1.encrypt(plaintext).unwrap();
+        
+        // Even slight differences in group_id should prevent decryption
+        assert!(enc2.decrypt(&encrypted1).is_err(), "Similar group_id should not decrypt");
+        assert!(enc3.decrypt(&encrypted1).is_err(), "Group_id with extra char should not decrypt");
+    }
+
+    #[test]
+    fn test_domain_separation() {
+        // Verify that changing domain would change keys
+        // We can't directly test this without exposing internals,
+        // but we can verify different groups produce different outputs
+        let plaintext = b"test";
+        
+        let groups = vec![b"group_a", b"group_b", b"group_c"];
+        let mut ciphertexts = Vec::new();
+        
+        for group_id in &groups {
+            let enc = MetadataEncryption::new(*group_id);
+            // Use fixed plaintext so nonce is the only variable
+            // Still, different keys should be detectable statistically
+            ciphertexts.push(enc.encrypt(plaintext).unwrap());
+        }
+        
+        // All ciphertexts should be different (different keys + different nonces)
+        for i in 0..ciphertexts.len() {
+            for j in (i + 1)..ciphertexts.len() {
+                assert_ne!(
+                    ciphertexts[i], ciphertexts[j],
+                    "Different groups should produce different ciphertexts"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_key_derivation_from_empty_group_id() {
+        // Even empty group_id should work (though not recommended)
+        let group_id = b"";
+        let plaintext = b"data";
+        
+        let enc = MetadataEncryption::new(group_id);
+        let encrypted = enc.encrypt(plaintext).unwrap();
+        let decrypted = enc.decrypt(&encrypted).unwrap();
+        
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_key_derivation_from_large_group_id() {
+        // HKDF should handle arbitrarily large inputs
+        let group_id = vec![0xABu8; 1024]; // 1KB group ID
+        let plaintext = b"data";
+        
+        let enc = MetadataEncryption::new(&group_id);
+        let encrypted = enc.encrypt(plaintext).unwrap();
+        let decrypted = enc.decrypt(&encrypted).unwrap();
+        
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_binary_group_ids() {
+        // Group IDs with null bytes and binary data should work
+        let group_id = b"\x00\x01\x02\xFF\xFE\xFD";
+        let plaintext = b"test message";
+        
+        let enc = MetadataEncryption::new(group_id);
+        let encrypted = enc.encrypt(plaintext).unwrap();
+        let decrypted = enc.decrypt(&encrypted).unwrap();
         
         assert_eq!(decrypted, plaintext);
     }

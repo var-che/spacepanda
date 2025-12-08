@@ -101,14 +101,13 @@ impl SqlStorageProvider {
 
                 tx.execute(
                     r#"
-                    INSERT INTO group_snapshots (group_id, epoch, snapshot_data, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO group_snapshots (group_id, epoch, snapshot_data, created_at)
+                    VALUES (?, ?, ?, ?)
                     ON CONFLICT(group_id) DO UPDATE SET
                         epoch = excluded.epoch,
-                        snapshot_data = excluded.snapshot_data,
-                        updated_at = excluded.updated_at
+                        snapshot_data = excluded.snapshot_data
                     "#,
-                    params![&snapshot.group_id, &snapshot.epoch, &snapshot_bytes, now, now],
+                    params![&snapshot.group_id, &snapshot.epoch, &snapshot_bytes, now],
                 )
                 .map_err(|e| MlsError::Storage(format!("Failed to save group snapshot: {}", e)))?;
             }
@@ -321,18 +320,16 @@ impl StorageProvider for SqlStorageProvider {
 
             conn.execute(
                 r#"
-                INSERT INTO group_snapshots (group_id, snapshot_data, epoch, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO group_snapshots (group_id, snapshot_data, epoch, created_at)
+                VALUES (?, ?, ?, ?)
                 ON CONFLICT(group_id) DO UPDATE SET
                     snapshot_data = excluded.snapshot_data,
-                    epoch = excluded.epoch,
-                    updated_at = excluded.updated_at
+                    epoch = excluded.epoch
                 "#,
                 params![
                     &snapshot.group_id,
                     &snapshot_bytes,
                     snapshot.epoch,
-                    now,
                     now,
                 ],
             )

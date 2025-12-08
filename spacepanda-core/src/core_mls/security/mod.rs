@@ -5,3 +5,4 @@
 pub mod crypto_tests;
 pub mod privacy_tests;
 pub mod input_validation;
+pub mod timing_tests;
