@@ -15,6 +15,7 @@
 **Medium Priority Fixes**:
 
 1. ✅ **Removed `updated_at` from Group Snapshots** (Migration v3)
+
    - Eliminated timing correlation vector
    - Zero performance impact
    - Full test coverage (1274/1274 tests passing)
@@ -225,14 +226,15 @@ CREATE TABLE group_snapshots_new (
     -- updated_at removed for privacy
 );
 
-INSERT INTO group_snapshots_new SELECT group_id, epoch, snapshot_data, created_at 
+INSERT INTO group_snapshots_new SELECT group_id, epoch, snapshot_data, created_at
 FROM group_snapshots;
 
 DROP TABLE group_snapshots;
 ALTER TABLE group_snapshots_new RENAME TO group_snapshots;
 ```
 
-**Test Coverage**: 
+**Test Coverage**:
+
 - Migration test: `core_mls::storage::migrations::tests::test_migration_rollback`
 - Privacy test: Verified column no longer exists in schema
 
@@ -391,6 +393,7 @@ impl DeviceMetadata {
 ```
 
 **Privacy Benefit**:
+
 - **Before**: Millisecond precision could correlate device activity with message timing
 - **After**: Daily buckets prevent fine-grained timing analysis
 - **Trade-off**: Still useful for detecting inactive devices (7+ days old)
