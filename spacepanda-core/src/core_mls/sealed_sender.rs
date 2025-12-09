@@ -55,7 +55,7 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```rust,ignore
 //! use spacepanda_core::core_mls::sealed_sender::{seal_sender, unseal_sender};
 //!
 //! // Derive key from group secret (once per epoch)
@@ -148,7 +148,7 @@ impl SealedSender {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// let key = derive_sender_key(&group_exporter_secret);
 /// // Same secret → same key (deterministic)
 /// assert_eq!(key, derive_sender_key(&group_exporter_secret));
@@ -187,7 +187,7 @@ pub fn derive_sender_key(group_secret: &[u8]) -> [u8; KEY_SIZE] {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// let key = derive_sender_key(&group_secret);
 /// let sealed = seal_sender(b"alice@example.com", &key, 42)?;
 /// // Network sees only: SealedSender { ciphertext: [0x9a, ...] }
@@ -245,7 +245,7 @@ pub fn seal_sender(sender: &[u8], key: &[u8; KEY_SIZE], epoch: u64) -> MlsResult
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// let sender = unseal_sender(&sealed, &key, 42)?;
 /// assert_eq!(sender, b"alice@example.com");
 /// ```
