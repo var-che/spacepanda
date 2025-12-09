@@ -48,6 +48,7 @@ pub mod core_identity;
 pub mod core_mls;
 pub mod core_mvp;
 pub mod core_router;
+pub mod core_space;
 pub mod core_store;
 pub mod health;
 pub mod logging;
