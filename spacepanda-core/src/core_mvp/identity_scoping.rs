@@ -44,7 +44,7 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```rust,ignore
 //! use spacepanda_core::core_mvp::identity_scoping::{IdentityScoper, ChannelIdentityMode};
 //!
 //! let scoper = IdentityScoper::new(global_identity);

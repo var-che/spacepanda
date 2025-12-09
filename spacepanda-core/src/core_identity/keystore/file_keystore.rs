@@ -1,7 +1,7 @@
 //! File-based keystore with encryption at rest
 //!
 //! Encrypted File Format:
-//! ```
+//! ```text
 //! [Magic: 8 bytes "SPKS0001"]
 //! [Version: 1 byte]
 //! [Salt: 16 bytes]

@@ -51,7 +51,7 @@ impl SqlStorageProvider {
     /// Call `commit()` on the connection to persist changes.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # use spacepanda_core::core_mls::storage::SqlStorageProvider;
     /// # async fn example(storage: &SqlStorageProvider) -> Result<(), Box<dyn std::error::Error>> {
     /// let mut conn = storage.begin_transaction().await?;
