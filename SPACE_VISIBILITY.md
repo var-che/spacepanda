@@ -11,6 +11,7 @@
 SpacePanda provides Discord-like functionality with enhanced privacy and security. Users create **Spaces** (similar to Discord servers), which contain multiple **Channels**. Each Space has visibility settings controlling discovery and access.
 
 **Key Design Principles**:
+
 - Privacy-first architecture with end-to-end encryption
 - Scalable design supporting 100-1000+ members per Space
 - Channel-scoped MLS groups for optimal security and performance
@@ -55,11 +56,13 @@ Space (Metadata Container)
 ### Key Architectural Decisions
 
 1. **MLS Scope**: Each channel has its own MLS group
+
    - **Rationale**: Reduces churn from Space-level member changes
    - **Benefit**: Channel access control independent of Space membership
    - **Trade-off**: More MLS groups to manage, but better isolation
 
 2. **Member Access Model**: All channel members are full MLS participants
+
    - **Rationale**: Seamless read-write transition, simpler UX
    - **Benefit**: No "promotion" flow needed
    - **Trade-off**: Larger MLS groups, but acceptable for 100-1000 members
@@ -75,20 +78,22 @@ Space (Metadata Container)
 
 ### Space Visibility Modes
 
-| Mode | Discovery | Join Process | Use Case |
-|------|-----------|--------------|----------|
-| **Public** | Listed in global directory | Anyone can join | Communities, open groups |
-| **Private** | Not listed, invite-only | Requires invite link/code | Private groups, teams |
+| Mode        | Discovery                  | Join Process              | Use Case                 |
+| ----------- | -------------------------- | ------------------------- | ------------------------ |
+| **Public**  | Listed in global directory | Anyone can join           | Communities, open groups |
+| **Private** | Not listed, invite-only    | Requires invite link/code | Private groups, teams    |
 
 ### Space Discovery (Public Spaces)
 
 **Public Space Directory**:
+
 - Global searchable listing of all public Spaces
 - Search by: Name, topic, tags, member count
 - Browse by: Category, popularity, recently active
 - Preview: Space name, description, icon, member count
 
 **Implementation**:
+
 ```rust
 struct SpaceDirectory {
     // Indexed for fast search
@@ -110,11 +115,13 @@ struct PublicSpaceInfo {
 ### Space Invitation (Private Spaces)
 
 **Invite Methods**:
+
 1. **Invite Link**: One-time or permanent links
 2. **Direct Invite**: Sent to specific user by UserID
 3. **Invite Code**: Short alphanumeric code (e.g., `abc-xyz-123`)
 
 **Invite Flow**:
+
 ```
 1. Admin generates invite (link/code)
 2. Invitee receives invite
@@ -130,14 +137,15 @@ struct PublicSpaceInfo {
 
 ### Channel Visibility Modes
 
-| Mode | Visibility | Auto-Join | Use Case |
-|------|-----------|-----------|----------|
-| **Public** | All Space members see it | Yes, all Space members | Default channels (#general) |
-| **Private** | Only channel members see it | No, explicit invite required | Admin-only, sub-groups |
+| Mode        | Visibility                  | Auto-Join                    | Use Case                    |
+| ----------- | --------------------------- | ---------------------------- | --------------------------- |
+| **Public**  | All Space members see it    | Yes, all Space members       | Default channels (#general) |
+| **Private** | Only channel members see it | No, explicit invite required | Admin-only, sub-groups      |
 
 ### Channel Defaults
 
 When creating a new channel:
+
 - **Default Visibility**: Public
 - **Default Behavior**: All Space members auto-join
 - **Override**: Creator can set to Private during creation
@@ -161,6 +169,7 @@ Channel: #admin-only
 ```
 
 **Benefits**:
+
 - Channel isolation (compromise of one doesn't affect others)
 - Independent key rotation per channel
 - Granular access control
@@ -172,11 +181,13 @@ Channel: #admin-only
 ### Space Membership
 
 **Lifecycle**:
+
 ```
 User → Receives Invite → Accepts → Space Member → Auto-joins Public Channels
 ```
 
 **Space Member Attributes**:
+
 ```rust
 struct SpaceMember {
     user_id: UserId,
@@ -195,24 +206,27 @@ enum SpaceRole {
 ### Channel Membership
 
 **Public Channel**:
+
 - All Space members are automatically channel members
 - Added to channel's MLS group on Space join
 - Receive Welcome message with group keys
 
 **Private Channel**:
+
 - Only explicitly invited users (or admins) can join
 - Must have required Space role (if set)
 - Added to channel's MLS group on invitation acceptance
 
 **Channel Member Operations**:
+
 ```rust
 impl Channel {
     // Add user to channel (and MLS group)
     async fn add_member(&mut self, user_id: UserId) -> Result<()>;
-    
+
     // Remove user from channel (and MLS group)
     async fn remove_member(&mut self, user_id: UserId) -> Result<()>;
-    
+
     // Check if user can access channel
     fn can_access(&self, user: &SpaceMember) -> bool;
 }
@@ -226,13 +240,14 @@ impl Channel {
 
 **Space-Level Roles**:
 
-| Role | Create Channels | Delete Channels | Manage Members | Send Messages | Manage Space |
-|------|----------------|----------------|----------------|---------------|-------------|
-| **Owner** | ✅ | ✅ | ✅ | ✅ | ✅ (+ delete Space, transfer ownership) |
-| **Admin** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Member** | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Role       | Create Channels | Delete Channels | Manage Members | Send Messages | Manage Space                            |
+| ---------- | --------------- | --------------- | -------------- | ------------- | --------------------------------------- |
+| **Owner**  | ✅              | ✅              | ✅             | ✅            | ✅ (+ delete Space, transfer ownership) |
+| **Admin**  | ✅              | ✅              | ✅             | ✅            | ✅                                      |
+| **Member** | ❌              | ❌              | ❌             | ✅            | ❌                                      |
 
 **Channel-Level Overrides** (Future):
+
 - Not implemented in Phase 1
 - Will allow per-channel permission customization
 - Example: #announcements (Members can read only, Admins can send)
@@ -240,10 +255,12 @@ impl Channel {
 ### Phase 2: Extended Permissions (Future)
 
 **Additional Roles**:
+
 - **Moderator**: Manage messages, timeout users
 - **Guest**: Temporary read-only access
 
 **Permission Granularity**:
+
 ```rust
 bitflags! {
     struct PermissionSet: u64 {
@@ -252,14 +269,14 @@ bitflags! {
         const SEND_MESSAGES = 1 << 1;
         const MANAGE_MESSAGES = 1 << 2;
         const READ_HISTORY = 1 << 3;
-        
+
         // Space Permissions
         const MANAGE_CHANNELS = 1 << 10;
         const MANAGE_ROLES = 1 << 11;
         const MANAGE_MEMBERS = 1 << 12;
         const KICK_MEMBERS = 1 << 13;
         const BAN_MEMBERS = 1 << 14;
-        
+
         // Advanced
         const ADMINISTRATOR = 1 << 30; // All permissions
     }
@@ -289,6 +306,7 @@ bitflags! {
 ```
 
 **MLS Welcome Message Contents**:
+
 ```rust
 struct WelcomeMessage {
     group_id: GroupId,
@@ -314,6 +332,7 @@ struct WelcomeMessage {
 ```
 
 **Key Rotation Triggers**:
+
 - Member removal (kick/ban)
 - Member leaves voluntarily
 - Scheduled rotation (optional, e.g., monthly)
@@ -325,7 +344,7 @@ struct WelcomeMessage {
 
 ```
 1. Admin invites user to #admin-only
-2. System checks: Is user a Space member? 
+2. System checks: Is user a Space member?
    - If yes: Continue
    - If no: Auto-add to Space first
 3. System checks: Does user have required role?
@@ -342,28 +361,31 @@ struct WelcomeMessage {
 
 ### Member Count Targets
 
-| Phase | Space Size | Channel Size | MLS Group Size | Notes |
-|-------|-----------|-------------|----------------|-------|
-| **MVP** | 10-100 members | 10-100 members | 10-100 members | Initial deployment |
-| **Phase 2** | 100-500 members | 50-500 members | 50-500 members | Community growth |
-| **Phase 3** | 500-1000+ members | 100-1000+ members | 100-1000+ members | Large communities |
+| Phase       | Space Size        | Channel Size      | MLS Group Size    | Notes              |
+| ----------- | ----------------- | ----------------- | ----------------- | ------------------ |
+| **MVP**     | 10-100 members    | 10-100 members    | 10-100 members    | Initial deployment |
+| **Phase 2** | 100-500 members   | 50-500 members    | 50-500 members    | Community growth   |
+| **Phase 3** | 500-1000+ members | 100-1000+ members | 100-1000+ members | Large communities  |
 
 ### Optimization Strategies
 
 **For Large Channels (1000+ members)**:
 
 1. **Read-Only Channels** (Future Optimization):
+
    - Announcements-only channels
    - Only admins are MLS members
    - Regular members get group exporter secret (read-only)
    - Reduces MLS group size by 100x
 
 2. **Lazy Channel Joining**:
+
    - Don't auto-join all public channels immediately
    - Join on first access (user clicks channel)
    - Reduces initial Welcome message overhead
 
 3. **Channel Archival**:
+
    - Inactive channels can be archived
    - MLS group dissolved, messages stored encrypted
    - Re-activate channel creates new MLS group
@@ -551,6 +573,7 @@ trait ChannelManager {
 ### Phase 1: MVP (Current Sprint)
 
 **Deliverables**:
+
 - ✅ Basic Space CRUD operations
 - ✅ Public/Private Space visibility
 - ✅ Space invite system (links/codes)
@@ -560,6 +583,7 @@ trait ChannelManager {
 - ✅ Simple roles: Owner, Admin, Member
 
 **Out of Scope**:
+
 - Private channels
 - Permission overrides
 - Space directory/search
@@ -568,6 +592,7 @@ trait ChannelManager {
 ### Phase 2: Discovery & Privacy
 
 **Deliverables**:
+
 - Public Space directory
 - Search & browse functionality
 - Private channels
@@ -577,6 +602,7 @@ trait ChannelManager {
 ### Phase 3: Advanced Permissions
 
 **Deliverables**:
+
 - Moderator role
 - Custom roles
 - Per-channel permission overrides
@@ -585,6 +611,7 @@ trait ChannelManager {
 ### Phase 4: Scale Optimizations
 
 **Deliverables**:
+
 - Lazy channel joining
 - Read-only channels (non-MLS members)
 - Batched MLS operations
@@ -597,6 +624,7 @@ trait ChannelManager {
 ### Threat Model
 
 **Protected Against**:
+
 - ✅ Server cannot read messages (E2EE via MLS)
 - ✅ Removed members cannot read new messages (forward secrecy)
 - ✅ New members cannot read old messages (post-compromise security via epochs)
@@ -604,6 +632,7 @@ trait ChannelManager {
 - ✅ Metadata privacy (encrypted channel names via metadata encryption)
 
 **Not Protected Against** (By Design):
+
 - ⚠️ Space metadata visible to server (name, member count)
 - ⚠️ Channel existence visible to Space members
 - ⚠️ Membership changes visible to server (for group operations)
@@ -611,11 +640,13 @@ trait ChannelManager {
 ### Privacy Guarantees
 
 **Space Level**:
+
 - Space name/description: Encrypted if private, public if public Space
 - Member list: Visible to all Space members, not to non-members
 - Invite links: One-time codes with rate limiting to prevent enumeration
 
 **Channel Level**:
+
 - Channel name: Encrypted in MLS metadata
 - Message content: End-to-end encrypted via MLS
 - Sender identity: Hidden via sealed sender (optional)

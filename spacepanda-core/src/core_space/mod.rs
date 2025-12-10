@@ -19,11 +19,18 @@
 pub mod channel;
 pub mod invite;
 pub mod manager;
+pub mod manager_impl;
+pub mod async_manager;
 pub mod space;
+pub mod storage;
 pub mod types;
 
 pub use channel::{Channel, ChannelError, ChannelVisibility};
 pub use invite::{InviteError, InviteType, SpaceInvite};
 pub use manager::{ChannelManager, MembershipError, MembershipManager, SpaceManager};
+pub use manager_impl::SpaceManagerImpl;
+pub use async_manager::AsyncSpaceManager;
 pub use space::{Space, SpaceError, SpaceMember, SpaceRole, SpaceVisibility};
+pub use storage::{SpaceSqlStore, CURRENT_SPACE_SCHEMA_VERSION};
 pub use types::{ChannelId, SpaceId};
+

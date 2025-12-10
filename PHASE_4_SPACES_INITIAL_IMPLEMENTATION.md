@@ -31,6 +31,7 @@ core_space/
 ### 2. Core Types (`types.rs`)
 
 **SpaceId & ChannelId**:
+
 - 32-byte unique identifiers
 - Random generation via `generate()`
 - Serialization support (Serde)
@@ -42,6 +43,7 @@ core_space/
 ### 3. Space Data Model (`space.rs`)
 
 **Space Struct**:
+
 ```rust
 pub struct Space {
     id: SpaceId,
@@ -58,6 +60,7 @@ pub struct Space {
 ```
 
 **Features**:
+
 - Public/Private visibility modes
 - Owner/Admin/Member roles
 - Member management (add, remove, update roles)
@@ -66,6 +69,7 @@ pub struct Space {
 - Metadata updates
 
 **Tests**: 8 tests covering:
+
 - Space creation with owner as first member
 - Adding/removing members
 - Role updates
@@ -75,6 +79,7 @@ pub struct Space {
 ### 4. Channel Data Model (`channel.rs`)
 
 **Channel Struct**:
+
 ```rust
 pub struct Channel {
     id: ChannelId,
@@ -90,6 +95,7 @@ pub struct Channel {
 ```
 
 **Features**:
+
 - Public/Private visibility (Public = all Space members, Private = invite-only)
 - One MLS group per channel (channel-scoped encryption)
 - Member management (add, remove, membership checks)
@@ -97,6 +103,7 @@ pub struct Channel {
 - Member count tracking
 
 **Tests**: 6 tests covering:
+
 - Channel creation
 - Member add/remove
 - Duplicate member prevention
@@ -105,6 +112,7 @@ pub struct Channel {
 ### 5. Invite System (`invite.rs`)
 
 **SpaceInvite Struct**:
+
 ```rust
 pub struct SpaceInvite {
     id: String,
@@ -120,17 +128,20 @@ pub struct SpaceInvite {
 ```
 
 **Invite Types**:
+
 - **Link**: Shareable URL (e.g., `https://app.com/invite/ABC123`)
 - **Code**: 8-character alphanumeric code (e.g., `ABC123`)
 - **Direct**: Invitation to specific user (single-use)
 
 **Features**:
+
 - Invite validation (expiration, max uses, revoked)
 - Use tracking and increment
 - Revocation support
 - Random code generation
 
 **Tests**: 7 tests covering:
+
 - Link/code/direct invite creation
 - Use count tracking and max uses
 - Expiration handling
@@ -142,11 +153,13 @@ pub struct SpaceInvite {
 Defined trait interfaces for future implementation:
 
 **SpaceManager**:
+
 - `create_space`, `get_space`, `update_space`
 - `update_space_visibility`, `delete_space`
 - `list_public_spaces`, `list_user_spaces`
 
 **MembershipManager**:
+
 - `create_invite`, `create_direct_invite`
 - `join_space`, `join_public_space`
 - `leave_space`, `kick_member`
@@ -154,6 +167,7 @@ Defined trait interfaces for future implementation:
 - `list_invites`
 
 **ChannelManager**:
+
 - `create_channel`, `get_channel`, `update_channel`
 - `update_channel_visibility`, `delete_channel`
 - `add_channel_member`, `remove_channel_member`
@@ -169,6 +183,7 @@ Defined trait interfaces for future implementation:
 ### Channel-Scoped MLS Groups
 
 Each channel has **one MLS group** (not space-level):
+
 - Better scalability (1000+ members per channel)
 - Reduced key material overhead
 - Cleaner permission model
@@ -177,16 +192,19 @@ Each channel has **one MLS group** (not space-level):
 ### Visibility Model
 
 **Spaces**:
+
 - **Public**: Listed in global directory, anyone can join
 - **Private**: Invite-only, not discoverable
 
 **Channels**:
+
 - **Public**: All Space members auto-join
 - **Private**: Invite-only within Space
 
 ### Invite System
 
 Three invite types for flexibility:
+
 - **Links**: Shareable URLs with optional expiration/max uses
 - **Codes**: Short codes (8 chars) for easy entry
 - **Direct**: User-specific invites (single-use)
@@ -194,6 +212,7 @@ Three invite types for flexibility:
 ### Permission Model (MVP)
 
 **Roles**:
+
 - **Owner**: Full control, can delete Space, transfer ownership
 - **Admin**: Manage channels, members, roles
 - **Member**: Default role, participate in channels
@@ -226,6 +245,7 @@ test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured
 ```
 
 **Coverage**:
+
 - types.rs: 4 tests
 - space.rs: 8 tests
 - channel.rs: 6 tests
@@ -241,22 +261,26 @@ test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured
 ### Phase 1 MVP (Immediate Next Steps)
 
 1. **Database Schema**:
+
    - SQL tables for Spaces, Channels, SpaceInvites
    - Migrations for schema creation
    - Foreign key constraints
 
 2. **Manager Implementations**:
+
    - Concrete implementations of SpaceManager, MembershipManager, ChannelManager
    - Database-backed persistence
    - Transaction handling
 
 3. **MLS Integration**:
+
    - Create MLS group when channel is created
    - Add members to MLS group when they join channel
    - Remove members from MLS group on leave/kick
    - Key distribution for new members
 
 4. **API Endpoints**:
+
    - REST or gRPC endpoints for Space/Channel operations
    - Invite link handling
    - Public Space directory
@@ -299,6 +323,7 @@ test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured
 ### Immediate (Phase 1 MVP Completion)
 
 1. **Create database schema** (`core_space/schema.sql`):
+
    - Spaces table
    - Channels table
    - SpaceMembers join table
@@ -306,11 +331,13 @@ test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured
    - SpaceInvites table
 
 2. **Implement manager traits** (`core_space/manager_impl.rs`):
+
    - SQL-backed SpaceManager
    - SQL-backed MembershipManager
    - SQL-backed ChannelManager
 
 3. **MLS integration** (`core_space/mls_integration.rs`):
+
    - Create MLS group on channel creation
    - Add/remove members from MLS groups
    - Handle welcome messages for new joiners
@@ -350,6 +377,6 @@ Successfully implemented the foundational data models for Spaces & Channels arch
 ✅ Manager trait definitions for future implementation  
 ✅ 25/25 tests passing (100% coverage)  
 ✅ Zero compilation errors  
-✅ Integrated with existing identity and MLS layers  
+✅ Integrated with existing identity and MLS layers
 
 **Status**: Ready for Phase 1 MVP continuation (database schema & manager implementations)

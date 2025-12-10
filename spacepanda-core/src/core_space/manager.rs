@@ -110,8 +110,9 @@ pub trait ChannelManager {
         &mut self,
         space_id: SpaceId,
         name: String,
-        visibility: ChannelVisibility,
         creator_id: UserId,
+        visibility: ChannelVisibility,
+        mls_group_id: Option<crate::core_mls::types::GroupId>,
     ) -> Result<Channel, ChannelError>;
 
     /// Get a Channel by ID
@@ -121,6 +122,7 @@ pub trait ChannelManager {
     fn update_channel(
         &mut self,
         channel_id: &ChannelId,
+        admin_id: &UserId,
         name: Option<String>,
         description: Option<String>,
     ) -> Result<(), ChannelError>;
@@ -136,14 +138,15 @@ pub trait ChannelManager {
     fn delete_channel(
         &mut self,
         channel_id: &ChannelId,
-        user_id: &UserId,
+        admin_id: &UserId,
     ) -> Result<(), ChannelError>;
 
     /// Add a member to a channel
     fn add_channel_member(
         &mut self,
         channel_id: &ChannelId,
-        user_id: UserId,
+        user_id: &UserId,
+        admin_id: &UserId,
     ) -> Result<(), ChannelError>;
 
     /// Remove a member from a channel
@@ -151,6 +154,7 @@ pub trait ChannelManager {
         &mut self,
         channel_id: &ChannelId,
         user_id: &UserId,
+        admin_id: &UserId,
     ) -> Result<(), ChannelError>;
 
     /// List all channels in a Space

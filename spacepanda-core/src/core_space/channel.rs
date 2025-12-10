@@ -139,6 +139,12 @@ pub enum ChannelError {
 
     #[error("Invalid channel visibility transition")]
     InvalidVisibilityChange,
+
+    #[error("Channel not found")]
+    NotFound,
+
+    #[error("MLS error: {0}")]
+    MlsError(String),
 }
 
 #[cfg(test)]
