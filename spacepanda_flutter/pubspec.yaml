@@ -1,0 +1,78 @@
+name: spacepanda_flutter
+description: SpacePanda - Secure E2EE messaging app with Discord-like interface
+publish_to: "none"
+version: 0.1.0
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  flutter_riverpod: ^2.5.1
+  riverpod_annotation: ^2.3.5
+
+  # Navigation
+  go_router: ^14.0.0
+
+  # gRPC & Networking
+  grpc: ^3.2.4
+  protobuf: ^3.1.0
+
+  # HTTP (for REST fallback)
+  dio: ^5.4.0
+
+  # WebSocket for real-time
+  web_socket_channel: ^2.4.0
+
+  # Secure Storage
+  flutter_secure_storage: ^9.0.0
+
+  # UI Components
+  flutter_svg: ^2.0.9
+  cached_network_image: ^3.3.1
+  shimmer: ^3.0.0
+
+  # Utilities
+  uuid: ^4.3.3
+  intl: ^0.19.0
+  collection: ^1.18.0
+  freezed_annotation: ^2.4.1
+  json_annotation: ^4.8.1
+
+  # Desktop specific
+  window_manager: ^0.3.8
+  bitsdojo_window: ^0.1.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^3.0.1
+
+  # Code generation
+  build_runner: ^2.4.8
+  riverpod_generator: ^2.3.11
+  freezed: ^2.4.7
+  json_serializable: ^6.7.1
+
+flutter:
+  uses-material-design: true
+
+  # Assets
+  assets:
+    - assets/images/
+    - assets/icons/
+
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700
