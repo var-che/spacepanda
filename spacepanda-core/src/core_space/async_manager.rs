@@ -10,8 +10,11 @@ use super::manager_impl::SpaceManagerImpl;
 use super::space::{Space, SpaceError, SpaceRole, SpaceVisibility};
 use super::storage::SpaceSqlStore;
 use super::types::{ChannelId, SpaceId};
+use crate::core_mls::sealed_sender;
 use crate::core_mls::service::MlsService;
+use crate::core_mls::timing_obfuscation;
 use crate::core_mls::types::GroupId;
+use crate::core_mvp::network::NetworkLayer;
 use crate::core_store::model::types::{Timestamp, UserId};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -26,6 +29,9 @@ pub struct AsyncSpaceManager {
 
     /// MLS service for creating/managing groups
     mls_service: Arc<MlsService>,
+
+    /// Optional network layer for P2P message distribution
+    network_layer: Option<Arc<NetworkLayer>>,
 }
 
 impl AsyncSpaceManager {
@@ -34,7 +40,44 @@ impl AsyncSpaceManager {
         Self {
             manager: Arc::new(RwLock::new(SpaceManagerImpl::new(store))),
             mls_service,
+            network_layer: None,
         }
+    }
+
+    /// Create a new async manager with network layer for P2P messaging
+    pub fn with_network(
+        store: SpaceSqlStore,
+        mls_service: Arc<MlsService>,
+        network_layer: Arc<NetworkLayer>,
+    ) -> Self {
+        Self {
+            manager: Arc::new(RwLock::new(SpaceManagerImpl::new(store))),
+            mls_service,
+            network_layer: Some(network_layer),
+        }
+    }
+
+    /// Get the network layer (if available)
+    pub fn network_layer(&self) -> Option<Arc<NetworkLayer>> {
+        self.network_layer.clone()
+    }
+
+    /// Register a user as a channel member for P2P routing
+    pub async fn register_channel_member(
+        &self,
+        channel_id: &ChannelId,
+        user_id: &UserId,
+        peer_id: crate::core_router::session_manager::PeerId,
+    ) -> Result<(), ChannelError> {
+        if let Some(network) = &self.network_layer {
+            // Convert ChannelId to model::types::ChannelId for NetworkLayer
+            let network_channel_id = crate::core_store::model::types::ChannelId::new(
+                hex::encode(channel_id.as_bytes())
+            );
+            
+            network.register_channel_member(&network_channel_id, user_id.clone(), peer_id).await;
+        }
+        Ok(())
     }
 
     /// Create a new Space (async version)
@@ -204,6 +247,14 @@ impl AsyncSpaceManager {
                 ChannelError::MlsError(format!("Failed to create MLS group: {:?}", e))
             })?;
 
+        // Save channel metadata to MLS SQL store (required for message foreign key)
+        self.mls_service
+            .save_channel_metadata(&group_id, name.as_bytes(), None, &[creator_id.0.as_bytes()], 0)
+            .await
+            .map_err(|e| {
+                ChannelError::MlsError(format!("Failed to save channel metadata: {:?}", e))
+            })?;
+
         // Create channel metadata in database
         let mut manager = self.manager.write().await;
         manager.create_channel(space_id, name, creator_id, visibility, Some(group_id))
@@ -272,12 +323,20 @@ impl AsyncSpaceManager {
     }
 
     /// Send a message to a Channel (encrypted via MLS)
+    ///
+    /// This method:
+    /// 1. Encrypts the message using MLS
+    /// 2. Saves it locally to the sender's database (with sealed sender for privacy)
+    /// 3. Broadcasts it to other channel members via P2P (if network layer is available)
     pub async fn send_channel_message(
         &self,
         channel_id: &ChannelId,
         sender_id: &UserId,
         content: &[u8],
     ) -> Result<Vec<u8>, ChannelError> {
+        eprintln!("[P2P] send_channel_message called for channel {} by user {}", 
+            hex::encode(channel_id.as_bytes()), sender_id.0);
+        
         // Get channel to find MLS group ID
         let manager = self.manager.read().await;
         let channel = manager.get_channel(channel_id)?;
@@ -292,6 +351,90 @@ impl AsyncSpaceManager {
             .map_err(|e| {
                 ChannelError::MlsError(format!("Failed to encrypt message: {:?}", e))
             })?;
+        
+        eprintln!("[P2P] Message encrypted, size: {} bytes", encrypted_message.len());
+
+        // PRIVACY: Seal sender identity to prevent metadata leakage
+        // Get group secret for sealing
+        let group_secret = self
+            .mls_service
+            .export_secret(group_id, "sender_key", b"", 32)
+            .await
+            .map_err(|e| {
+                ChannelError::MlsError(format!("Failed to export secret: {:?}", e))
+            })?;
+
+        // Get current epoch
+        let epoch = self
+            .mls_service
+            .get_epoch(group_id)
+            .await
+            .map_err(|e| {
+                ChannelError::MlsError(format!("Failed to get epoch: {:?}", e))
+            })?;
+
+        // Derive sender key and seal sender
+        let sender_key = sealed_sender::derive_sender_key(&group_secret);
+        let sealed = sealed_sender::seal_sender(sender_id.0.as_bytes(), &sender_key, epoch)
+            .map_err(|e| {
+                ChannelError::MlsError(format!("Failed to seal sender: {:?}", e))
+            })?;
+
+        // Serialize sealed sender
+        let sealed_sender_bytes = serde_json::to_vec(&sealed)
+            .map_err(|e| {
+                ChannelError::MlsError(format!("Failed to serialize sealed sender: {:?}", e))
+            })?;
+
+        // Save message locally (sender sees their own message)
+        let plaintext_bytes = content;
+        let message_id = crate::core_store::model::types::MessageId::generate().0;
+        // PRIVACY: Use obfuscated sequence to prevent timing correlation
+        let sequence = timing_obfuscation::generate_obfuscated_sequence();
+        
+        self.save_message_with_plaintext(
+            message_id.as_bytes(),
+            channel_id,
+            &encrypted_message,
+            &sealed_sender_bytes,
+            sequence,
+            Some(plaintext_bytes),
+        )
+        .await?;
+
+        // Broadcast to peers via P2P network (if available)
+        if let Some(network) = &self.network_layer {
+            eprintln!("[P2P] Network layer available, broadcasting message...");
+            
+            // Convert ChannelId to model::types::ChannelId for NetworkLayer
+            let network_channel_id =crate::core_store::model::types::ChannelId::new(
+                hex::encode(channel_id.as_bytes())
+            );
+            
+            eprintln!("[P2P] Calling broadcast_message for channel {}", network_channel_id.0);
+            
+            network
+                .broadcast_message(&network_channel_id, encrypted_message.clone(), sender_id)
+                .await
+                .map_err(|e| {
+                    // Log but don't fail - message is saved locally
+                    eprintln!("[P2P] Broadcast failed: {}", e);
+                    tracing::warn!(
+                        channel_id = %channel_id,
+                        error = %e,
+                        "Failed to broadcast message to peers, saved locally only"
+                    );
+                    ChannelError::MlsError(format!("Network broadcast failed: {}", e))
+                })?;
+            
+            eprintln!("[P2P] Message broadcast successful");
+        } else {
+            eprintln!("[P2P] No network layer available, skipping P2P broadcast");
+            tracing::debug!(
+                channel_id = %channel_id,
+                "No network layer configured, message saved locally only"
+            );
+        }
 
         Ok(encrypted_message)
     }
@@ -323,6 +466,119 @@ impl AsyncSpaceManager {
         })?;
 
         Ok(plaintext)
+    }
+
+    /// Handle incoming message from P2P network
+    ///
+    /// This is called when a message arrives from another peer.
+    /// It:
+    /// 1. Decrypts the message using MLS
+    /// 2. Saves it to the local database (with sealed sender for privacy)
+    /// 3. Returns the decrypted plaintext
+    pub async fn handle_incoming_message(
+        &self,
+        channel_id: &ChannelId,
+        sender_id: &UserId,
+        encrypted_message: &[u8],
+    ) -> Result<Vec<u8>, ChannelError> {
+        // Get channel to find MLS group ID
+        let manager = self.manager.read().await;
+        let channel = manager.get_channel(channel_id)?;
+        let group_id = &channel.mls_group_id;
+        drop(manager);
+
+        // Decrypt the message
+        let plaintext = self
+            .receive_channel_message(channel_id, encrypted_message)
+            .await?;
+
+        // PRIVACY: Seal sender identity to prevent metadata leakage
+        // Get group secret for sealing
+        let group_secret = self
+            .mls_service
+            .export_secret(group_id, "sender_key", b"", 32)
+            .await
+            .map_err(|e| {
+                ChannelError::MlsError(format!("Failed to export secret: {:?}", e))
+            })?;
+
+        // Get current epoch
+        let epoch = self
+            .mls_service
+            .get_epoch(group_id)
+            .await
+            .map_err(|e| {
+                ChannelError::MlsError(format!("Failed to get epoch: {:?}", e))
+            })?;
+
+        // Derive sender key and seal sender
+        let sender_key = sealed_sender::derive_sender_key(&group_secret);
+        let sealed = sealed_sender::seal_sender(sender_id.0.as_bytes(), &sender_key, epoch)
+            .map_err(|e| {
+                ChannelError::MlsError(format!("Failed to seal sender: {:?}", e))
+            })?;
+
+        // Serialize sealed sender
+        let sealed_sender_bytes = serde_json::to_vec(&sealed)
+            .map_err(|e| {
+                ChannelError::MlsError(format!("Failed to serialize sealed sender: {:?}", e))
+            })?;
+
+        // Save to local database so recipient can read it
+        let message_id = crate::core_store::model::types::MessageId::generate().0;
+        // PRIVACY: Use obfuscated sequence to prevent timing correlation
+        let sequence = timing_obfuscation::generate_obfuscated_sequence();
+        
+        self.save_message_with_plaintext(
+            message_id.as_bytes(),
+            channel_id,
+            encrypted_message,
+            &sealed_sender_bytes,
+            sequence,
+            Some(&plaintext),
+        )
+        .await?;
+
+        tracing::info!(
+            channel_id = %channel_id,
+            sender_id = %sender_id,
+            "Received and saved incoming message from peer (with sealed sender)"
+        );
+
+        Ok(plaintext)
+    }
+
+    /// Handle incoming MLS commit from P2P network
+    ///
+    /// Processes commits to keep MLS group state synchronized
+    pub async fn handle_incoming_commit(
+        &self,
+        channel_id: &ChannelId,
+        commit_data: &[u8],
+    ) -> Result<(), ChannelError> {
+        eprintln!("[P2P] Processing incoming commit for channel {}", hex::encode(channel_id.as_bytes()));
+        
+        // Get channel to find MLS group ID
+        let manager = self.manager.read().await;
+        let channel = manager.get_channel(channel_id)?;
+        let group_id = &channel.mls_group_id;
+        drop(manager);
+
+        // Process the commit message (updates epoch and group state)
+        match self.mls_service.process_message(group_id, commit_data).await {
+            Ok(_) => {
+                eprintln!("[P2P] ✓ Successfully processed commit for channel {}", hex::encode(channel_id.as_bytes()));
+                tracing::info!(
+                    channel_id = %channel_id,
+                    "Processed incoming MLS commit from peer"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("[P2P] Failed to process commit: {}", e);
+                Err(ChannelError::MlsError(format!("Failed to process commit: {:?}", e)))
+            }
+        }
     }
 
     /// Get a Channel by ID
@@ -508,5 +764,270 @@ mod tests {
             .unwrap();
 
         assert_eq!(decrypted, plaintext, "Decrypted message should match original");
+    }
+}
+
+impl AsyncSpaceManager {
+    /// Save a message to MLS storage
+    pub async fn save_message(
+        &self,
+        message_id: &[u8],
+        channel_id: &ChannelId,
+        encrypted_content: &[u8],
+        sealed_sender_bytes: &[u8],
+        sequence: i64,
+    ) -> Result<(), ChannelError> {
+        self.save_message_with_plaintext(message_id, channel_id, encrypted_content, sealed_sender_bytes, sequence, None).await
+    }
+
+    /// Save a message to MLS storage with optional plaintext (for sent messages)
+    pub async fn save_message_with_plaintext(
+        &self,
+        message_id: &[u8],
+        channel_id: &ChannelId,
+        encrypted_content: &[u8],
+        sealed_sender_bytes: &[u8],
+        sequence: i64,
+        plaintext_content: Option<&[u8]>,
+    ) -> Result<(), ChannelError> {
+        // Get channel to find MLS group ID
+        let manager = self.manager.read().await;
+        let channel = manager.get_channel(channel_id)?;
+        let group_id = &channel.mls_group_id;
+        drop(manager);
+
+        // Save to MLS storage
+        self.mls_service
+            .save_message_to_storage_with_plaintext(message_id, group_id, encrypted_content, sealed_sender_bytes, sequence, plaintext_content)
+            .await
+            .map_err(|e| ChannelError::MlsError(format!("Failed to save message: {:?}", e)))?;
+
+        Ok(())
+    }
+
+    /// Load messages from MLS storage
+    pub async fn load_messages(
+        &self,
+        channel_id: &ChannelId,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>, Vec<u8>, i64, bool, Option<Vec<u8>>)>, ChannelError> {
+        // Get channel to find MLS group ID
+        let manager = self.manager.read().await;
+        let channel = manager.get_channel(channel_id)?;
+        let group_id = &channel.mls_group_id;
+        drop(manager);
+
+        // Load from MLS storage
+        self.mls_service
+            .load_messages_from_storage(group_id, limit, offset)
+            .await
+            .map_err(|e| ChannelError::MlsError(format!("Failed to load messages: {:?}", e)))
+    }
+
+    /// Add a member to a channel's MLS group
+    pub async fn add_member_to_channel(
+        &self,
+        channel_id: &ChannelId,
+        user_id: &UserId,
+    ) -> Result<(), ChannelError> {
+        // Get channel to find MLS group ID
+        let manager = self.manager.read().await;
+        let channel = manager.get_channel(channel_id)?;
+        let group_id = channel.mls_group_id.clone();
+        drop(manager);
+
+        // Generate key package for the new member
+        let key_package = self
+            .mls_service
+            .generate_key_package(user_id.0.as_bytes().to_vec())
+            .await
+            .map_err(|e| ChannelError::MlsError(format!("Failed to generate key package: {:?}", e)))?;
+
+        // Add member to MLS group
+        let (commit, _welcome, _ratchet_tree) = self
+            .mls_service
+            .add_members(&group_id, vec![key_package])
+            .await
+            .map_err(|e| ChannelError::MlsError(format!("Failed to add member: {:?}", e)))?;
+
+        // Broadcast commit to all channel members for MLS state synchronization
+        if let Some(ref network_layer) = self.network_layer {
+            eprintln!("[P2P] Broadcasting MLS commit for channel {} after adding member", hex::encode(channel_id.as_bytes()));
+            // Convert bytes-based ChannelId to string-based ChannelId for network layer
+            let network_channel_id = crate::core_store::model::types::ChannelId(hex::encode(channel_id.as_bytes()));
+            if let Err(e) = network_layer.broadcast_commit(&network_channel_id, commit).await {
+                eprintln!("[P2P] Warning: Failed to broadcast commit: {}", e);
+                // Don't fail the operation if broadcast fails - member is already added locally
+            } else {
+                eprintln!("[P2P] ✓ Commit broadcasted successfully");
+            }
+        } else {
+            eprintln!("[P2P] Warning: No network layer available, commit not broadcasted");
+        }
+
+        Ok(())
+    }
+
+    /// Remove a member from a channel's MLS group
+    pub async fn remove_member_from_channel(
+        &self,
+        channel_id: &ChannelId,
+        _user_id: &UserId,
+    ) -> Result<(), ChannelError> {
+        // Get channel to find MLS group ID
+        let manager = self.manager.read().await;
+        let channel = manager.get_channel(channel_id)?;
+        let _group_id = channel.mls_group_id.clone();
+        drop(manager);
+
+        // TODO: Find the leaf index for the user_id in the MLS group
+        // TODO: Call mls_service.remove_members with the leaf indices
+
+        // For now, return error as this needs more implementation
+        Err(ChannelError::MlsError(
+            "Remove member not yet fully implemented".to_string(),
+        ))
+    }
+
+    /// Generate a key package for this user to join channels
+    pub async fn generate_key_package(&self) -> Result<Vec<u8>, ChannelError> {
+        self.mls_service
+            .generate_key_package(vec![])  // Empty identity - will use credential from provider
+            .await
+            .map_err(|e| ChannelError::MlsError(format!("Failed to generate key package: {:?}", e)))
+    }
+
+    /// Create an invite for a user to join a channel
+    /// Returns (invite_token, optional_commit_for_existing_members, optional_ratchet_tree)
+    pub async fn create_channel_invite(
+        &self,
+        channel_id: &ChannelId,
+        key_package: Vec<u8>,
+    ) -> Result<(Vec<u8>, Option<Vec<u8>>, Option<Vec<u8>>), ChannelError> {
+        // Get channel to find MLS group ID
+        let manager = self.manager.read().await;
+        let channel = manager.get_channel(channel_id)?;
+        let group_id = channel.mls_group_id.clone();
+        drop(manager);
+
+        // Add member to MLS group and get Welcome
+        let (commit, welcome, ratchet_tree) = self
+            .mls_service
+            .add_members(&group_id, vec![key_package])
+            .await
+            .map_err(|e| ChannelError::MlsError(format!("Failed to add member: {:?}", e)))?;
+
+        if welcome.is_empty() {
+            return Err(ChannelError::MlsError("No Welcome message generated".to_string()));
+        }
+
+        // Return Welcome, commit, and ratchet tree
+        let commit_opt = if commit.is_empty() { None } else { Some(commit) };
+        let ratchet_tree_opt = if ratchet_tree.is_empty() { None } else { Some(ratchet_tree) };
+        
+        Ok((welcome, commit_opt, ratchet_tree_opt))
+    }
+
+    /// Join a channel using an invite token (containing Welcome message)
+    pub async fn join_channel_from_invite(
+        &self,
+        invite_token: Vec<u8>,  // Welcome message
+        ratchet_tree: Option<Vec<u8>>,
+        user_id: &UserId,
+        space_id: &SpaceId,
+        channel_name: &str,
+        original_channel_id: Option<ChannelId>, // Original channel ID from creator
+    ) -> Result<ChannelId, ChannelError> {
+        // Join the MLS group from Welcome
+        let group_id = self
+            .mls_service
+            .join_group(&invite_token, ratchet_tree)
+            .await
+            .map_err(|e| ChannelError::MlsError(format!("Failed to join group: {:?}", e)))?;
+
+        // Use original channel ID if provided (for P2P routing consistency)
+        // Otherwise fall back to converting group ID to channel ID
+        let channel_id = if let Some(original_id) = original_channel_id {
+            eprintln!("[P2P] Using original channel ID from invite: {}", hex::encode(original_id.as_bytes()));
+            original_id
+        } else {
+            // Fallback: Convert group ID to channel ID
+            let id = ChannelId::from_bytes(
+                group_id.0.as_slice().try_into()
+                    .map_err(|_| ChannelError::MlsError("Invalid group ID length".to_string()))?
+            );
+            eprintln!("[P2P] No original channel ID, using converted group ID: {}", hex::encode(id.as_bytes()));
+            id
+        };
+
+        // Save channel metadata to MLS SQL store (required for message foreign key)
+        self.mls_service
+            .save_channel_metadata(&group_id, channel_name.as_bytes(), None, &[user_id.0.as_bytes()], 0)
+            .await
+            .map_err(|e| {
+                ChannelError::MlsError(format!("Failed to save channel metadata during join: {:?}", e))
+            })?;
+
+        // Create minimal space and channel records for messaging
+        // This allows send/receive to work without full space sync
+        use crate::core_space::space::{Space, SpaceVisibility};
+        use crate::core_space::channel::{Channel, ChannelVisibility};
+        use crate::core_store::model::types::Timestamp;
+        use std::collections::{HashSet, HashMap};
+        use crate::core_space::space::SpaceMember;
+        
+        let now = Timestamp::now();
+        
+        // Create minimal space (just enough to satisfy foreign key)
+        let mut space_members = HashMap::new();
+        space_members.insert(
+            user_id.clone(),
+            SpaceMember {
+                user_id: user_id.clone(),
+                role: crate::core_space::space::SpaceRole::Member,
+                joined_at: now.clone(),
+                invited_by: None,
+            }
+        );
+        
+        let space = Space {
+            id: space_id.clone(),
+            name: format!("Space (via invite)"),  // Placeholder name
+            description: None,
+            icon_url: None,
+            visibility: SpaceVisibility::Private,
+            owner_id: user_id.clone(),  // Temporary - not the real owner
+            members: space_members,
+            channels: vec![channel_id.clone()],
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        };
+        
+        // Create minimal channel record
+        let mut channel_members = HashSet::new();
+        channel_members.insert(user_id.clone());
+        
+        let channel = Channel {
+            id: channel_id.clone(),
+            space_id: space_id.clone(),
+            name: channel_name.to_string(),
+            description: None,
+            visibility: ChannelVisibility::Private,
+            mls_group_id: group_id,
+            members: channel_members,
+            created_at: now.clone(),
+            updated_at: now,
+        };
+
+        // Save space and channel to local database
+        let mut manager = self.manager.write().await;
+        manager.create_space_direct(&space)
+            .map_err(|e| ChannelError::MlsError(format!("Failed to create space during join: {:?}", e)))?;
+        manager.create_channel_direct(&channel)
+            .map_err(|e| ChannelError::MlsError(format!("Failed to create channel during join: {:?}", e)))?;
+        drop(manager);
+
+        Ok(channel_id)
     }
 }

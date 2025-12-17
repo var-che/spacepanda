@@ -1,8 +1,8 @@
-import '../models/models.dart';
+import '../../shared/models/models.dart';
 
 /// Mock data for UI development
 class MockData {
-  static final currentUser = User(
+  static const currentUser = User(
     id: 'user-1',
     username: 'alice',
     displayName: 'Alice',
@@ -11,19 +11,19 @@ class MockData {
 
   static final users = [
     currentUser,
-    User(
+    const User(
       id: 'user-2',
       username: 'bob',
       displayName: 'Bob',
       status: UserStatus.idle,
     ),
-    User(
+    const User(
       id: 'user-3',
       username: 'charlie',
       displayName: 'Charlie',
       status: UserStatus.online,
     ),
-    User(
+    const User(
       id: 'user-4',
       username: 'diana',
       displayName: 'Diana',
@@ -128,7 +128,7 @@ class MockData {
       senderId: 'user-2',
       content: 'Hey team! How is the MLS integration going?',
       timestamp: DateTime.now().subtract(const Duration(hours: 2)),
-      isEncrypted: true,
+      isE2ee: true,
     ),
     Message(
       id: 'msg-2',
@@ -136,7 +136,7 @@ class MockData {
       senderId: 'user-1',
       content: 'Almost done! Just finished the async manager integration.',
       timestamp: DateTime.now().subtract(const Duration(hours: 1, minutes: 55)),
-      isEncrypted: true,
+      isE2ee: true,
     ),
     Message(
       id: 'msg-3',
@@ -144,7 +144,7 @@ class MockData {
       senderId: 'user-3',
       content: 'Nice! Let me know when you need help with the UI.',
       timestamp: DateTime.now().subtract(const Duration(hours: 1, minutes: 50)),
-      isEncrypted: true,
+      isE2ee: true,
     ),
     Message(
       id: 'msg-4',
@@ -152,7 +152,7 @@ class MockData {
       senderId: 'user-1',
       content: 'Actually, we are starting the Flutter app now! 🚀',
       timestamp: DateTime.now().subtract(const Duration(minutes: 30)),
-      isEncrypted: true,
+      isE2ee: true,
     ),
     Message(
       id: 'msg-5',
@@ -160,7 +160,7 @@ class MockData {
       senderId: 'user-2',
       content: 'Awesome! Going with gRPC for the backend communication?',
       timestamp: DateTime.now().subtract(const Duration(minutes: 25)),
-      isEncrypted: true,
+      isE2ee: true,
     ),
     Message(
       id: 'msg-6',
@@ -168,7 +168,7 @@ class MockData {
       senderId: 'user-1',
       content: 'Yes! gRPC for efficiency and Riverpod for state management.',
       timestamp: DateTime.now().subtract(const Duration(minutes: 20)),
-      isEncrypted: true,
+      isE2ee: true,
     ),
   ];
 

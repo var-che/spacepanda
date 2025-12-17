@@ -18,12 +18,11 @@ class AppTheme {
       useMaterial3: true,
       brightness: Brightness.dark,
       scaffoldBackgroundColor: _darkBackground,
-      
+
       colorScheme: const ColorScheme.dark(
         primary: _accentColor,
         secondary: _accentColor,
         surface: _darkerBackground,
-        background: _darkBackground,
         error: _dangerColor,
       ),
 
@@ -41,19 +40,24 @@ class AppTheme {
 
       // Text Theme
       textTheme: const TextTheme(
-        displayLarge: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
-        displayMedium: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
-        displaySmall: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
-        headlineMedium: TextStyle(color: _textPrimary, fontWeight: FontWeight.w600),
+        displayLarge:
+            TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
+        displayMedium:
+            TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
+        displaySmall:
+            TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
+        headlineMedium:
+            TextStyle(color: _textPrimary, fontWeight: FontWeight.w600),
         titleLarge: TextStyle(color: _textPrimary, fontWeight: FontWeight.w600),
-        titleMedium: TextStyle(color: _textPrimary, fontWeight: FontWeight.w500),
+        titleMedium:
+            TextStyle(color: _textPrimary, fontWeight: FontWeight.w500),
         bodyLarge: TextStyle(color: _textPrimary),
         bodyMedium: TextStyle(color: _textSecondary),
         bodySmall: TextStyle(color: _textMuted),
       ),
 
       // Card
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: _darkerBackground,
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -67,7 +71,8 @@ class AppTheme {
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide.none,
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
 
       // Icon Theme
@@ -122,13 +127,13 @@ class AppTheme {
         primary: _accentColor,
         secondary: _accentColor,
         surface: Colors.grey[100]!,
-        background: Colors.white,
         error: _dangerColor,
       ),
     );
   }
 
   // Custom colors for specific use cases
+  static const darkBackground = _darkBackground;
   static const channelHover = _channelHover;
   static const darkestBackground = _darkestBackground;
   static const darkerBackground = _darkerBackground;

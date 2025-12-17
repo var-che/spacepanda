@@ -34,6 +34,9 @@
             pkg-config
             openssl
             
+            # gRPC/Protobuf
+            protobuf
+            
             # Development tools
             git
             nixpkgs-fmt

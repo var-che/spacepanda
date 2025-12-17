@@ -11,7 +11,7 @@ class SpacePandaApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = GoRouter(
-      initialLocation: '/home',
+      initialLocation: '/login',
       routes: [
         GoRoute(
           path: '/login',

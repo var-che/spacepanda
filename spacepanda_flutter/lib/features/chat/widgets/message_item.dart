@@ -2,16 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/models/models.dart';
-import '../../../api/mock/mock_data.dart';
 
 class MessageItem extends StatefulWidget {
   final Message message;
   final bool showAvatar;
+  final String? senderName;
 
   const MessageItem({
     super.key,
     required this.message,
     required this.showAvatar,
+    this.senderName,
   });
 
   @override
@@ -23,28 +24,27 @@ class _MessageItemState extends State<MessageItem> {
 
   @override
   Widget build(BuildContext context) {
-    final sender = MockData.getUserById(widget.message.senderId);
-    if (sender == null) return const SizedBox.shrink();
+    // Use sender name from message or provided name
+    final displayName =
+        widget.senderName ?? widget.message.senderId.substring(0, 8);
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-        color: _isHovered
-            ? Colors.black.withOpacity(0.05)
-            : Colors.transparent,
+        color: _isHovered ? Colors.black.withOpacity(0.05) : Colors.transparent,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Avatar or spacing
             if (widget.showAvatar)
-              _UserAvatar(user: sender)
+              _UserAvatar(displayName: displayName)
             else
               const SizedBox(width: 40),
-            
+
             const SizedBox(width: 16),
-            
+
             // Message content
             Expanded(
               child: Column(
@@ -52,7 +52,7 @@ class _MessageItemState extends State<MessageItem> {
                 children: [
                   if (widget.showAvatar) ...[
                     _MessageHeader(
-                      sender: sender,
+                      displayName: displayName,
                       timestamp: widget.message.timestamp,
                     ),
                     const SizedBox(height: 2),
@@ -64,10 +64,9 @@ class _MessageItemState extends State<MessageItem> {
                 ],
               ),
             ),
-            
+
             // Message actions (visible on hover)
-            if (_isHovered)
-              _MessageActions(),
+            if (_isHovered) _MessageActions(),
           ],
         ),
       ),
@@ -76,22 +75,22 @@ class _MessageItemState extends State<MessageItem> {
 }
 
 class _UserAvatar extends StatelessWidget {
-  final User user;
+  final String displayName;
 
-  const _UserAvatar({required this.user});
+  const _UserAvatar({required this.displayName});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: 40,
       height: 40,
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: AppTheme.accentColor,
         shape: BoxShape.circle,
       ),
       child: Center(
         child: Text(
-          user.displayName[0].toUpperCase(),
+          displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
           style: const TextStyle(
             color: Colors.white,
             fontSize: 16,
@@ -104,22 +103,22 @@ class _UserAvatar extends StatelessWidget {
 }
 
 class _MessageHeader extends StatelessWidget {
-  final User sender;
+  final String displayName;
   final DateTime timestamp;
 
   const _MessageHeader({
-    required this.sender,
+    required this.displayName,
     required this.timestamp,
   });
 
   @override
   Widget build(BuildContext context) {
     final timeStr = DateFormat('HH:mm').format(timestamp);
-    
+
     return Row(
       children: [
         Text(
-          sender.displayName,
+          displayName,
           style: const TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w500,
@@ -128,7 +127,7 @@ class _MessageHeader extends StatelessWidget {
         const SizedBox(width: 8),
         Text(
           timeStr,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 12,
             color: AppTheme.textMuted,
           ),
@@ -163,7 +162,7 @@ class _MessageContent extends StatelessWidget {
         ),
         if (isEncrypted) ...[
           const SizedBox(width: 8),
-          Tooltip(
+          const Tooltip(
             message: 'End-to-end encrypted',
             child: Icon(
               Icons.lock,

@@ -14,7 +14,7 @@ class User with _$User {
     @Default(UserStatus.online) UserStatus status,
   }) = _User;
 
-  factory User.fromJson(Map<String, dynamic> json) => _$UserFrom Json(json);
+  factory User.fromJson(Map<String, dynamic> json) => _$UserFromJson(json);
 }
 
 enum UserStatus { online, idle, dnd, offline }
@@ -52,7 +52,8 @@ class Channel with _$Channel {
     required DateTime createdAt,
   }) = _Channel;
 
-  factory Channel.fromJson(Map<String, dynamic> json) => _$ChannelFromJson(json);
+  factory Channel.fromJson(Map<String, dynamic> json) =>
+      _$ChannelFromJson(json);
 }
 
 enum ChannelVisibility { public, private }
@@ -66,11 +67,12 @@ class Message with _$Message {
     required String senderId,
     required String content,
     required DateTime timestamp,
-    @Default(false) bool isEncrypted,
+    @Default(false) bool isE2ee,
     @Default([]) List<String> attachments,
   }) = _Message;
 
-  factory Message.fromJson(Map<String, dynamic> json) => _$MessageFromJson(json);
+  factory Message.fromJson(Map<String, dynamic> json) =>
+      _$MessageFromJson(json);
 }
 
 /// Space invite model
@@ -87,5 +89,6 @@ class SpaceInvite with _$SpaceInvite {
     @Default(false) bool revoked,
   }) = _SpaceInvite;
 
-  factory SpaceInvite.fromJson(Map<String, dynamic> json) => _$SpaceInviteFromJson(json);
+  factory SpaceInvite.fromJson(Map<String, dynamic> json) =>
+      _$SpaceInviteFromJson(json);
 }

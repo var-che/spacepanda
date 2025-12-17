@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/models/models.dart';
+import 'create_channel_dialog.dart';
 
 class ChannelsSidebar extends StatelessWidget {
   final Space space;
@@ -18,6 +19,9 @@ class ChannelsSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint(
+        'ChannelsSidebar: Building for space "${space.name}" with ${channels.length} channels');
+
     return Container(
       width: 240,
       color: AppTheme.darkerBackground,
@@ -26,22 +30,29 @@ class ChannelsSidebar extends StatelessWidget {
           // Space header
           _SpaceHeader(space: space),
           const Divider(height: 1),
-          
+
           // Channels list
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
-                _ChannelCategory(title: 'TEXT CHANNELS'),
+                _ChannelCategory(
+                  title: 'TEXT CHANNELS',
+                  space: space,
+                ),
                 ...channels.map((channel) => _ChannelItem(
                       channel: channel,
                       isSelected: selectedChannel?.id == channel.id,
-                      onTap: () => onChannelSelected(channel),
+                      onTap: () {
+                        debugPrint(
+                            'ChannelsSidebar: Channel selected - "${channel.name}"');
+                        onChannelSelected(channel);
+                      },
                     )),
               ],
             ),
           ),
-          
+
           // User panel at bottom
           _UserPanel(),
         ],
@@ -89,8 +100,12 @@ class _SpaceHeader extends StatelessWidget {
 
 class _ChannelCategory extends StatelessWidget {
   final String title;
+  final Space space;
 
-  const _ChannelCategory({required this.title});
+  const _ChannelCategory({
+    required this.title,
+    required this.space,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -101,14 +116,30 @@ class _ChannelCategory extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
                 color: AppTheme.textMuted,
               ),
             ),
           ),
-          Icon(Icons.add, size: 16, color: AppTheme.textMuted),
+          IconButton(
+            icon: const Icon(Icons.add, size: 16, color: AppTheme.textMuted),
+            onPressed: () {
+              debugPrint(
+                  'ChannelCategory: Opening create channel dialog for "${space.name}"');
+              showDialog(
+                context: context,
+                builder: (context) => CreateChannelDialog(
+                  spaceId: space.id,
+                  spaceName: space.name,
+                ),
+              );
+            },
+            tooltip: 'Create Channel',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
         ],
       ),
     );
@@ -156,9 +187,7 @@ class _ChannelItemState extends State<_ChannelItem> {
                       ? Icons.lock
                       : Icons.tag,
                   size: 20,
-                  color: widget.isSelected
-                      ? Colors.white
-                      : AppTheme.textMuted,
+                  color: widget.isSelected ? Colors.white : AppTheme.textMuted,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -198,7 +227,7 @@ class _UserPanel extends StatelessWidget {
           Container(
             width: 32,
             height: 32,
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: AppTheme.accentColor,
               shape: BoxShape.circle,
             ),

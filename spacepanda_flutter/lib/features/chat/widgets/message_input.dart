@@ -62,7 +62,7 @@ class _MessageInputState extends State<MessageInput> {
               onPressed: () {},
               tooltip: 'Add attachments',
             ),
-            
+
             // Text input
             Expanded(
               child: TextField(
@@ -80,18 +80,18 @@ class _MessageInputState extends State<MessageInput> {
                 onSubmitted: (_) => _sendMessage(),
               ),
             ),
-            
+
             // Emoji picker button
             IconButton(
               icon: const Icon(Icons.emoji_emotions_outlined, size: 24),
               onPressed: () {},
               tooltip: 'Emoji',
             ),
-            
+
             // Send button (only visible when there's text)
             if (_hasText)
               IconButton(
-                icon: Icon(
+                icon: const Icon(
                   Icons.send,
                   size: 24,
                   color: AppTheme.accentColor,

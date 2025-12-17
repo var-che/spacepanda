@@ -70,6 +70,18 @@ impl SpaceManagerImpl {
         }
         Ok(())
     }
+
+    /// Create a space directly (for invite join scenario)
+    /// Skips validation - use only when joining via invite
+    pub(crate) fn create_space_direct(&mut self, space: &Space) -> Result<(), SpaceError> {
+        self.store.create_space(space)
+    }
+
+    /// Create a channel directly (for invite join scenario)
+    /// Skips space validation - use only when joining via invite
+    pub(crate) fn create_channel_direct(&mut self, channel: &Channel) -> Result<(), ChannelError> {
+        self.store.create_channel(channel)
+    }
 }
 
 impl SpaceManager for SpaceManagerImpl {

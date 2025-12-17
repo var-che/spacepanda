@@ -14,6 +14,7 @@ use crate::{
         errors::{MlsError, MlsResult},
         events::{EventBroadcaster, MlsEvent},
         providers::PersistentProvider,
+        storage::SqlStorageProvider,
         traits::storage::StorageProvider,
         types::{GroupId, GroupMetadata, MlsConfig},
     },
@@ -59,8 +60,8 @@ pub struct MlsService {
     /// This allows us to retrieve the correct signature keys when joining from Welcome
     key_package_bundles: Arc<RwLock<HashMap<Vec<u8>, KeyPackageBundle>>>,
 
-    /// Optional storage provider for persisting group state (our custom snapshots)
-    storage: Option<Arc<dyn StorageProvider>>,
+    /// SQL storage provider for persisting messages and channel metadata
+    storage: Option<Arc<SqlStorageProvider>>,
 }
 
 impl MlsService {
@@ -725,6 +726,47 @@ impl MlsService {
         engine.export_ratchet_tree_bytes().await
     }
 
+    /// Export a secret from the MLS group (for sealed sender, etc.)
+    ///
+    /// This uses the MLS exporter interface to derive application-specific secrets
+    /// from the group's key schedule.
+    ///
+    /// # Arguments
+    /// * `group_id` - The group to export from
+    /// * `label` - Domain separation label (e.g., "sender_key")
+    /// * `context` - Additional context bytes (can be empty)
+    /// * `length` - Desired secret length in bytes
+    pub async fn export_secret(
+        &self,
+        group_id: &GroupId,
+        label: &str,
+        context: &[u8],
+        length: usize,
+    ) -> MlsResult<Vec<u8>> {
+        let groups = self.groups.read().await;
+        let adapter = groups
+            .get(group_id)
+            .ok_or_else(|| MlsError::GroupNotFound(group_id.to_string()))?;
+
+        let engine_ref = adapter.engine();
+        let engine = engine_ref.read().await;
+        engine.export_secret(label, context, length).await
+    }
+
+    /// Get the current epoch for a group
+    ///
+    /// Used for binding sealed senders to specific group states.
+    pub async fn get_epoch(&self, group_id: &GroupId) -> MlsResult<u64> {
+        let groups = self.groups.read().await;
+        let adapter = groups
+            .get(group_id)
+            .ok_or_else(|| MlsError::GroupNotFound(group_id.to_string()))?;
+
+        let engine_ref = adapter.engine();
+        let engine = engine_ref.read().await;
+        Ok(engine.epoch().await)
+    }
+
     /// Get group metadata
     pub async fn get_metadata(&self, group_id: &GroupId) -> MlsResult<GroupMetadata> {
         let groups = self.groups.read().await;
@@ -790,6 +832,74 @@ impl MlsService {
 
         info!("MLS service shutdown complete");
         Ok(())
+    }
+
+    /// Save a message to SQL storage (if available)
+    pub async fn save_message_to_storage(
+        &self,
+        message_id: &[u8],
+        group_id: &GroupId,
+        encrypted_content: &[u8],
+        sealed_sender_bytes: &[u8],
+        sequence: i64,
+    ) -> MlsResult<()> {
+        self.save_message_to_storage_with_plaintext(message_id, group_id, encrypted_content, sealed_sender_bytes, sequence, None).await
+    }
+
+    /// Save a message to SQL storage with optional plaintext (for sent messages)
+    pub async fn save_message_to_storage_with_plaintext(
+        &self,
+        message_id: &[u8],
+        group_id: &GroupId,
+        encrypted_content: &[u8],
+        sealed_sender_bytes: &[u8],
+        sequence: i64,
+        plaintext_content: Option<&[u8]>,
+    ) -> MlsResult<()> {
+        if let Some(ref storage) = self.storage {
+            storage
+                .save_message_with_plaintext(message_id, group_id.as_bytes(), encrypted_content, sealed_sender_bytes, sequence, plaintext_content)
+                .await
+        } else {
+            warn!("No SQL storage available for saving messages");
+            Ok(())
+        }
+    }
+
+    /// Load messages from SQL storage (if available)
+    pub async fn load_messages_from_storage(
+        &self,
+        group_id: &GroupId,
+        limit: i64,
+        offset: i64,
+    ) -> MlsResult<Vec<(Vec<u8>, Vec<u8>, Vec<u8>, i64, bool, Option<Vec<u8>>)>> {
+        if let Some(ref storage) = self.storage {
+            storage.load_messages(group_id.as_bytes(), limit, offset).await
+        } else {
+            warn!("No SQL storage available for loading messages");
+            Ok(Vec::new())
+        }
+    }
+
+    /// Save channel metadata to SQL storage (required for message foreign key)
+    pub async fn save_channel_metadata(
+        &self,
+        group_id: &GroupId,
+        encrypted_name: &[u8],
+        encrypted_topic: Option<&[u8]>,
+        encrypted_members: &[&[u8]],
+        channel_type: i32,
+    ) -> MlsResult<()> {
+        if let Some(ref storage) = self.storage {
+            // Concatenate all member IDs
+            let members_bytes: Vec<u8> = encrypted_members.iter().flat_map(|&m| m.iter().copied()).collect();
+            storage
+                .save_channel_metadata(group_id.as_bytes(), encrypted_name, encrypted_topic, &members_bytes, channel_type)
+                .await
+        } else {
+            warn!("No SQL storage available for saving channel metadata");
+            Ok(())
+        }
     }
 }
 

@@ -2,7 +2,9 @@
 resolver = "2"
 members = [
     "spacepanda-core",
-    "spacepanda-cli", "test-harness",
+    "spacepanda-cli",
+    "spacepanda-api",
+    "test-harness",
 ]
 exclude = [
     "spacepanda-core/fuzz",

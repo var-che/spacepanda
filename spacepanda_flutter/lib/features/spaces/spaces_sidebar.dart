@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/models/models.dart';
+import 'create_space_dialog.dart';
 
 class SpacesSidebar extends StatelessWidget {
   final List<Space> spaces;
@@ -56,7 +57,10 @@ class SpacesSidebar extends StatelessWidget {
             icon: Icons.add,
             isSelected: false,
             onTap: () {
-              // TODO: Show add space dialog
+              showDialog(
+                context: context,
+                builder: (context) => const CreateSpaceDialog(),
+              );
             },
           ),
           const SizedBox(height: 12),
@@ -112,9 +116,9 @@ class _SpaceIconState extends State<_SpaceIcon> {
                     Container(
                       width: 4,
                       height: widget.isSelected ? 40 : 20,
-                      decoration: BoxDecoration(
+                      decoration: const BoxDecoration(
                         color: Colors.white,
-                        borderRadius: const BorderRadius.only(
+                        borderRadius: BorderRadius.only(
                           topRight: Radius.circular(4),
                           bottomRight: Radius.circular(4),
                         ),

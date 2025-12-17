@@ -25,7 +25,7 @@ class ChatView extends StatelessWidget {
           // Channel header
           _ChannelHeader(channel: channel),
           const Divider(height: 1),
-          
+
           // Messages list
           Expanded(
             child: ListView.builder(
@@ -35,7 +35,7 @@ class ChatView extends StatelessWidget {
                 final message = messages[index];
                 final showAvatar = index == 0 ||
                     messages[index - 1].senderId != message.senderId;
-                
+
                 return MessageItem(
                   message: message,
                   showAvatar: showAvatar,
@@ -43,7 +43,7 @@ class ChatView extends StatelessWidget {
               },
             ),
           ),
-          
+
           // Message input
           MessageInput(onSend: onSendMessage),
         ],
@@ -90,7 +90,7 @@ class _ChannelHeader extends StatelessWidget {
             Expanded(
               child: Text(
                 channel.description!,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 14,
                   color: AppTheme.textMuted,
                 ),

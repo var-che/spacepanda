@@ -30,10 +30,10 @@ mod tests {
         for i in 0..10_000 {
             let msg_id = format!("msg_{}", i).into_bytes();
             let content = format!("encrypted_content_{}", i).into_bytes();
-            let sender = format!("sender_hash_{}", i % 10).into_bytes();
+            let sealed_sender_bytes = format!("sender_hash_{}", i % 10).into_bytes();
 
             storage
-                .save_message(&msg_id, group_id, &content, &sender, i as i64)
+                .save_message(&msg_id, group_id, &content, &sealed_sender_bytes, i as i64)
                 .await
                 .unwrap();
         }

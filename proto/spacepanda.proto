@@ -1,0 +1,319 @@
+syntax = "proto3";
+
+package spacepanda;
+
+// Authentication & User Management
+service AuthService {
+  // Unlock local user profile with password
+  rpc Unlock(UnlockRequest) returns (UnlockResponse);
+  
+  // Create new local user profile
+  rpc CreateProfile(CreateProfileRequest) returns (CreateProfileResponse);
+  
+  // Lock current session
+  rpc Lock(LockRequest) returns (LockResponse);
+}
+
+// Space Management
+service SpaceService {
+  // List all spaces for current user
+  rpc ListSpaces(ListSpacesRequest) returns (ListSpacesResponse);
+  
+  // Get channels in a space
+  rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse);
+  
+  // Create a new space
+  rpc CreateSpace(CreateSpaceRequest) returns (CreateSpaceResponse);
+  
+  // Create a new channel in a space
+  rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse);
+  
+  // Get space details
+  rpc GetSpace(GetSpaceRequest) returns (Space);
+  
+  // Generate a key package for joining channels
+  rpc GenerateKeyPackage(GenerateKeyPackageRequest) returns (GenerateKeyPackageResponse);
+  
+  // Create an invite for a user to join a channel (requires their key package)
+  rpc CreateChannelInvite(CreateChannelInviteRequest) returns (CreateChannelInviteResponse);
+  
+  // Join a channel using an invite token
+  rpc JoinChannel(JoinChannelRequest) returns (JoinChannelResponse);
+  
+  // Add member to channel (legacy - use CreateChannelInvite + JoinChannel instead)
+  rpc AddMemberToChannel(AddMemberToChannelRequest) returns (AddMemberToChannelResponse);
+  
+  // Remove member from channel
+  rpc RemoveMemberFromChannel(RemoveMemberFromChannelRequest) returns (RemoveMemberFromChannelResponse);
+}
+
+// Messaging
+service MessageService {
+  // Get messages for a channel
+  rpc GetMessages(GetMessagesRequest) returns (GetMessagesResponse);
+  
+  // Send a message
+  rpc SendMessage(SendMessageRequest) returns (Message);
+  
+  // Stream new messages (real-time)
+  rpc StreamMessages(StreamMessagesRequest) returns (stream Message);
+}
+
+// P2P Network
+service NetworkService {
+  // Connect to a peer server
+  rpc ConnectPeer(ConnectPeerRequest) returns (ConnectPeerResponse);
+  
+  // Get P2P network status
+  rpc GetNetworkStatus(NetworkStatusRequest) returns (NetworkStatusResponse);
+}
+
+// ===== Authentication Messages =====
+
+message UnlockRequest {
+  string username = 1;  // Optional: if not provided, uses default profile
+  string password = 2;
+}
+
+message UnlockResponse {
+  string session_token = 1;
+  User user = 2;
+}
+
+message CreateProfileRequest {
+  string username = 1;  // Optional display name
+  string password = 2;
+}
+
+message CreateProfileResponse {
+  string session_token = 1;
+  User user = 2;
+}
+
+message LockRequest {
+  string session_token = 1;
+}
+
+message LockResponse {
+  bool success = 1;
+}
+
+// ===== Space Messages =====
+
+message ListSpacesRequest {
+  string session_token = 1;
+}
+
+message ListSpacesResponse {
+  repeated Space spaces = 1;
+}
+
+message ListChannelsRequest {
+  string session_token = 1;
+  string space_id = 2;
+}
+
+message ListChannelsResponse {
+  repeated Channel channels = 1;
+}
+
+message CreateSpaceRequest {
+  string session_token = 1;
+  string name = 2;
+  string description = 3;
+  SpaceVisibility visibility = 4;
+}
+
+message CreateSpaceResponse {
+  Space space = 1;
+}
+
+message CreateChannelRequest {
+  string session_token = 1;
+  string space_id = 2;
+  string name = 3;
+  string description = 4;
+  ChannelVisibility visibility = 5;
+}
+
+message CreateChannelResponse {
+  Channel channel = 1;
+}
+
+message GetSpaceRequest {
+  string session_token = 1;
+  string space_id = 2;
+}
+
+message AddMemberToChannelRequest {
+  string session_token = 1;
+  string channel_id = 2;
+  string user_id = 3;  // User ID to add
+}
+
+message AddMemberToChannelResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message RemoveMemberFromChannelRequest {
+  string session_token = 1;
+  string channel_id = 2;
+  string user_id = 3;  // User ID to remove
+}
+
+message RemoveMemberFromChannelResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// ===== Message Messages =====
+
+message GetMessagesRequest {
+  string session_token = 1;
+  string channel_id = 2;
+  int32 limit = 3;  // Optional, default 50
+  string before = 4;  // Optional, for pagination
+}
+
+message GetMessagesResponse {
+  repeated Message messages = 1;
+}
+
+message SendMessageRequest {
+  string session_token = 1;
+  string channel_id = 2;
+  string content = 3;
+}
+
+message StreamMessagesRequest {
+  string session_token = 1;
+  string channel_id = 2;
+}
+
+// ===== Data Models =====
+
+message User {
+  string id = 1;
+  string username = 2;
+  string display_name = 3;
+  string avatar_url = 4;
+  UserStatus status = 5;
+}
+
+enum UserStatus {
+  USER_STATUS_UNSPECIFIED = 0;
+  USER_STATUS_ONLINE = 1;
+  USER_STATUS_IDLE = 2;
+  USER_STATUS_DND = 3;
+  USER_STATUS_OFFLINE = 4;
+}
+
+message Space {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string icon_url = 4;
+  SpaceVisibility visibility = 5;
+  string owner_id = 6;
+  repeated string member_ids = 7;
+  repeated string channel_ids = 8;
+  int64 created_at = 9;  // Unix timestamp
+}
+
+enum SpaceVisibility {
+  SPACE_VISIBILITY_UNSPECIFIED = 0;
+  SPACE_VISIBILITY_PUBLIC = 1;
+  SPACE_VISIBILITY_PRIVATE = 2;
+}
+
+message Channel {
+  string id = 1;
+  string space_id = 2;
+  string name = 3;
+  string description = 4;
+  ChannelVisibility visibility = 5;
+  repeated string member_ids = 6;
+  int64 created_at = 7;
+}
+
+enum ChannelVisibility {
+  CHANNEL_VISIBILITY_UNSPECIFIED = 0;
+  CHANNEL_VISIBILITY_PUBLIC = 1;
+  CHANNEL_VISIBILITY_PRIVATE = 2;
+}
+
+message Message {
+  string id = 1;
+  string channel_id = 2;
+  string sender_id = 3;
+  string content = 4;
+  int64 timestamp = 5;  // Unix timestamp
+  bool is_e2ee = 6;
+  repeated string attachments = 7;
+}
+
+// Key package generation
+message GenerateKeyPackageRequest {
+  string session_token = 1;
+}
+
+message GenerateKeyPackageResponse {
+  bytes key_package = 1;  // Serialized MLS key package
+}
+
+// Create channel invite
+message CreateChannelInviteRequest {
+  string session_token = 1;
+  string channel_id = 2;
+  bytes key_package = 3;  // Key package of the user being invited
+}
+
+message CreateChannelInviteResponse {
+  bytes invite_token = 1;  // Serialized invite containing Welcome message
+  bytes commit = 2;        // Optional commit for existing members to process
+  bytes ratchet_tree = 3;  // Optional ratchet tree for new member to process Welcome
+  string space_id = 4;     // Space ID for channel metadata
+  string channel_name = 5; // Channel name
+  string channel_id = 6;   // Original channel ID from creator (for P2P routing consistency)
+}
+
+// Join channel
+message JoinChannelRequest {
+  string session_token = 1;
+  bytes invite_token = 2;
+  bytes ratchet_tree = 3;  // Optional ratchet tree from invite
+  string space_id = 4;     // Space ID for channel metadata
+  string channel_name = 5; // Channel name
+  string channel_id = 6;   // Original channel ID from invite (for P2P routing consistency)
+}
+
+message JoinChannelResponse {
+  bool success = 1;
+  string channel_id = 2;
+  string message = 3;
+}
+
+// ===== P2P Network Messages =====
+
+// Connect to peer
+message ConnectPeerRequest {
+  string session_token = 1;
+  string peer_address = 2;  // Multiaddr format: /ip4/127.0.0.1/tcp/50052
+}
+
+message ConnectPeerResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Get network status
+message NetworkStatusRequest {
+  string session_token = 1;
+}
+
+message NetworkStatusResponse {
+  string peer_id = 1;
+  string listen_address = 2;
+  repeated string connected_peers = 3;
+}
