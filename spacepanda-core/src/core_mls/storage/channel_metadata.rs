@@ -92,8 +92,8 @@ pub struct MessageMetadata {
     /// Encrypted message content
     pub encrypted_content: Vec<u8>,
 
-    /// Sender identity hash (not plaintext)
-    pub sender_hash: Vec<u8>,
+    /// Sealed sender identity (encrypted for privacy - prevents message-to-sender linkage)
+    pub sealed_sender_bytes: Vec<u8>,
 
     /// Sequence number (for ordering, not timing)
     pub sequence: i64,
@@ -109,10 +109,10 @@ impl MessageMetadata {
         message_id: Vec<u8>,
         group_id: Vec<u8>,
         encrypted_content: Vec<u8>,
-        sender_hash: Vec<u8>,
+        sealed_sender_bytes: Vec<u8>,
         sequence: i64,
     ) -> Self {
-        Self { message_id, group_id, encrypted_content, sender_hash, sequence, processed: false }
+        Self { message_id, group_id, encrypted_content, sealed_sender_bytes, sequence, processed: false }
     }
 }
 
@@ -142,7 +142,7 @@ mod tests {
             b"msg123".to_vec(),
             b"group123".to_vec(),
             b"encrypted_content".to_vec(),
-            b"sender_hash".to_vec(),
+            b"sealed_sender_bytes".to_vec(),
             1,
         );
 

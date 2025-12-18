@@ -117,9 +117,9 @@ pub fn get_migrations() -> Vec<Migration> {
                     FOREIGN KEY (group_id) REFERENCES channels(group_id) ON DELETE CASCADE
                 );
 
-                -- Index for efficient message retrieval
+                -- Index for efficient message retrieval (chronological order)
                 CREATE INDEX IF NOT EXISTS idx_messages_group_seq 
-                    ON messages(group_id, sequence DESC);
+                    ON messages(group_id, sequence ASC);
 
                 -- Index for unprocessed messages
                 CREATE INDEX IF NOT EXISTS idx_messages_unprocessed
@@ -174,6 +174,105 @@ pub fn get_migrations() -> Vec<Migration> {
                 -- Drop new table and rename old one
                 DROP TABLE group_snapshots;
                 ALTER TABLE group_snapshots_old RENAME TO group_snapshots;
+            "#,
+            ),
+        },
+        Migration {
+            version: 4,
+            description: "Add plaintext_content field for sent messages (MLS senders cannot decrypt own messages)",
+            up_sql: r#"
+                -- Add plaintext_content column to messages table
+                ALTER TABLE messages ADD COLUMN plaintext_content BLOB;
+            "#,
+            down_sql: Some(
+                r#"
+                -- Remove plaintext_content column
+                CREATE TABLE IF NOT EXISTS messages_old (
+                    message_id BLOB PRIMARY KEY,
+                    group_id BLOB NOT NULL,
+                    encrypted_content BLOB NOT NULL,
+                    sender_hash BLOB NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    processed INTEGER NOT NULL DEFAULT 0,
+                    FOREIGN KEY (group_id) REFERENCES channels(group_id) ON DELETE CASCADE
+                );
+
+                INSERT INTO messages_old (message_id, group_id, encrypted_content, sender_hash, sequence, processed)
+                SELECT message_id, group_id, encrypted_content, sender_hash, sequence, processed
+                FROM messages;
+
+                DROP TABLE messages;
+                ALTER TABLE messages_old RENAME TO messages;
+
+                CREATE INDEX IF NOT EXISTS idx_messages_group_seq 
+                    ON messages(group_id, sequence DESC);
+                CREATE INDEX IF NOT EXISTS idx_messages_unprocessed
+                    ON messages(group_id, processed) WHERE processed = 0;
+            "#,
+            ),
+        },
+        Migration {
+            version: 5,
+            description: "Replace sender_hash with sealed_sender for privacy (metadata protection)",
+            up_sql: r#"
+                -- PRIVACY MIGRATION: Replace plaintext sender with encrypted sealed sender
+                -- This prevents network observers from linking messages to specific senders
+                
+                -- Create new table with sealed_sender_bytes instead of sender_hash
+                CREATE TABLE IF NOT EXISTS messages_new (
+                    message_id BLOB PRIMARY KEY,
+                    group_id BLOB NOT NULL,
+                    encrypted_content BLOB NOT NULL,
+                    sealed_sender_bytes BLOB NOT NULL,  -- ✅ ENCRYPTED sender identity
+                    sequence INTEGER NOT NULL,
+                    processed INTEGER NOT NULL DEFAULT 0,
+                    plaintext_content BLOB,
+                    FOREIGN KEY (group_id) REFERENCES channels(group_id) ON DELETE CASCADE
+                );
+
+                -- Migrate existing data (old sender_hash becomes temporary sealed_sender)
+                -- NOTE: Old messages will have plaintext sender_hash as sealed_sender_bytes
+                -- until re-encrypted. New messages will use proper sealed sender.
+                INSERT INTO messages_new (message_id, group_id, encrypted_content, sealed_sender_bytes, sequence, processed, plaintext_content)
+                SELECT message_id, group_id, encrypted_content, sender_hash, sequence, processed, plaintext_content
+                FROM messages;
+
+                -- Drop old table and rename
+                DROP TABLE messages;
+                ALTER TABLE messages_new RENAME TO messages;
+
+                -- Recreate indexes
+                CREATE INDEX IF NOT EXISTS idx_messages_group_seq 
+                    ON messages(group_id, sequence DESC);
+                CREATE INDEX IF NOT EXISTS idx_messages_unprocessed
+                    ON messages(group_id, processed) WHERE processed = 0;
+            "#,
+            down_sql: Some(
+                r#"
+                -- Rollback sealed_sender to sender_hash (privacy degradation)
+                CREATE TABLE IF NOT EXISTS messages_old (
+                    message_id BLOB PRIMARY KEY,
+                    group_id BLOB NOT NULL,
+                    encrypted_content BLOB NOT NULL,
+                    sender_hash BLOB NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    processed INTEGER NOT NULL DEFAULT 0,
+                    plaintext_content BLOB,
+                    FOREIGN KEY (group_id) REFERENCES channels(group_id) ON DELETE CASCADE
+                );
+
+                -- Migrate back (sealed_sender_bytes becomes sender_hash)
+                INSERT INTO messages_old (message_id, group_id, encrypted_content, sender_hash, sequence, processed, plaintext_content)
+                SELECT message_id, group_id, encrypted_content, sealed_sender_bytes, sequence, processed, plaintext_content
+                FROM messages;
+
+                DROP TABLE messages;
+                ALTER TABLE messages_old RENAME TO messages;
+
+                CREATE INDEX IF NOT EXISTS idx_messages_group_seq 
+                    ON messages(group_id, sequence DESC);
+                CREATE INDEX IF NOT EXISTS idx_messages_unprocessed
+                    ON messages(group_id, processed) WHERE processed = 0;
             "#,
             ),
         },

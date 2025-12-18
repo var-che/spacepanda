@@ -1,0 +1,42 @@
+[package]
+name = "spacepanda-api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Core SpacePanda
+spacepanda-core = { path = "../spacepanda-core" }
+
+# gRPC/Protobuf
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+
+# Async runtime
+tokio = { version = "1.40", features = ["full"] }
+tokio-stream = "0.1"
+
+# Utilities
+uuid = { version = "1.10", features = ["v4", "serde"] }
+chrono = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "2.0"
+dirs = "5.0"
+argon2 = "0.5"
+hex = "0.4"
+r2d2 = "0.8"
+r2d2_sqlite = "0.25"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"
+
+[build-dependencies]
+tonic-build = "0.12"
+
+[[bin]]
+name = "spacepanda-api"
+path = "src/main.rs"

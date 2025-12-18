@@ -31,6 +31,8 @@
 pub mod crypto;
 pub mod errors;
 pub mod events;
+pub mod sealed_sender;
+pub mod timing_obfuscation;
 pub mod types;
 
 // Trait boundaries for OpenMLS integration
@@ -54,7 +56,6 @@ pub mod messages;
 // Privacy enhancements
 pub mod padding;
 pub mod sealed_metadata;
-pub mod sealed_sender;
 
 // State management (snapshots, persistence)
 pub mod state;

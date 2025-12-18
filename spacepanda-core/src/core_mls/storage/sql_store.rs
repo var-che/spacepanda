@@ -636,8 +636,21 @@ impl SqlStorageProvider {
         message_id: &[u8],
         group_id: &[u8],
         encrypted_content: &[u8],
-        sender_hash: &[u8],
+        sealed_sender_bytes: &[u8],
         sequence: i64,
+    ) -> MlsResult<()> {
+        self.save_message_with_plaintext(message_id, group_id, encrypted_content, sealed_sender_bytes, sequence, None).await
+    }
+
+    /// Save a message with optional plaintext content (for sent messages)
+    pub async fn save_message_with_plaintext(
+        &self,
+        message_id: &[u8],
+        group_id: &[u8],
+        encrypted_content: &[u8],
+        sealed_sender_bytes: &[u8],
+        sequence: i64,
+        plaintext_content: Option<&[u8]>,
     ) -> MlsResult<()> {
         let conn = self
             .pool
@@ -646,9 +659,9 @@ impl SqlStorageProvider {
 
         conn.execute(
             "INSERT OR REPLACE INTO messages 
-             (message_id, group_id, encrypted_content, sender_hash, sequence, processed) 
-             VALUES (?, ?, ?, ?, ?, 0)",
-            params![message_id, group_id, encrypted_content, sender_hash, sequence],
+             (message_id, group_id, encrypted_content, sealed_sender_bytes, sequence, processed, plaintext_content) 
+             VALUES (?, ?, ?, ?, ?, 0, ?)",
+            params![message_id, group_id, encrypted_content, sealed_sender_bytes, sequence, plaintext_content],
         )
         .map_err(|e| MlsError::Storage(format!("Failed to save message: {}", e)))?;
 
@@ -661,7 +674,7 @@ impl SqlStorageProvider {
         group_id: &[u8],
         limit: i64,
         offset: i64,
-    ) -> MlsResult<Vec<(Vec<u8>, Vec<u8>, Vec<u8>, i64, bool)>> {
+    ) -> MlsResult<Vec<(Vec<u8>, Vec<u8>, Vec<u8>, i64, bool, Option<Vec<u8>>)>> {
         let conn = self
             .pool
             .get()
@@ -669,10 +682,10 @@ impl SqlStorageProvider {
 
         let mut stmt = conn
             .prepare(
-                "SELECT message_id, encrypted_content, sender_hash, sequence, processed 
+                "SELECT message_id, encrypted_content, sealed_sender_bytes, sequence, processed, plaintext_content 
                  FROM messages 
                  WHERE group_id = ? 
-                 ORDER BY sequence DESC 
+                 ORDER BY sequence ASC 
                  LIMIT ? OFFSET ?",
             )
             .map_err(|e| MlsError::Storage(format!("Failed to prepare statement: {}", e)))?;
@@ -685,6 +698,7 @@ impl SqlStorageProvider {
                     row.get::<_, Vec<u8>>(2)?,
                     row.get::<_, i64>(3)?,
                     row.get::<_, i32>(4)? != 0,
+                    row.get::<_, Option<Vec<u8>>>(5)?,
                 ))
             })
             .map_err(|e| MlsError::Storage(format!("Failed to query messages: {}", e)))?;
@@ -1029,10 +1043,10 @@ mod tests {
         for i in 0..10 {
             let msg_id = format!("msg_{}", i).into_bytes();
             let content = format!("encrypted_content_{}", i).into_bytes();
-            let sender = format!("sender_hash_{}", i % 3).into_bytes();
+            let sealed_sender_bytes = format!("sender_hash_{}", i % 3).into_bytes();
 
             storage
-                .save_message(&msg_id, group_id, &content, &sender, i as i64)
+                .save_message(&msg_id, group_id, &content, &sealed_sender_bytes, i as i64)
                 .await
                 .unwrap();
         }

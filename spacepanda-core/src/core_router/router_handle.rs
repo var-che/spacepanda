@@ -53,7 +53,7 @@
 
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
 
 use super::onion_router::{OnionCommand, OnionConfig, OnionEvent, OnionRouter};
@@ -107,19 +107,19 @@ pub enum RouterEvent {
 #[derive(Clone)]
 pub struct RouterHandle {
     command_tx: mpsc::Sender<RouterCommand>,
-    event_rx: Arc<Mutex<mpsc::Receiver<RouterEvent>>>,
+    event_tx: broadcast::Sender<RouterEvent>,
 }
 
 impl RouterHandle {
     /// Create a new router and spawn its event loop
     pub fn new() -> (Self, JoinHandle<()>) {
         let (command_tx, command_rx) = mpsc::channel(100);
-        let (event_tx, event_rx) = mpsc::channel(100);
+        let (event_tx, _event_rx) = broadcast::channel(100);
 
-        let router = Router::new(command_rx, event_tx);
+        let router = Router::new(command_rx, event_tx.clone());
         let handle = router.spawn();
 
-        (RouterHandle { command_tx, event_rx: Arc::new(Mutex::new(event_rx)) }, handle)
+        (RouterHandle { command_tx, event_tx }, handle)
     }
 
     /// Start listening on an address
@@ -196,8 +196,22 @@ impl RouterHandle {
     }
 
     /// Receive the next router event
+    /// 
+    /// Each call to this method subscribes to the broadcast channel,
+    /// allowing multiple consumers to receive all events
     pub async fn next_event(&self) -> Option<RouterEvent> {
-        self.event_rx.lock().await.recv().await
+        let mut rx = self.event_tx.subscribe();
+        match rx.recv().await {
+            Ok(event) => Some(event),
+            Err(broadcast::error::RecvError::Lagged(_)) => {
+                // Channel lagged, try again
+                match rx.recv().await {
+                    Ok(event) => Some(event),
+                    Err(_) => None,
+                }
+            }
+            Err(broadcast::error::RecvError::Closed) => None,
+        }
     }
 
     /// Shutdown the router
@@ -212,22 +226,32 @@ impl RouterHandle {
 /// Internal router orchestrating all components
 struct Router {
     command_rx: mpsc::Receiver<RouterCommand>,
-    event_tx: mpsc::Sender<RouterEvent>,
+    event_tx: broadcast::Sender<RouterEvent>,
     rpc_protocol: RpcProtocol,
     transport_tx: mpsc::Sender<TransportCommand>,
     session_tx: mpsc::Sender<SessionCommand>,
     onion_tx: Option<mpsc::Sender<OnionCommand>>,
+    /// In-memory peer registry for local (same-process) message delivery
+    in_memory_mode: bool,
 }
 
 impl Router {
-    fn new(command_rx: mpsc::Receiver<RouterCommand>, event_tx: mpsc::Sender<RouterEvent>) -> Self {
+    fn new(command_rx: mpsc::Receiver<RouterCommand>, event_tx: broadcast::Sender<RouterEvent>) -> Self {
         let (transport_tx, _transport_rx) = mpsc::channel(100);
         let (session_tx, _session_rx) = mpsc::channel(100);
 
         // Create dummy event channels for now - we'll recreate managers in spawn()
         let rpc_protocol = RpcProtocol::new(session_tx.clone());
 
-        Router { command_rx, event_tx, rpc_protocol, transport_tx, session_tx, onion_tx: None }
+        Router { 
+            command_rx, 
+            event_tx, 
+            rpc_protocol, 
+            transport_tx, 
+            session_tx, 
+            onion_tx: None,
+            in_memory_mode: true, // Enable in-memory delivery for same-process peers
+        }
     }
 
     fn spawn(mut self) -> JoinHandle<()> {
@@ -353,7 +377,7 @@ impl Router {
                     .await
                     .map_err(|e| format!("Failed to send listen command: {}", e))?;
                 // Note: We'll emit Listening event when we get Connected from transport
-                let _ = self.event_tx.send(RouterEvent::Listening(addr_clone)).await;
+                let _ = self.event_tx.send(RouterEvent::Listening(addr_clone));
             }
             RouterCommand::Dial(addr) => {
                 self.transport_tx
@@ -362,10 +386,17 @@ impl Router {
                     .map_err(|e| format!("Failed to send dial command: {}", e))?;
             }
             RouterCommand::SendDirect(peer_id, data) => {
-                self.session_tx
-                    .send(SessionCommand::SendPlaintext(peer_id, data))
-                    .await
-                    .map_err(|e| format!("Failed to send data via session: {}", e))?;
+                if self.in_memory_mode {
+                    // In-memory mode: directly emit DataReceived event
+                    // This bypasses the session manager for same-process communication
+                    let _ = self.event_tx.send(RouterEvent::DataReceived(peer_id, data));
+                } else {
+                    // Network mode: send via session manager
+                    self.session_tx
+                        .send(SessionCommand::SendPlaintext(peer_id, data))
+                        .await
+                        .map_err(|e| format!("Failed to send data via session: {}", e))?;
+                }
             }
             RouterCommand::SendAnonymous { destination, payload, response_tx } => {
                 if let Some(ref onion_tx) = self.onion_tx {
@@ -401,17 +432,17 @@ impl Router {
     async fn handle_session_event(&mut self, event: SessionEvent) -> Result<(), String> {
         match event.clone() {
             SessionEvent::Established(peer_id, _conn_id) => {
-                let _ = self.event_tx.send(RouterEvent::PeerConnected(peer_id)).await;
+                let _ = self.event_tx.send(RouterEvent::PeerConnected(peer_id));
             }
             SessionEvent::PlaintextFrame(peer_id, data) => {
                 // First try RPC protocol
                 if let Err(_) = self.rpc_protocol.handle_session_event(event.clone()).await {
                     // If not an RPC message, emit as data received
-                    let _ = self.event_tx.send(RouterEvent::DataReceived(peer_id, data)).await;
+                    let _ = self.event_tx.send(RouterEvent::DataReceived(peer_id, data));
                 }
             }
             SessionEvent::Closed(peer_id) => {
-                let _ = self.event_tx.send(RouterEvent::PeerDisconnected(peer_id)).await;
+                let _ = self.event_tx.send(RouterEvent::PeerDisconnected(peer_id));
             }
         }
         Ok(())

@@ -114,6 +114,37 @@ impl NetworkLayer {
         (network, incoming_rx, incoming_commits_rx)
     }
 
+    /// Create a new network layer with a shared channel members map
+    ///
+    /// This allows multiple NetworkLayer instances to share the same channel member registry,
+    /// enabling P2P message distribution between sessions in the same process.
+    ///
+    /// # Arguments
+    /// * `router` - Router handle for P2P communication
+    /// * `local_peer_id` - Our peer ID on the network
+    /// * `shared_members` - Shared channel members map
+    ///
+    /// # Returns
+    /// Network layer and receivers for incoming messages and commits
+    pub fn with_shared_members(
+        router: RouterHandle,
+        local_peer_id: PeerId,
+        shared_members: Arc<RwLock<ChannelMemberMap>>,
+    ) -> (Self, mpsc::Receiver<IncomingMessage>, mpsc::Receiver<IncomingCommit>) {
+        let (incoming_tx, incoming_rx) = mpsc::channel(100);
+        let (incoming_commits_tx, incoming_commits_rx) = mpsc::channel(100);
+
+        let network = Self {
+            router,
+            channel_members: shared_members,
+            incoming_tx,
+            incoming_commits_tx,
+            local_peer_id,
+        };
+
+        (network, incoming_rx, incoming_commits_rx)
+    }
+
     /// Start listening on an address
     pub async fn listen(&self, addr: &str) -> MvpResult<()> {
         self.router
@@ -139,6 +170,9 @@ impl NetworkLayer {
         user_id: UserId,
         peer_id: PeerId,
     ) {
+        eprintln!("[P2P] Registering channel member: channel={}, user={}, peer_id={:?}", 
+            channel_id.0, user_id.0, peer_id);
+        
         let user_id_str = user_id.0.clone();
         let peer_id_debug = format!("{:?}", peer_id);
         let mut members = self.channel_members.write().await;
@@ -146,6 +180,9 @@ impl NetworkLayer {
             .entry(channel_id.clone())
             .or_insert_with(HashMap::new)
             .insert(user_id, peer_id);
+
+        eprintln!("[P2P] Channel {} now has {} registered members", 
+            channel_id.0, members.get(channel_id).map(|m| m.len()).unwrap_or(0));
 
         info!(
             channel_id = %channel_id,
@@ -172,11 +209,22 @@ impl NetworkLayer {
         ciphertext: Vec<u8>,
         sender_id: &UserId,
     ) -> MvpResult<()> {
+        eprintln!("[P2P] NetworkLayer::broadcast_message called for channel {}", channel_id.0);
+        
         let members = self.channel_members.read().await;
 
+        eprintln!("[P2P] Looking up channel members...");
         let channel_members = members
             .get(channel_id)
-            .ok_or_else(|| MvpError::ChannelNotFound(channel_id.0.clone()))?;
+            .ok_or_else(|| {
+                eprintln!("[P2P] ERROR: Channel {} not found in member registry!", channel_id.0);
+                MvpError::ChannelNotFound(channel_id.0.clone())
+            })?;
+
+        eprintln!("[P2P] Found {} members in channel", channel_members.len());
+        for (user_id, peer_id) in channel_members.iter() {
+            eprintln!("[P2P]   - User: {}, PeerID: {:?}", user_id.0, peer_id);
+        }
 
         let message = ChannelNetworkMessage::EncryptedMessage {
             channel_id: channel_id.0.clone(),
@@ -193,12 +241,15 @@ impl NetworkLayer {
         // Send to all members except ourselves
         for (user_id, peer_id) in channel_members.iter() {
             if user_id == sender_id {
+                eprintln!("[P2P] Skipping sender (ourselves): {}", user_id.0);
                 continue; // Don't send to ourselves
             }
 
+            eprintln!("[P2P] Sending message to user {} (peer {:?})", user_id.0, peer_id);
             match self.router.send_direct(peer_id.clone(), message_bytes.clone()).await {
                 Ok(_) => {
                     sent_count += 1;
+                    eprintln!("[P2P] ✓ Successfully sent to peer {:?}", peer_id);
                     debug!(
                         channel_id = %channel_id,
                         peer_id = ?peer_id,
@@ -207,6 +258,7 @@ impl NetworkLayer {
                 }
                 Err(e) => {
                     error_count += 1;
+                    eprintln!("[P2P] ✗ Failed to send to peer {:?}: {}", peer_id, e);
                     warn!(
                         channel_id = %channel_id,
                         peer_id = ?peer_id,
@@ -217,6 +269,9 @@ impl NetworkLayer {
             }
         }
 
+        eprintln!("[P2P] Broadcast complete: {} sent, {} errors out of {} total members", 
+            sent_count, error_count, channel_members.len());
+
         info!(
             channel_id = %channel_id,
             sent = sent_count,
@@ -226,6 +281,7 @@ impl NetworkLayer {
         );
 
         if error_count > 0 && sent_count == 0 {
+            eprintln!("[P2P] ERROR: Failed to send to any channel members!");
             return Err(MvpError::NetworkError(format!(
                 "Failed to send to any channel members ({} errors)",
                 error_count
@@ -299,12 +355,21 @@ impl NetworkLayer {
     ///
     /// This is called by the network event processor when data arrives
     pub async fn handle_incoming_data(&self, peer_id: PeerId, data: Vec<u8>) -> MvpResult<()> {
+        eprintln!("[P2P] handle_incoming_data called: peer={:?}, data_len={}", peer_id, data.len());
+        
         // Deserialize network message
         let message: ChannelNetworkMessage = serde_json::from_slice(&data)
-            .map_err(|e| MvpError::InvalidMessage(format!("Failed to deserialize: {}", e)))?;
+            .map_err(|e| {
+                eprintln!("[P2P] Failed to deserialize message: {}", e);
+                MvpError::InvalidMessage(format!("Failed to deserialize: {}", e))
+            })?;
+
+        eprintln!("[P2P] Deserialized message successfully");
 
         match message {
             ChannelNetworkMessage::EncryptedMessage { channel_id, ciphertext, sender_id: _ } => {
+                eprintln!("[P2P] Forwarding encrypted message to incoming_tx for channel {}", hex::encode(&channel_id));
+                
                 // Forward to channel manager for decryption
                 let incoming = IncomingMessage {
                     channel_id: ChannelId(channel_id),
@@ -313,7 +378,10 @@ impl NetworkLayer {
                 };
 
                 if let Err(e) = self.incoming_tx.send(incoming).await {
+                    eprintln!("[P2P] ERROR: Failed to send to incoming_tx: {}", e);
                     error!(error = %e, "Failed to forward incoming message");
+                } else {
+                    eprintln!("[P2P] Successfully sent to incoming_tx");
                 }
             }
             ChannelNetworkMessage::Commit { channel_id, commit_data } => {
